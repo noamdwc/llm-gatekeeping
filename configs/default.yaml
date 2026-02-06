@@ -1,0 +1,82 @@
+# LLM Security Gatekeeper — Default Configuration
+
+dataset:
+  name: "Mindgard/evaded-prompt-injection-and-jailbreak-samples"
+  split: "train"
+  text_col: "modified_sample"
+  original_text_col: "original_sample"
+  label_col: "attack_name"
+
+# Hierarchical label scheme
+labels:
+  unicode_attacks:
+    - Diacritcs
+    - Underline Accent Marks
+    - Upside Down Text
+    - Bidirectional Text
+    - Full Width Text
+    - Emoji Smuggling
+    - Spaces
+    - Homoglyphs
+    - Deletion Characters
+    - Unicode Tags Smuggling
+    - Zero Width
+    - Numbers
+
+  nlp_attacks:
+    - BAE
+    - Bert-Attack
+    - Deep Word Bug
+    - Alzantot
+    - Pruthi
+    - PWWS
+    - TextBugger
+    - TextFooler
+
+  # Attack types held out entirely for unseen-attack generalization testing
+  held_out_attacks:
+    - Emoji Smuggling
+    - Pruthi
+
+# Data splits
+splits:
+  train: 0.7
+  val: 0.15
+  test: 0.15
+  random_seed: 42
+
+# Benign set construction
+benign:
+  # Use original_prompt values as seed
+  use_originals: true
+  # Target count after augmentation (paraphrasing)
+  target_count: 2000
+  paraphrase_model: "gpt-4o-mini"
+  paraphrases_per_prompt: 2
+
+# LLM classifier
+llm:
+  model: "gpt-4o-mini"
+  model_quality: "gpt-4o"
+  temperature: 0
+  max_tokens_binary: 30
+  max_tokens_category: 30
+  max_tokens_type: 50
+  few_shot:
+    unicode: 2
+    nlp: 5
+
+# ML baseline
+ml:
+  char_ngram_range: [2, 5]
+  max_features: 50000
+  C: 1.0
+
+# Hybrid router
+hybrid:
+  ml_confidence_threshold: 0.85
+  llm_confidence_threshold: 0.7
+
+# Evaluation
+evaluation:
+  calibration_bins: 10
