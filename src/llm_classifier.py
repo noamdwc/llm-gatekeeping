@@ -14,12 +14,16 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import dotenv
 import openai
 import pandas as pd
 import yaml
 from tqdm import tqdm
+
+if TYPE_CHECKING:
+    from src.embeddings import ExemplarBank
 
 try:
     import wandb
@@ -89,13 +93,25 @@ class UsageStats:
 class HierarchicalLLMClassifier:
     """Three-stage hierarchical classifier using OpenAI chat completions."""
 
-    def __init__(self, cfg: dict, few_shot_examples: dict | None = None):
+    def __init__(
+        self,
+        cfg: dict,
+        few_shot_examples: dict | None = None,
+        dynamic: bool = False,
+        exemplar_bank: "ExemplarBank | None" = None,
+    ):
         self.cfg = cfg
         self.client = openai.OpenAI()
         self.model = cfg["llm"]["model"]
         self.temperature = cfg["llm"]["temperature"]
         self.few_shot = few_shot_examples or {}
         self.usage = UsageStats()
+        
+        # Dynamic few-shot settings
+        self.dynamic = dynamic
+        self.exemplar_bank = exemplar_bank
+        if dynamic and exemplar_bank is None:
+            raise ValueError("ExemplarBank required when dynamic=True")
 
     # -- internal helpers --------------------------------------------------
 
@@ -181,6 +197,23 @@ class HierarchicalLLMClassifier:
 
     # -- Stage 2: Specific type (unicode only) -----------------------------
 
+    def _get_dynamic_few_shot(self, text: str) -> list[dict]:
+        """Get dynamic few-shot examples using embedding similarity."""
+        from src.embeddings import get_embeddings
+        
+        k = self.cfg["llm"]["few_shot"].get("dynamic_k", 2)
+        
+        # Embed the query
+        query_emb = get_embeddings([text], model=self.exemplar_bank.embedding_model)[0]
+        
+        # Retrieve examples from each unicode type
+        examples = []
+        for attack_type in UNICODE_TYPES:
+            type_examples = self.exemplar_bank.select(query_emb, attack_type, k=k)
+            examples.extend(type_examples)
+        
+        return examples
+
     def classify_type(self, text: str) -> dict:
         """Classify into one of 12 unicode attack sub-types."""
         descs = "\n".join(
@@ -195,14 +228,24 @@ class HierarchicalLLMClassifier:
         )
         messages = [{"role": "system", "content": system}]
 
-        # Add few-shot examples for unicode types
-        for attack_type in UNICODE_TYPES:
-            if attack_type in self.few_shot:
-                for example in self.few_shot[attack_type]:
-                    messages.append({"role": "user", "content": f"Text: {example}"})
-                    messages.append(
-                        {"role": "assistant", "content": json.dumps({"label": attack_type, "confidence": 0.99})}
-                    )
+        # Add few-shot examples
+        if self.dynamic and self.exemplar_bank:
+            # Dynamic: retrieve similar examples per type
+            examples = self._get_dynamic_few_shot(text)
+            for ex in examples:
+                messages.append({"role": "user", "content": f"Text: {ex['text']}"})
+                messages.append(
+                    {"role": "assistant", "content": json.dumps({"label": ex["label"], "confidence": 0.99})}
+                )
+        else:
+            # Static: use pre-selected random examples
+            for attack_type in UNICODE_TYPES:
+                if attack_type in self.few_shot:
+                    for example in self.few_shot[attack_type]:
+                        messages.append({"role": "user", "content": f"Text: {example}"})
+                        messages.append(
+                            {"role": "assistant", "content": json.dumps({"label": attack_type, "confidence": 0.99})}
+                        )
 
         messages.append({"role": "user", "content": f"Text: {text}"})
 
@@ -298,6 +341,8 @@ def main():
     parser.add_argument("--limit", type=int, default=100, help="Max samples to classify")
     parser.add_argument("--output", default=None, help="Output predictions CSV path")
     parser.add_argument("--no-wandb", action="store_true", help="Disable wandb logging")
+    parser.add_argument("--dynamic", action="store_true", help="Use dynamic few-shot retrieval")
+    parser.add_argument("--bank-path", default=None, help="Path to exemplar bank pickle (built if not exists)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -307,13 +352,14 @@ def main():
     if HAS_WANDB and not args.no_wandb:
         wandb.init(
             project="llm-gatekeeping",
-            name=f"llm-{cfg['llm']['model']}-{args.split}",
+            name=f"llm-{cfg['llm']['model']}-{args.split}{'_dynamic' if args.dynamic else ''}",
             config={
                 "model": cfg["llm"]["model"],
                 "split": args.split,
                 "limit": args.limit,
                 "few_shot_unicode": cfg["llm"]["few_shot"]["unicode"],
                 "few_shot_nlp": cfg["llm"]["few_shot"]["nlp"],
+                "dynamic": args.dynamic,
             },
         )
 
@@ -324,12 +370,30 @@ def main():
     if args.limit and args.limit < len(df_eval):
         df_eval = df_eval.sample(n=args.limit, random_state=42)
 
-    # Build few-shot from train
-    few_shot, _ = build_few_shot_examples(df_train, cfg)
-    print(f"Few-shot examples: {sum(len(v) for v in few_shot.values())} total")
+    # Build few-shot from train (static) or exemplar bank (dynamic)
+    exemplar_bank = None
+    few_shot = {}
+    
+    if args.dynamic:
+        from src.embeddings import ExemplarBank
+        
+        bank_path = args.bank_path or str(data_dir / "exemplar_bank.pkl")
+        if Path(bank_path).exists():
+            print(f"Loading exemplar bank from {bank_path}")
+            exemplar_bank = ExemplarBank.load(bank_path)
+        else:
+            print("Building exemplar bank (this may take a minute)...")
+            exemplar_bank = ExemplarBank.build(df_train, cfg)
+            exemplar_bank.save(bank_path)
+        print(f"Exemplar bank: {exemplar_bank}")
+    else:
+        few_shot, _ = build_few_shot_examples(df_train, cfg)
+        print(f"Few-shot examples: {sum(len(v) for v in few_shot.values())} total")
 
     # Classify
-    classifier = HierarchicalLLMClassifier(cfg, few_shot)
+    classifier = HierarchicalLLMClassifier(
+        cfg, few_shot, dynamic=args.dynamic, exemplar_bank=exemplar_bank
+    )
     text_col = cfg["dataset"]["text_col"]
     results = classifier.predict_batch(df_eval[text_col].tolist())
 

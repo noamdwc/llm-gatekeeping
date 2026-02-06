@@ -65,6 +65,10 @@ llm:
   few_shot:
     unicode: 2
     nlp: 5
+    # Dynamic few-shot settings
+    embedding_model: "text-embedding-3-small"
+    bank_size_per_type: 15
+    dynamic_k: 2
 
 # ML baseline
 ml:
