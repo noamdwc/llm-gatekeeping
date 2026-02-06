@@ -7,3 +7,5 @@ pyyaml>=6.0
 tqdm>=4.65
 pyarrow>=14.0
 python-dotenv>=1.0
+wandb>=0.16
+scipy>=1.10

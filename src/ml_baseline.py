@@ -29,6 +29,12 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import accuracy_score, classification_report, f1_score
 from sklearn.preprocessing import LabelEncoder
 
+try:
+    import wandb
+    HAS_WANDB = True
+except ImportError:
+    HAS_WANDB = False
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -248,15 +254,21 @@ def evaluate_ml(model: MLBaseline, df: pd.DataFrame, text_col: str, split_name: 
     print(f"ML Baseline Results — {split_name}")
     print(f"{'=' * 60}")
 
+    metrics = {}
     for level in ["label_binary", "label_category", "label_type"]:
         y_true = df[level].values
         y_pred = preds[f"pred_{level}"].values
         acc = accuracy_score(y_true, y_pred)
         f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)
+        metrics[f"{split_name}/{level}/accuracy"] = acc
+        metrics[f"{split_name}/{level}/macro_f1"] = f1
 
         print(f"\n--- {level} ---")
         print(f"Accuracy: {acc:.4f}  |  Macro F1: {f1:.4f}")
         print(classification_report(y_true, y_pred, zero_division=0))
+
+    if HAS_WANDB and wandb.run is not None:
+        wandb.log(metrics)
 
     return preds
 
@@ -264,11 +276,25 @@ def evaluate_ml(model: MLBaseline, df: pd.DataFrame, text_col: str, split_name: 
 def main():
     parser = argparse.ArgumentParser(description="Train and evaluate ML baseline")
     parser.add_argument("--config", default=None)
+    parser.add_argument("--no-wandb", action="store_true", help="Disable wandb logging")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
     data_dir = ROOT / "data" / "processed"
     text_col = cfg["dataset"]["text_col"]
+
+    # Init wandb
+    if HAS_WANDB and not args.no_wandb:
+        wandb.init(
+            project="llm-gatekeeping",
+            name="ml-baseline",
+            config={
+                "model": "logistic_regression",
+                "char_ngram_range": cfg["ml"]["char_ngram_range"],
+                "max_features": cfg["ml"]["max_features"],
+                "C": cfg["ml"]["C"],
+            },
+        )
 
     df_train = pd.read_parquet(data_dir / "train.parquet")
     df_val = pd.read_parquet(data_dir / "val.parquet")
@@ -278,9 +304,21 @@ def main():
     model = MLBaseline(cfg)
     model.fit(df_train, text_col)
 
+    if HAS_WANDB and wandb.run is not None:
+        wandb.log({
+            "train_samples": len(df_train),
+            "val_samples": len(df_val),
+            "test_samples": len(df_test),
+        })
+
     # Save model
     model_path = data_dir / "ml_baseline.pkl"
     model.save(str(model_path))
+
+    if HAS_WANDB and wandb.run is not None:
+        artifact = wandb.Artifact("ml_baseline", type="model")
+        artifact.add_file(str(model_path))
+        wandb.log_artifact(artifact)
 
     # Evaluate on val and test
     evaluate_ml(model, df_val, text_col, "val")
@@ -292,6 +330,9 @@ def main():
         df_unseen = pd.read_parquet(unseen_path)
         if len(df_unseen) > 0:
             evaluate_ml(model, df_unseen, text_col, "test_unseen")
+
+    if HAS_WANDB and wandb.run is not None:
+        wandb.finish()
 
 
 if __name__ == "__main__":

@@ -24,6 +24,12 @@ import pandas as pd
 import yaml
 from tqdm import tqdm
 
+try:
+    import wandb
+    HAS_WANDB = True
+except ImportError:
+    HAS_WANDB = False
+
 dotenv.load_dotenv()
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -175,11 +181,25 @@ def main():
     parser = argparse.ArgumentParser(description="Run hybrid ML+LLM router")
     parser.add_argument("--config", default=None)
     parser.add_argument("--limit", type=int, default=100)
+    parser.add_argument("--no-wandb", action="store_true", help="Disable wandb logging")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
     data_dir = ROOT / "data" / "processed"
     text_col = cfg["dataset"]["text_col"]
+
+    # Init wandb
+    if HAS_WANDB and not args.no_wandb:
+        wandb.init(
+            project="llm-gatekeeping",
+            name="hybrid-router",
+            config={
+                "ml_threshold": cfg["hybrid"]["ml_confidence_threshold"],
+                "llm_threshold": cfg["hybrid"]["llm_confidence_threshold"],
+                "llm_model": cfg["llm"]["model"],
+                "limit": args.limit,
+            },
+        )
 
     # Load data
     df_test = pd.read_parquet(data_dir / "test.parquet")
@@ -198,6 +218,9 @@ def main():
     sweep = threshold_sweep(df_test, ml_preds, thresholds)
     print("\nThreshold sweep results:")
     print(sweep.to_string(index=False))
+
+    if HAS_WANDB and wandb.run is not None:
+        wandb.log({"threshold_sweep": wandb.Table(dataframe=sweep)})
 
     # --- Full hybrid run (with LLM calls) ---
     print(f"\nRunning hybrid router (threshold={cfg['hybrid']['ml_confidence_threshold']})...")
@@ -218,8 +241,14 @@ def main():
         usage={**llm.usage.to_dict(), **router.stats.to_dict()},
     )
 
-    print(f"\nRouter stats: {json.dumps(router.stats.to_dict(), indent=2)}")
-    print(f"LLM usage: {json.dumps(llm.usage.to_dict(), indent=2)}")
+    router_stats = router.stats.to_dict()
+    llm_usage = llm.usage.to_dict()
+    print(f"\nRouter stats: {json.dumps(router_stats, indent=2)}")
+    print(f"LLM usage: {json.dumps(llm_usage, indent=2)}")
+
+    if HAS_WANDB and wandb.run is not None:
+        wandb.log({**router_stats, **llm_usage, **binary, **cat})
+        wandb.finish()
 
 
 if __name__ == "__main__":

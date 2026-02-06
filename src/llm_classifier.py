@@ -21,6 +21,12 @@ import pandas as pd
 import yaml
 from tqdm import tqdm
 
+try:
+    import wandb
+    HAS_WANDB = True
+except ImportError:
+    HAS_WANDB = False
+
 dotenv.load_dotenv()
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -291,10 +297,25 @@ def main():
     parser.add_argument("--split", default="test", help="Which split to evaluate on")
     parser.add_argument("--limit", type=int, default=100, help="Max samples to classify")
     parser.add_argument("--output", default=None, help="Output predictions CSV path")
+    parser.add_argument("--no-wandb", action="store_true", help="Disable wandb logging")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
     data_dir = ROOT / "data" / "processed"
+
+    # Init wandb
+    if HAS_WANDB and not args.no_wandb:
+        wandb.init(
+            project="llm-gatekeeping",
+            name=f"llm-{cfg['llm']['model']}-{args.split}",
+            config={
+                "model": cfg["llm"]["model"],
+                "split": args.split,
+                "limit": args.limit,
+                "few_shot_unicode": cfg["llm"]["few_shot"]["unicode"],
+                "few_shot_nlp": cfg["llm"]["few_shot"]["nlp"],
+            },
+        )
 
     # Load train for few-shot, eval split for evaluation
     df_train = pd.read_parquet(data_dir / "train.parquet")
@@ -322,8 +343,13 @@ def main():
     df_out.to_csv(out_path, index=False)
     print(f"\nPredictions saved → {out_path}")
 
-    # Print usage stats
-    print(f"\nUsage stats: {json.dumps(classifier.usage.to_dict(), indent=2)}")
+    # Print + log usage stats
+    usage = classifier.usage.to_dict()
+    print(f"\nUsage stats: {json.dumps(usage, indent=2)}")
+
+    if HAS_WANDB and wandb.run is not None:
+        wandb.log(usage)
+        wandb.finish()
 
 
 if __name__ == "__main__":
