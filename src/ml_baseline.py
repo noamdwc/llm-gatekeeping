@@ -22,27 +22,15 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import yaml
+import wandb
 from scipy.sparse import hstack
 from sklearn.linear_model import LogisticRegression
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import accuracy_score, classification_report, f1_score
 from sklearn.preprocessing import LabelEncoder
+from sklearn.base import BaseEstimator, ClassifierMixin
 
-try:
-    import wandb
-    HAS_WANDB = True
-except ImportError:
-    HAS_WANDB = False
-
-ROOT = Path(__file__).resolve().parent.parent
-
-
-def load_config(path: str = None) -> dict:
-    path = path or ROOT / "configs" / "default.yaml"
-    with open(path) as f:
-        return yaml.safe_load(f)
-
+from src.utils import ROOT, load_config
 
 # ---------------------------------------------------------------------------
 # Feature engineering
@@ -164,7 +152,7 @@ def extract_features_df(texts: pd.Series) -> pd.DataFrame:
 # Model training + evaluation
 # ---------------------------------------------------------------------------
 
-class MLBaseline:
+class MLBaseline(BaseEstimator, ClassifierMixin):
     """Character-level TF-IDF + handcrafted features + logistic regression."""
 
     def __init__(self, cfg: dict):
@@ -267,7 +255,7 @@ def evaluate_ml(model: MLBaseline, df: pd.DataFrame, text_col: str, split_name: 
         print(f"Accuracy: {acc:.4f}  |  Macro F1: {f1:.4f}")
         print(classification_report(y_true, y_pred, zero_division=0))
 
-    if HAS_WANDB and wandb.run is not None:
+    if wandb.run is not None:
         wandb.log(metrics)
 
     return preds
@@ -284,7 +272,7 @@ def main():
     text_col = cfg["dataset"]["text_col"]
 
     # Init wandb
-    if HAS_WANDB and not args.no_wandb:
+    if not args.no_wandb:
         wandb.init(
             project="llm-gatekeeping",
             name="ml-baseline",
@@ -304,7 +292,7 @@ def main():
     model = MLBaseline(cfg)
     model.fit(df_train, text_col)
 
-    if HAS_WANDB and wandb.run is not None:
+    if wandb.run is not None:
         wandb.log({
             "train_samples": len(df_train),
             "val_samples": len(df_val),
@@ -315,7 +303,7 @@ def main():
     model_path = data_dir / "ml_baseline.pkl"
     model.save(str(model_path))
 
-    if HAS_WANDB and wandb.run is not None:
+    if wandb.run is not None:
         artifact = wandb.Artifact("ml_baseline", type="model")
         artifact.add_file(str(model_path))
         wandb.log_artifact(artifact)
@@ -331,7 +319,7 @@ def main():
         if len(df_unseen) > 0:
             evaluate_ml(model, df_unseen, text_col, "test_unseen")
 
-    if HAS_WANDB and wandb.run is not None:
+    if wandb.run is not None:
         wandb.finish()
 
 
