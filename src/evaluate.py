@@ -23,12 +23,10 @@ from sklearn.metrics import (
     classification_report,
     confusion_matrix,
     f1_score,
-    precision_recall_fscore_support,
-    precision_score,
-    recall_score,
+    precision_recall_fscore_support
 )
 
-ROOT = Path(__file__).resolve().parent.parent
+from src.utils import ROOT
 
 
 def binary_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:

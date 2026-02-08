@@ -18,28 +18,15 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import wandb
 import dotenv
 import numpy as np
 import pandas as pd
 import yaml
 from tqdm import tqdm
 
-try:
-    import wandb
-    HAS_WANDB = True
-except ImportError:
-    HAS_WANDB = False
-
+from src.utils import ROOT, load_config
 dotenv.load_dotenv()
-
-ROOT = Path(__file__).resolve().parent.parent
-
-
-def load_config(path: str = None) -> dict:
-    path = path or ROOT / "configs" / "default.yaml"
-    with open(path) as f:
-        return yaml.safe_load(f)
-
 
 @dataclass
 class RouterStats:
@@ -189,7 +176,7 @@ def main():
     text_col = cfg["dataset"]["text_col"]
 
     # Init wandb
-    if HAS_WANDB and not args.no_wandb:
+    if not args.no_wandb:
         wandb.init(
             project="llm-gatekeeping",
             name="hybrid-router",
@@ -219,7 +206,7 @@ def main():
     print("\nThreshold sweep results:")
     print(sweep.to_string(index=False))
 
-    if HAS_WANDB and wandb.run is not None:
+    if wandb.run is not None:
         wandb.log({"threshold_sweep": wandb.Table(dataframe=sweep)})
 
     # --- Full hybrid run (with LLM calls) ---
@@ -246,7 +233,7 @@ def main():
     print(f"\nRouter stats: {json.dumps(router_stats, indent=2)}")
     print(f"LLM usage: {json.dumps(llm_usage, indent=2)}")
 
-    if HAS_WANDB and wandb.run is not None:
+    if wandb.run is not None:
         wandb.log({**router_stats, **llm_usage, **binary, **cat})
         wandb.finish()
 
