@@ -84,3 +84,22 @@ hybrid:
 # Evaluation
 evaluation:
   calibration_bins: 10
+
+# External datasets for generalization evaluation (binary-only)
+external_datasets:
+  deepset:
+    name: "deepset/prompt-injections"
+    split: "test"
+    text_col: "text"
+    label_col: "label"
+    label_map:
+      1: "adversarial"
+      0: "benign"
+  jackhhao:
+    name: "jackhhao/jailbreak-classification"
+    split: "test"
+    text_col: "prompt"
+    label_col: "type"
+    label_map:
+      jailbreak: "adversarial"
+      benign: "benign"
