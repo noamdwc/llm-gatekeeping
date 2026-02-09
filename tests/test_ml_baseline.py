@@ -6,12 +6,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.ml_baseline import (
+from src.ml_classifier.ml_baseline import (
     MLBaseline,
-    char_entropy,
-    extract_features_df,
-    unicode_features,
 )
+from src.ml_classifier.utils import char_entropy, extract_features_df, unicode_features
+from src.ml_classifier.ml_baseline import MLBaseline
 
 
 # ---------------------------------------------------------------------------

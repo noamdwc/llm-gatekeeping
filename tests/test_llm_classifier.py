@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from src.llm_classifier import (
+from src.llm_classifier.llm_classifier import (
     HierarchicalLLMClassifier,
     UsageStats,
     build_few_shot_examples,
@@ -87,7 +87,7 @@ class TestBuildFewShotExamples:
 # ---------------------------------------------------------------------------
 def _make_classifier(cfg, few_shot=None):
     """Create a classifier with a mocked OpenAI client."""
-    with patch("src.llm_classifier.openai.OpenAI"):
+    with patch("src.llm_classifier.llm_classifier.openai.OpenAI"):
         classifier = HierarchicalLLMClassifier(
             cfg, few_shot_examples=few_shot or {}
         )
@@ -263,7 +263,7 @@ class TestDynamicFewShot:
 
     def test_dynamic_without_bank_raises(self, sample_config):
         """Creating classifier with dynamic=True but no bank raises ValueError."""
-        with patch("src.llm_classifier.openai.OpenAI"):
+        with patch("src.llm_classifier.llm_classifier.openai.OpenAI"):
             with pytest.raises(ValueError, match="ExemplarBank required"):
                 HierarchicalLLMClassifier(
                     sample_config, dynamic=True, exemplar_bank=None

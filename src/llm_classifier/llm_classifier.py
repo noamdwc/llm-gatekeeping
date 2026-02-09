@@ -11,54 +11,22 @@ Usage:
 import argparse
 import json
 import time
+import dotenv
+import pandas as pd
+from tqdm import tqdm
+from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import TYPE_CHECKING
 
-import dotenv
 import openai
-import pandas as pd
-import yaml
-from tqdm import tqdm
+import wandb
 
-if TYPE_CHECKING:
-    from src.embeddings import ExemplarBank
-
-try:
-    import wandb
-    HAS_WANDB = True
-except ImportError:
-    HAS_WANDB = False
+from src.utils import ROOT, load_config
+from src.embeddings import ExemplarBank
+from src.llm_classifier.constants import UNICODE_TYPES, ATTACK_DESCRIPTIONS
 
 dotenv.load_dotenv()
 
-ROOT = Path(__file__).resolve().parent.parent
-
-# ---------------------------------------------------------------------------
-# Attack descriptions (from EDA)
-# ---------------------------------------------------------------------------
-ATTACK_DESCRIPTIONS = {
-    "Diacritcs": "Adds diacritical marks (accents) above/below letters, e.g., 'hello' → 'héllö'",
-    "Underline Accent Marks": "Adds underline combining characters beneath letters, e.g., 'text' → 't̲e̲x̲t̲'",
-    "Upside Down Text": "Flips characters upside down using special Unicode, e.g., 'hello' → 'ollǝɥ'",
-    "Bidirectional Text": "Inserts right-to-left Unicode markers to reverse text direction",
-    "Full Width Text": "Replaces ASCII with full-width Unicode variants, e.g., 'abc' → 'ａｂｃ'",
-    "Emoji Smuggling": "Encodes text as emoji or hides text within emoji sequences (often Base64-encoded)",
-    "Spaces": "Inserts unusual whitespace characters between letters (non-breaking, zero-width spaces)",
-    "Homoglyphs": "Replaces letters with visually identical chars from other scripts, e.g., Latin 'a' → Cyrillic 'а'",
-    "Deletion Characters": "Inserts backspace or delete control characters into text",
-    "Unicode Tags Smuggling": "Hides text using invisible Unicode tag characters (U+E0000 range)",
-    "Zero Width": "Inserts zero-width characters (ZWSP, ZWNJ, ZWJ) between letters",
-    "Numbers": "Replaces letters with similar-looking numbers, e.g., 'e' → '3', 'a' → '4'",
-}
-
-UNICODE_TYPES = list(ATTACK_DESCRIPTIONS.keys())
-
-
-# ---------------------------------------------------------------------------
-# Cost / usage tracking
-# ---------------------------------------------------------------------------
 @dataclass
 class UsageStats:
     total_calls: int = 0
@@ -87,9 +55,6 @@ class UsageStats:
         }
 
 
-# ---------------------------------------------------------------------------
-# Classifier
-# ---------------------------------------------------------------------------
 class HierarchicalLLMClassifier:
     """Three-stage hierarchical classifier using OpenAI chat completions."""
 
@@ -325,15 +290,6 @@ def build_few_shot_examples(df: pd.DataFrame, cfg: dict) -> tuple[dict, list]:
     return few_shot, used_ids
 
 
-# ---------------------------------------------------------------------------
-# CLI entry point
-# ---------------------------------------------------------------------------
-def load_config(path: str = None) -> dict:
-    path = path or ROOT / "configs" / "default.yaml"
-    with open(path) as f:
-        return yaml.safe_load(f)
-
-
 def main():
     parser = argparse.ArgumentParser(description="Run hierarchical LLM classifier")
     parser.add_argument("--config", default=None)
@@ -349,7 +305,7 @@ def main():
     data_dir = ROOT / "data" / "processed"
 
     # Init wandb
-    if HAS_WANDB and not args.no_wandb:
+    if not args.no_wandb:
         wandb.init(
             project="llm-gatekeeping",
             name=f"llm-{cfg['llm']['model']}-{args.split}{'_dynamic' if args.dynamic else ''}",
@@ -411,7 +367,7 @@ def main():
     usage = classifier.usage.to_dict()
     print(f"\nUsage stats: {json.dumps(usage, indent=2)}")
 
-    if HAS_WANDB and wandb.run is not None:
+    if wandb.run is not None:
         wandb.log(usage)
         wandb.finish()
 
