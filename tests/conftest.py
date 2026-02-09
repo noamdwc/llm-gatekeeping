@@ -138,7 +138,7 @@ def sample_dataframe():
 @pytest.fixture
 def fitted_ml_model(sample_config, sample_dataframe):
     """A small fitted MLBaseline instance for testing."""
-    from src.ml_baseline import MLBaseline
+    from src.ml_classifier.ml_baseline import MLBaseline
 
     model = MLBaseline(sample_config)
     model.fit(sample_dataframe, "modified_sample")

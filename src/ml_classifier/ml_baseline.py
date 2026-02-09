@@ -14,11 +14,7 @@ Usage:
 """
 
 import argparse
-import math
 import pickle
-import unicodedata
-from collections import Counter
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -31,126 +27,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.base import BaseEstimator, ClassifierMixin
 
 from src.utils import ROOT, load_config
-
-# ---------------------------------------------------------------------------
-# Feature engineering
-# ---------------------------------------------------------------------------
-
-# Common zero-width / invisible characters
-ZERO_WIDTH_CHARS = {
-    "\u200b",  # ZWSP
-    "\u200c",  # ZWNJ
-    "\u200d",  # ZWJ
-    "\u200e",  # LRM
-    "\u200f",  # RLM
-    "\u2060",  # Word joiner
-    "\ufeff",  # BOM / ZWNBSP
-}
-
-CONTROL_CATS = {"Cc", "Cf", "Co", "Cs"}
-
-BIDI_CHARS = {
-    "\u202a",  # LRE
-    "\u202b",  # RLE
-    "\u202c",  # PDF
-    "\u202d",  # LRO
-    "\u202e",  # RLO
-    "\u2066",  # LRI
-    "\u2067",  # RLI
-    "\u2068",  # FSI
-    "\u2069",  # PDI
-}
-
-
-def char_entropy(text: str) -> float:
-    """Shannon entropy of character distribution."""
-    if not text:
-        return 0.0
-    counts = Counter(text)
-    total = len(text)
-    return -sum((c / total) * math.log2(c / total) for c in counts.values())
-
-
-def unicode_features(text: str) -> dict:
-    """Extract hand-crafted Unicode features from a text string."""
-    if not text:
-        return _empty_features()
-
-    n = len(text)
-    chars = list(text)
-
-    # Unicode category distribution
-    cat_counts = Counter(unicodedata.category(c) for c in chars)
-    total_cats = sum(cat_counts.values())
-
-    # Non-ASCII ratio
-    non_ascii = sum(1 for c in chars if ord(c) > 127)
-
-    # Zero-width character count
-    zw_count = sum(1 for c in chars if c in ZERO_WIDTH_CHARS)
-
-    # BiDi character count
-    bidi_count = sum(1 for c in chars if c in BIDI_CHARS)
-
-    # Control character count
-    control_count = sum(1 for c in chars if unicodedata.category(c) in CONTROL_CATS)
-
-    # Tag character range (U+E0000 - U+E007F)
-    tag_count = sum(1 for c in chars if 0xE0000 <= ord(c) <= 0xE007F)
-
-    # Full-width character range (U+FF01 - U+FF5E)
-    fullwidth_count = sum(1 for c in chars if 0xFF01 <= ord(c) <= 0xFF5E)
-
-    # Combining characters (diacritics)
-    combining_count = sum(1 for c in chars if unicodedata.category(c).startswith("M"))
-
-    # Unique scripts (rough proxy via Unicode block)
-    scripts = set()
-    for c in chars:
-        try:
-            scripts.add(unicodedata.name(c, "").split()[0])
-        except (ValueError, IndexError):
-            pass
-
-    return {
-        "non_ascii_ratio": non_ascii / n,
-        "zero_width_count": zw_count,
-        "zero_width_ratio": zw_count / n,
-        "bidi_count": bidi_count,
-        "control_count": control_count,
-        "tag_count": tag_count,
-        "fullwidth_count": fullwidth_count,
-        "combining_count": combining_count,
-        "combining_ratio": combining_count / n,
-        "char_entropy": char_entropy(text),
-        "unique_scripts": len(scripts),
-        "text_length": n,
-        "cat_Lu": cat_counts.get("Lu", 0) / total_cats,  # Uppercase letter
-        "cat_Ll": cat_counts.get("Ll", 0) / total_cats,  # Lowercase letter
-        "cat_Mn": cat_counts.get("Mn", 0) / total_cats,  # Non-spacing mark
-        "cat_Cf": cat_counts.get("Cf", 0) / total_cats,  # Format char
-        "cat_So": cat_counts.get("So", 0) / total_cats,  # Other symbol
-    }
-
-
-def _empty_features() -> dict:
-    return {
-        "non_ascii_ratio": 0, "zero_width_count": 0, "zero_width_ratio": 0,
-        "bidi_count": 0, "control_count": 0, "tag_count": 0,
-        "fullwidth_count": 0, "combining_count": 0, "combining_ratio": 0,
-        "char_entropy": 0, "unique_scripts": 0, "text_length": 0,
-        "cat_Lu": 0, "cat_Ll": 0, "cat_Mn": 0, "cat_Cf": 0, "cat_So": 0,
-    }
-
-
-def extract_features_df(texts: pd.Series) -> pd.DataFrame:
-    """Extract Unicode features for a series of texts."""
-    return pd.DataFrame([unicode_features(t) for t in texts])
-
-
-# ---------------------------------------------------------------------------
-# Model training + evaluation
-# ---------------------------------------------------------------------------
+from src.ml_classifier.utils import extract_features_df
 
 class MLBaseline(BaseEstimator, ClassifierMixin):
     """Character-level TF-IDF + handcrafted features + logistic regression."""
@@ -211,6 +88,31 @@ class MLBaseline(BaseEstimator, ClassifierMixin):
 
             results[f"pred_{level}"] = le.inverse_transform(y_pred_enc)
             results[f"confidence_{level}"] = y_proba.max(axis=1)
+
+        return pd.DataFrame(results)
+
+    def predict_full(self, df: pd.DataFrame, text_col: str) -> pd.DataFrame:
+        """Predict all hierarchy levels with full probability distributions.
+
+        Returns DataFrame with:
+          - ml_pred_{level}, ml_conf_{level} — same as predict()
+          - ml_proba_{level}_{classname} — one column per class per level
+        """
+        X = self._build_features(df[text_col], fit=False)
+        results = {}
+
+        for level in ["label_binary", "label_category", "label_type"]:
+            model = self.models[level]
+            le = self.label_encoders[level]
+            y_pred_enc = model.predict(X)
+            y_proba = model.predict_proba(X)
+
+            short = level.replace("label_", "")  # binary, category, type
+            results[f"ml_pred_{short}"] = le.inverse_transform(y_pred_enc)
+            results[f"ml_conf_{short}"] = y_proba.max(axis=1)
+
+            for i, cls_name in enumerate(le.classes_):
+                results[f"ml_proba_{short}_{cls_name}"] = y_proba[:, i]
 
         return pd.DataFrame(results)
 

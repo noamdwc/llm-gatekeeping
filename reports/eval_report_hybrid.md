@@ -50,8 +50,8 @@ Labels: ['unicode_attack', 'nlp_attack']
 
 | Bin | Count | Avg Confidence | Accuracy |
 |-----|-------|----------------|----------|
-| 0.8-0.9 | 18 | 0.857 | 0.667 |
-| 0.9-1.0 | 82 | 0.975 | 0.817 |
+| 0.8-0.9 | 16 | 0.858 | 0.688 |
+| 0.9-1.0 | 84 | 0.973 | 0.810 |
 
 ## Cost / Usage
 
@@ -59,8 +59,8 @@ Labels: ['unicode_attack', 'nlp_attack']
 - prompt_tokens: 107527
 - completion_tokens: 1187
 - total_tokens: 108714
-- total_latency_s: 73.34
-- avg_latency_s: 0.978
+- total_latency_s: 38.33
+- avg_latency_s: 0.511
 - calls_by_stage: {'binary': 40, 'category': 30, 'type': 5}
 - total: 100
 - ml_handled: 60

@@ -26,6 +26,9 @@ import yaml
 from tqdm import tqdm
 
 from src.utils import ROOT, load_config
+from src.ml_classifier.ml_baseline import MLBaseline
+from src.llm_classifier.llm_classifier import HierarchicalLLMClassifier, build_few_shot_examples
+from src.evaluate import evaluate_dataframe
 dotenv.load_dotenv()
 
 @dataclass
@@ -194,7 +197,6 @@ def main():
         df_test = df_test.sample(n=args.limit, random_state=42)
 
     # Load ML model
-    from src.ml_baseline import MLBaseline
     ml = MLBaseline(cfg)
     ml.load(str(data_dir / "ml_baseline.pkl"))
 
@@ -212,7 +214,6 @@ def main():
     # --- Full hybrid run (with LLM calls) ---
     print(f"\nRunning hybrid router (threshold={cfg['hybrid']['ml_confidence_threshold']})...")
 
-    from src.llm_classifier import HierarchicalLLMClassifier, build_few_shot_examples
     df_train = pd.read_parquet(data_dir / "train.parquet")
     few_shot, _ = build_few_shot_examples(df_train, cfg)
     llm = HierarchicalLLMClassifier(cfg, few_shot)
@@ -221,7 +222,6 @@ def main():
     results = router.predict_batch(df_test, text_col)
 
     # Evaluate
-    from src.evaluate import evaluate_dataframe
     report_path = str(ROOT / "reports" / "eval_report_hybrid.md")
     binary, cat, types, cal = evaluate_dataframe(
         df_test, results, output_path=report_path,
