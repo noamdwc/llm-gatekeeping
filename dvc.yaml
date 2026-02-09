@@ -1,0 +1,88 @@
+stages:
+  preprocess:
+    cmd: python -m src.preprocess
+    deps:
+      - src/preprocess.py
+      - src/utils.py
+    params:
+      - configs/default.yaml:
+          - dataset
+          - labels
+          - benign
+    outs:
+      - data/processed/full_dataset.parquet
+
+  build_splits:
+    cmd: python -m src.build_splits
+    deps:
+      - src/build_splits.py
+      - src/utils.py
+      - data/processed/full_dataset.parquet
+    params:
+      - configs/default.yaml:
+          - splits
+          - labels.held_out_attacks
+    outs:
+      - data/processed/train.parquet
+      - data/processed/val.parquet
+      - data/processed/test.parquet
+      - data/processed/test_unseen.parquet
+
+  ml_baseline:
+    cmd: python -m src.ml_baseline
+    deps:
+      - src/ml_baseline.py
+      - src/utils.py
+      - data/processed/train.parquet
+      - data/processed/val.parquet
+      - data/processed/test.parquet
+      - data/processed/test_unseen.parquet
+    params:
+      - configs/default.yaml:
+          - ml
+    outs:
+      - data/processed/ml_baseline.pkl
+
+  llm_classifier:
+    frozen: true
+    cmd: python -m src.llm_classifier --split test --limit 100
+    deps:
+      - src/llm_classifier.py
+      - src/embeddings.py
+      - src/utils.py
+      - data/processed/train.parquet
+      - data/processed/test.parquet
+    params:
+      - configs/default.yaml:
+          - llm
+    outs:
+      - data/processed/predictions_test.csv
+
+  hybrid_router:
+    frozen: true
+    cmd: python -m src.hybrid_router --limit 100
+    deps:
+      - src/hybrid_router.py
+      - src/ml_baseline.py
+      - src/llm_classifier.py
+      - src/embeddings.py
+      - src/utils.py
+      - data/processed/test.parquet
+      - data/processed/ml_baseline.pkl
+      - data/processed/train.parquet
+    params:
+      - configs/default.yaml:
+          - hybrid
+    outs:
+      - reports/eval_report_hybrid.md:
+          cache: false
+
+  evaluate:
+    frozen: true
+    cmd: python -m src.evaluate --predictions data/processed/predictions_test.csv
+    deps:
+      - src/evaluate.py
+      - data/processed/predictions_test.csv
+    outs:
+      - reports/eval_report_llm.md:
+          cache: false
