@@ -91,6 +91,31 @@ class MLBaseline(BaseEstimator, ClassifierMixin):
 
         return pd.DataFrame(results)
 
+    def predict_full(self, df: pd.DataFrame, text_col: str) -> pd.DataFrame:
+        """Predict all hierarchy levels with full probability distributions.
+
+        Returns DataFrame with:
+          - ml_pred_{level}, ml_conf_{level} — same as predict()
+          - ml_proba_{level}_{classname} — one column per class per level
+        """
+        X = self._build_features(df[text_col], fit=False)
+        results = {}
+
+        for level in ["label_binary", "label_category", "label_type"]:
+            model = self.models[level]
+            le = self.label_encoders[level]
+            y_pred_enc = model.predict(X)
+            y_proba = model.predict_proba(X)
+
+            short = level.replace("label_", "")  # binary, category, type
+            results[f"ml_pred_{short}"] = le.inverse_transform(y_pred_enc)
+            results[f"ml_conf_{short}"] = y_proba.max(axis=1)
+
+            for i, cls_name in enumerate(le.classes_):
+                results[f"ml_proba_{short}_{cls_name}"] = y_proba[:, i]
+
+        return pd.DataFrame(results)
+
     def predict_proba_binary(self, df: pd.DataFrame, text_col: str) -> np.ndarray:
         """Return binary class probabilities (for hybrid router thresholding)."""
         X = self._build_features(df[text_col], fit=False)

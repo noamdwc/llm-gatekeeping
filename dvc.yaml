@@ -29,9 +29,11 @@ stages:
       - data/processed/test_unseen.parquet
 
   ml_baseline:
-    cmd: python -m src.ml_baseline
+    cmd: python -m src.ml_classifier.ml_baseline
     deps:
-      - src/ml_baseline.py
+      - src/ml_classifier/ml_baseline.py
+      - src/ml_classifier/utils.py
+      - src/ml_classifier/constants.py
       - src/utils.py
       - data/processed/train.parquet
       - data/processed/val.parquet
@@ -45,9 +47,10 @@ stages:
 
   llm_classifier:
     frozen: true
-    cmd: python -m src.llm_classifier --split test --limit 100
+    cmd: python -m src.llm_classifier.llm_classifier --split test --limit 100
     deps:
-      - src/llm_classifier.py
+      - src/llm_classifier/llm_classifier.py
+      - src/llm_classifier/constants.py
       - src/embeddings.py
       - src/utils.py
       - data/processed/train.parquet
@@ -63,8 +66,11 @@ stages:
     cmd: python -m src.hybrid_router --limit 100
     deps:
       - src/hybrid_router.py
-      - src/ml_baseline.py
-      - src/llm_classifier.py
+      - src/ml_classifier/ml_baseline.py
+      - src/ml_classifier/utils.py
+      - src/ml_classifier/constants.py
+      - src/llm_classifier/llm_classifier.py
+      - src/llm_classifier/constants.py
       - src/embeddings.py
       - src/utils.py
       - data/processed/test.parquet
@@ -86,3 +92,20 @@ stages:
     outs:
       - reports/eval_report_llm.md:
           cache: false
+
+  research:
+    frozen: true
+    cmd: python -m src.research --split test --skip-llm
+    deps:
+      - src/research.py
+      - src/ml_classifier/ml_baseline.py
+      - src/ml_classifier/utils.py
+      - src/ml_classifier/constants.py
+      - src/utils.py
+      - data/processed/test.parquet
+      - data/processed/ml_baseline.pkl
+    params:
+      - configs/default.yaml:
+          - hybrid.ml_confidence_threshold
+    outs:
+      - data/processed/research_test.parquet

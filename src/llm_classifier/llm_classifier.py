@@ -225,11 +225,18 @@ class HierarchicalLLMClassifier:
 
     # -- Full pipeline -----------------------------------------------------
 
-    def predict(self, text: str) -> dict:
-        """Run full hierarchical classification."""
+    def predict(self, text: str, force_all_stages: bool = False) -> dict:
+        """Run full hierarchical classification.
+
+        Args:
+            force_all_stages: If True, run category+type even for benign,
+                and type even for NLP. Useful for research/analysis.
+        """
+        stages_run = 1  # binary always runs
+
         # Stage 0: binary
         binary = self.classify_binary(text)
-        if binary["label"] == "benign":
+        if binary["label"] == "benign" and not force_all_stages:
             return {
                 "label_binary": "benign",
                 "label_category": "benign",
@@ -237,29 +244,38 @@ class HierarchicalLLMClassifier:
                 "confidence_binary": binary["confidence"],
                 "confidence_category": None,
                 "confidence_type": None,
+                "llm_stages_run": stages_run,
             }
 
         # Stage 1: category
         category = self.classify_category(text)
+        stages_run += 1
 
-        # Stage 2: type (unicode only)
-        if category["label"] == "unicode_attack":
+        # Stage 2: type (unicode only, unless forced)
+        if category["label"] == "unicode_attack" or force_all_stages:
             type_result = self.classify_type(text)
+            stages_run += 1
         else:
             type_result = {"label": "nlp_attack", "confidence": category["confidence"]}
 
         return {
-            "label_binary": "adversarial",
+            "label_binary": binary["label"],
             "label_category": category["label"],
             "label_type": type_result["label"],
             "confidence_binary": binary["confidence"],
             "confidence_category": category["confidence"],
             "confidence_type": type_result["confidence"],
+            "llm_stages_run": stages_run,
         }
 
-    def predict_batch(self, texts: list[str], desc: str = "Classifying") -> list[dict]:
+    def predict_batch(
+        self,
+        texts: list[str],
+        desc: str = "Classifying",
+        force_all_stages: bool = False,
+    ) -> list[dict]:
         """Predict on a list of texts with progress bar."""
-        return [self.predict(t) for t in tqdm(texts, desc=desc)]
+        return [self.predict(t, force_all_stages=force_all_stages) for t in tqdm(texts, desc=desc)]
 
 
 # ---------------------------------------------------------------------------
