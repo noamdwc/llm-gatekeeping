@@ -2,11 +2,12 @@
 Backward-compatible wrapper for the CLI module.
 
 New canonical entrypoint:
-  python -m src.cli.predict ...
+  python -m src.cli.infer_split ...
 """
 
-from src.cli.predict import main
+from src.cli.infer_split import main
 
 
 if __name__ == "__main__":
     main()
+

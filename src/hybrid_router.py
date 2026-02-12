@@ -25,7 +25,7 @@ import pandas as pd
 import yaml
 from tqdm import tqdm
 
-from src.utils import ROOT, load_config
+from src.utils import load_config, SPLITS_DIR, MODELS_DIR, REPORTS_RESEARCH_DIR
 from src.ml_classifier.ml_baseline import MLBaseline
 from src.llm_classifier.llm_classifier import HierarchicalLLMClassifier, build_few_shot_examples
 from src.evaluate import evaluate_dataframe
@@ -175,7 +175,6 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    data_dir = ROOT / "data" / "processed"
     text_col = cfg["dataset"]["text_col"]
 
     # Init wandb
@@ -192,13 +191,13 @@ def main():
         )
 
     # Load data
-    df_test = pd.read_parquet(data_dir / "test.parquet")
+    df_test = pd.read_parquet(SPLITS_DIR / "test.parquet")
     if args.limit and args.limit < len(df_test):
         df_test = df_test.sample(n=args.limit, random_state=42)
 
     # Load ML model
     ml = MLBaseline(cfg)
-    ml.load(str(data_dir / "ml_baseline.pkl"))
+    ml.load(str(MODELS_DIR / "ml_baseline.pkl"))
 
     # --- Threshold sweep (no LLM calls) ---
     print("Running threshold sweep (ML-only, no LLM calls)...")
@@ -214,7 +213,7 @@ def main():
     # --- Full hybrid run (with LLM calls) ---
     print(f"\nRunning hybrid router (threshold={cfg['hybrid']['ml_confidence_threshold']})...")
 
-    df_train = pd.read_parquet(data_dir / "train.parquet")
+    df_train = pd.read_parquet(SPLITS_DIR / "train.parquet")
     few_shot, _ = build_few_shot_examples(df_train, cfg)
     llm = HierarchicalLLMClassifier(cfg, few_shot)
 
@@ -222,7 +221,8 @@ def main():
     results = router.predict_batch(df_test, text_col)
 
     # Evaluate
-    report_path = str(ROOT / "reports" / "eval_report_hybrid.md")
+    REPORTS_RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = str(REPORTS_RESEARCH_DIR / "eval_report_hybrid.md")
     binary, cat, types, cal = evaluate_dataframe(
         df_test, results, output_path=report_path,
         usage={**llm.usage.to_dict(), **router.stats.to_dict()},

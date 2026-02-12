@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.utils import ROOT, load_config
+from src.utils import DATA_DIR, SPLITS_DIR, load_config
 
 
 def build_splits(config_path: str = None, input_path: str = None) -> dict[str, pd.DataFrame]:
@@ -22,8 +22,7 @@ def build_splits(config_path: str = None, input_path: str = None) -> dict[str, p
     3. Remaining data split into train/val/test by prompt_hash groups
     """
     cfg = load_config(config_path)
-    data_dir = ROOT / "data" / "processed"
-    input_path = Path(input_path) if input_path else data_dir / "full_dataset.parquet"
+    input_path = Path(input_path) if input_path else DATA_DIR / "full_dataset.parquet"
     df = pd.read_parquet(input_path)
 
     held_out = set(cfg["labels"]["held_out_attacks"])
@@ -66,8 +65,9 @@ def build_splits(config_path: str = None, input_path: str = None) -> dict[str, p
     }
 
     # Save
+    SPLITS_DIR.mkdir(parents=True, exist_ok=True)
     for name, split_df in splits.items():
-        path = data_dir / f"{name}.parquet"
+        path = SPLITS_DIR / f"{name}.parquet"
         split_df.to_parquet(path, index=False)
         print(f"  {name}: {len(split_df)} samples → {path}")
 

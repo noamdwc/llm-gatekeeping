@@ -1,4 +1,5 @@
 stages:
+  # ── Stage 1: Preprocess ──────────────────────────────────────────────────
   preprocess:
     cmd: python -m src.preprocess
     deps:
@@ -12,6 +13,7 @@ stages:
     outs:
       - data/processed/full_dataset.parquet
 
+  # ── Stage 2: Build Splits ────────────────────────────────────────────────
   build_splits:
     cmd: python -m src.build_splits
     deps:
@@ -23,89 +25,86 @@ stages:
           - splits
           - labels.held_out_attacks
     outs:
-      - data/processed/train.parquet
-      - data/processed/val.parquet
-      - data/processed/test.parquet
-      - data/processed/test_unseen.parquet
+      - data/processed/splits/train.parquet
+      - data/processed/splits/val.parquet
+      - data/processed/splits/test.parquet
+      - data/processed/splits/test_unseen.parquet
 
-  ml_baseline:
-    cmd: python -m src.ml_classifier.ml_baseline
+  # ── Stage 3: ML Model (train + research predictions) ─────────────────────
+  ml_model:
+    cmd: python -m src.ml_classifier.ml_baseline --research --no-wandb
     deps:
-      - src/ml_classifier/ml_baseline.py
-      - src/ml_classifier/utils.py
-      - src/ml_classifier/constants.py
+      - src/ml_classifier/
       - src/utils.py
-      - data/processed/train.parquet
-      - data/processed/val.parquet
-      - data/processed/test.parquet
-      - data/processed/test_unseen.parquet
+      - data/processed/splits/train.parquet
+      - data/processed/splits/val.parquet
+      - data/processed/splits/test.parquet
+      - data/processed/splits/test_unseen.parquet
     params:
       - configs/default.yaml:
           - ml
     outs:
-      - data/processed/ml_baseline.pkl
+      - data/processed/models/ml_baseline.pkl
+      - data/processed/predictions/ml_predictions_test.parquet
+      - data/processed/predictions/ml_predictions_val.parquet
+      - data/processed/predictions/ml_predictions_test_unseen.parquet
 
+  # ── Stage 4: LLM Classifier (frozen by default — costs API tokens) ──────
   llm_classifier:
     frozen: true
-    cmd: python -m src.llm_classifier.llm_classifier --split test --limit 100
+    cmd: python -m src.llm_classifier.llm_classifier --split test --research --no-wandb
     deps:
-      - src/llm_classifier/llm_classifier.py
-      - src/llm_classifier/constants.py
+      - src/llm_classifier/
       - src/embeddings.py
       - src/utils.py
-      - data/processed/train.parquet
-      - data/processed/test.parquet
+      - data/processed/splits/train.parquet
+      - data/processed/splits/test.parquet
     params:
       - configs/default.yaml:
           - llm
     outs:
-      - data/processed/predictions_test.csv
+      - data/processed/predictions/llm_predictions_test.parquet
 
-  hybrid_router:
-    frozen: true
-    cmd: python -m src.hybrid_router --limit 100
-    deps:
-      - src/hybrid_router.py
-      - src/ml_classifier/ml_baseline.py
-      - src/ml_classifier/utils.py
-      - src/ml_classifier/constants.py
-      - src/llm_classifier/llm_classifier.py
-      - src/llm_classifier/constants.py
-      - src/embeddings.py
-      - src/utils.py
-      - data/processed/test.parquet
-      - data/processed/ml_baseline.pkl
-      - data/processed/train.parquet
-    params:
-      - configs/default.yaml:
-          - hybrid
-    outs:
-      - reports/eval_report_hybrid.md:
-          cache: false
-
-  evaluate:
-    frozen: true
-    cmd: python -m src.evaluate --predictions data/processed/predictions_test.csv
-    deps:
-      - src/evaluate.py
-      - data/processed/predictions_test.csv
-    outs:
-      - reports/eval_report_llm.md:
-          cache: false
-
+  # ── Stage 5: Research (merge predictions + hybrid routing + reports) ─────
   research:
-    frozen: true
-    cmd: python -m src.research --split test --skip-llm
+    cmd: python -m src.research --split test
     deps:
       - src/research.py
-      - src/ml_classifier/ml_baseline.py
-      - src/ml_classifier/utils.py
-      - src/ml_classifier/constants.py
+      - src/evaluate.py
       - src/utils.py
-      - data/processed/test.parquet
-      - data/processed/ml_baseline.pkl
+      - data/processed/predictions/
+      - data/processed/splits/test.parquet
     params:
       - configs/default.yaml:
           - hybrid.ml_confidence_threshold
     outs:
-      - data/processed/research_test.parquet
+      - data/processed/research/research_test.parquet
+      - reports/research/eval_report_ml.md:
+          cache: false
+      - reports/research/eval_report_hybrid.md:
+          cache: false
+
+  # ── Stage 6: External Dataset Research (one stage per dataset) ───────────
+  research_external:
+    foreach:
+      - deepset
+      - jackhhao
+      - safeguard
+      - spml
+    do:
+      cmd: python -m src.cli.research_external --dataset ${item} --skip-llm
+      deps:
+        - src/cli/research_external.py
+        - src/eval_external.py
+        - src/ml_classifier/
+        - src/utils.py
+        - data/processed/models/ml_baseline.pkl
+        - data/processed/splits/train.parquet
+      params:
+        - configs/default.yaml:
+            - external_datasets.${item}
+            - hybrid.ml_confidence_threshold
+      outs:
+        - data/processed/research_external/research_external_${item}.parquet
+        - reports/research_external/research_external_${item}.md:
+            cache: false

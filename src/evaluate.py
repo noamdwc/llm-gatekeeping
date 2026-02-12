@@ -26,7 +26,7 @@ from sklearn.metrics import (
     precision_recall_fscore_support
 )
 
-from src.utils import ROOT
+from src.utils import REPORTS_RESEARCH_DIR
 
 
 def binary_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
@@ -223,7 +223,8 @@ def evaluate(predictions_path: str, output_path: str = None):
 
     report = generate_report(df, binary, cat, types, cal)
 
-    out = output_path or str(ROOT / "reports" / "eval_report_llm.md")
+    REPORTS_RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
+    out = output_path or str(REPORTS_RESEARCH_DIR / "eval_report_llm.md")
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w") as f:
         f.write(report)

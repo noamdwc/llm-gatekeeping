@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research_external import (
+from src.cli.research_external import (
     EXTERNAL_GT_COLS,
     build_external_research_df,
     build_predictions_df,
@@ -299,7 +299,8 @@ class TestEndToEnd:
 
     def test_research_df_from_fitted_model(self, sample_config, fitted_ml_model):
         """Full pipeline: predict_full -> hybrid routing -> research DataFrame."""
-        from src.research import run_ml_full, compute_hybrid_routing
+        from src.research_external import run_ml_full
+        from src.research import compute_hybrid_routing
 
         # Build external-style DataFrame
         df = pd.DataFrame({

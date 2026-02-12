@@ -1,30 +1,95 @@
 """
-Backward-compatible wrapper for the CLI module.
+Research mode for external datasets — comprehensive run capturing all
+intermediate ML probabilities and hybrid routing decisions.
 
-Canonical entrypoint:
-  python -m src.cli.research_external ...
+Designed to be called once per dataset by DVC foreach stages:
+    python -m src.cli.research_external --dataset deepset --skip-llm
+
+Produces per-dataset:
+  - Wide parquet file (data/processed/research_external/{ds_key}.parquet)
+  - Detailed markdown report (reports/research_external/{ds_key}.md)
 """
 
-from src.cli.research_external import *  # noqa: F401,F403
+import argparse
+import dotenv
+import numpy as np
+import pandas as pd
+
+from src.utils import (
+    load_config, MODELS_DIR, SPLITS_DIR,
+    RESEARCH_EXTERNAL_DIR, REPORTS_EXTERNAL_DIR,
+)
+from src.evaluate import binary_metrics, calibration_metrics
+from src.eval_external import load_external_dataset
+from src.research import compute_hybrid_routing
+from src.llm_classifier.llm_classifier import (
+        HierarchicalLLMClassifier,
+        build_few_shot_examples,
+    )
+
+dotenv.load_dotenv()
+
+# Ground truth columns available in external datasets (subset of research.py's)
+EXTERNAL_GT_COLS = [
+    "modified_sample",
+    "label_binary",
+    "label_category",
+    "label_type",
+]
 
 
-if __name__ == "__main__":  # pragma: no cover
-    from src.cli.research_external import main
-    main()
-
-"""
-Backward-compatible wrapper for the CLI module.
-
-Canonical entrypoint:
-  python -m src.cli.research_external ...
-"""
-
-from src.cli.research_external import *  # noqa: F401,F403
+def run_ml_full(ml_model, df: pd.DataFrame, text_col: str) -> pd.DataFrame:
+    """Run ML predict_full() and return the wide probability DataFrame."""
+    return ml_model.predict_full(df, text_col)
 
 
-if __name__ == "__main__":  # pragma: no cover
-    from src.cli.research_external import main
-    main()
+def run_llm_full(
+    df: pd.DataFrame,
+    cfg: dict,
+    text_col: str,
+    force_all_stages: bool = False,
+) -> pd.DataFrame:
+    """Run LLM classifier on all samples and return predictions DataFrame."""
+    df_train = pd.read_parquet(SPLITS_DIR / "train.parquet")
+    few_shot, _ = build_few_shot_examples(df_train, cfg)
+    classifier = HierarchicalLLMClassifier(cfg, few_shot)
+
+    results = classifier.predict_batch(
+        df[text_col].tolist(),
+        desc="LLM classifying",
+        force_all_stages=force_all_stages,
+    )
+
+    rows = []
+    for r in results:
+        rows.append({
+            "llm_pred_binary": r["label_binary"],
+            "llm_pred_category": r["label_category"],
+            "llm_pred_type": r["label_type"],
+            "llm_conf_binary": r["confidence_binary"],
+            "llm_conf_category": r["confidence_category"],
+            "llm_conf_type": r["confidence_type"],
+            "llm_stages_run": r.get("llm_stages_run"),
+        })
+    return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
+# DataFrame assembly
+# ---------------------------------------------------------------------------
+
+def build_external_research_df(
+    df: pd.DataFrame,
+    ml_df: pd.DataFrame,
+    hybrid_df: pd.DataFrame,
+    llm_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Merge ground truth, ML, LLM, and hybrid results into one wide DataFrame."""
+    gt = df[EXTERNAL_GT_COLS].reset_index(drop=True)
+    parts = [gt, ml_df.reset_index(drop=True), hybrid_df.reset_index(drop=True)]
+    if llm_df is not None:
+        parts.insert(2, llm_df.reset_index(drop=True))
+    return pd.concat(parts, axis=1)
 
 
 # ---------------------------------------------------------------------------
@@ -171,11 +236,7 @@ def build_predictions_df(
     research_df: pd.DataFrame,
     has_llm: bool = False,
 ) -> pd.DataFrame:
-    """Extract a compact predictions DataFrame from the wide research DataFrame.
-
-    Columns: modified_sample, label_binary, ml_pred_binary, ml_conf_binary,
-             hybrid_routed_to, hybrid_pred_binary, and optionally llm columns.
-    """
+    """Extract a compact predictions DataFrame from the wide research DataFrame."""
     cols = [
         "modified_sample",
         "label_binary",
@@ -199,7 +260,6 @@ def build_predictions_df(
             "llm_pred_type",
             "llm_conf_type",
         ])
-    # Only include columns that actually exist in the DataFrame
     cols = [c for c in cols if c in research_df.columns]
     return research_df[cols].copy()
 
@@ -223,7 +283,6 @@ def run_research_single(
     print(f"Research (external): {ds_key} ({ds_cfg['name']})")
     print(f"{'=' * 60}")
 
-    # Load and prepare data
     df = load_external_dataset(ds_cfg)
     if limit and limit < len(df):
         df = df.sample(n=limit, random_state=42).reset_index(drop=True)
@@ -232,33 +291,27 @@ def run_research_single(
     n_ben = (df["label_binary"] == "benign").sum()
     print(f"  Loaded {len(df)} samples ({n_adv} adversarial, {n_ben} benign)")
 
-    # ML full probabilities
     print("  Running ML predict_full()...")
     ml = MLBaseline(cfg)
     ml.load(str(MODELS_DIR / "ml_baseline.pkl"))
     ml_df = run_ml_full(ml, df, "modified_sample")
 
-    # Optional LLM
     llm_df = None
     if not skip_llm:
         print("  Running LLM classifier...")
         llm_df = run_llm_full(df, cfg, "modified_sample", force_all_stages=force_all_stages)
 
-    # Hybrid routing
     threshold = cfg["hybrid"]["ml_confidence_threshold"]
     print(f"  Computing hybrid routing (threshold={threshold})...")
     hybrid_df = compute_hybrid_routing(ml_df, llm_df, threshold)
 
-    # Build wide research DataFrame
     research_df = build_external_research_df(df, ml_df, hybrid_df, llm_df)
 
-    # Save wide research parquet
     RESEARCH_EXTERNAL_DIR.mkdir(parents=True, exist_ok=True)
     parquet_path = RESEARCH_EXTERNAL_DIR / f"research_external_{ds_key}.parquet"
     research_df.to_parquet(parquet_path, index=False)
     print(f"  Research parquet saved -> {parquet_path} (shape: {research_df.shape})")
 
-    # Compute metrics for report
     binary = binary_metrics(
         research_df["label_binary"],
         research_df["ml_pred_binary"],
@@ -269,7 +322,6 @@ def run_research_single(
         research_df["ml_conf_binary"],
     )
 
-    # Generate and save report
     report = generate_research_report(
         ds_key, ds_cfg["name"], research_df, binary, cal, threshold,
     )
@@ -278,7 +330,6 @@ def run_research_single(
     report_path.write_text(report)
     print(f"  Report saved -> {report_path}")
 
-    # Print summary
     print(f"\n  --- {ds_key} Summary ---")
     print(f"  Accuracy:           {binary['accuracy']:.4f}")
     print(f"  Adversarial F1:     {binary['adversarial_f1']:.4f}")
@@ -332,3 +383,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

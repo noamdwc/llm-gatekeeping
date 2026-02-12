@@ -4,6 +4,28 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# ── Organized output paths ───────────────────────────────────────────────────
+DATA_DIR = ROOT / "data" / "processed"
+SPLITS_DIR = DATA_DIR / "splits"
+MODELS_DIR = DATA_DIR / "models"
+PREDICTIONS_DIR = DATA_DIR / "predictions"
+RESEARCH_DIR = DATA_DIR / "research"
+RESEARCH_EXTERNAL_DIR = DATA_DIR / "research_external"
+REPORTS_DIR = ROOT / "reports"
+REPORTS_RESEARCH_DIR = REPORTS_DIR / "research"
+REPORTS_EXTERNAL_DIR = REPORTS_DIR / "research_external"
+
+
+def ensure_dirs():
+    """Create all output directories if they don't exist."""
+    for d in [
+        DATA_DIR, SPLITS_DIR, MODELS_DIR, PREDICTIONS_DIR,
+        RESEARCH_DIR, RESEARCH_EXTERNAL_DIR,
+        REPORTS_DIR, REPORTS_RESEARCH_DIR, REPORTS_EXTERNAL_DIR,
+    ]:
+        d.mkdir(parents=True, exist_ok=True)
+
+
 def load_config(path: str = None) -> dict:
     path = path or ROOT / "configs" / "default.yaml"
     with open(path) as f:

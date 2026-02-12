@@ -33,8 +33,10 @@ class TestBuildSplits:
 
         # Patch the save path so parquet files go to tmp_path
         import src.build_splits as mod
-        monkeypatch.setattr(mod, "ROOT", tmp_path)
-        (tmp_path / "data" / "processed").mkdir(parents=True, exist_ok=True)
+        splits_dir = tmp_path / "data" / "processed" / "splits"
+        splits_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(mod, "DATA_DIR", tmp_path / "data" / "processed")
+        monkeypatch.setattr(mod, "SPLITS_DIR", splits_dir)
 
         splits = build_splits(config_path, input_path)
 
@@ -51,8 +53,10 @@ class TestBuildSplits:
         config_path, input_path = splits_input
 
         import src.build_splits as mod
-        monkeypatch.setattr(mod, "ROOT", tmp_path)
-        (tmp_path / "data" / "processed").mkdir(parents=True, exist_ok=True)
+        splits_dir = tmp_path / "data" / "processed" / "splits"
+        splits_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(mod, "DATA_DIR", tmp_path / "data" / "processed")
+        monkeypatch.setattr(mod, "SPLITS_DIR", splits_dir)
 
         splits = build_splits(config_path, input_path)
 
@@ -70,8 +74,10 @@ class TestBuildSplits:
         config_path, input_path = splits_input
 
         import src.build_splits as mod
-        monkeypatch.setattr(mod, "ROOT", tmp_path)
-        (tmp_path / "data" / "processed").mkdir(parents=True, exist_ok=True)
+        splits_dir = tmp_path / "data" / "processed" / "splits"
+        splits_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(mod, "DATA_DIR", tmp_path / "data" / "processed")
+        monkeypatch.setattr(mod, "SPLITS_DIR", splits_dir)
 
         splits = build_splits(config_path, input_path)
         total = sum(len(s) for s in splits.values())
@@ -82,8 +88,10 @@ class TestBuildSplits:
         config_path, input_path = splits_input
 
         import src.build_splits as mod
-        monkeypatch.setattr(mod, "ROOT", tmp_path)
-        (tmp_path / "data" / "processed").mkdir(parents=True, exist_ok=True)
+        splits_dir = tmp_path / "data" / "processed" / "splits"
+        splits_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(mod, "DATA_DIR", tmp_path / "data" / "processed")
+        monkeypatch.setattr(mod, "SPLITS_DIR", splits_dir)
 
         splits1 = build_splits(config_path, input_path)
         splits2 = build_splits(config_path, input_path)
