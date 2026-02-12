@@ -26,13 +26,12 @@ Derived from the repository’s intended use as a “gatekeeper” in front of a
 
 | Stage | What it does | Implementation |
 |---|---|---|
-| **Benign generation** | Generate diverse benign prompts by topic taxonomy | `python -m src.generate_benign` → `data/processed/generated_benign.parquet` |
 | **Preprocess** | Load HF dataset; add hierarchical labels; merge benign set; compute `prompt_hash` | `python -m src.preprocess` → `data/processed/full_dataset.parquet` |
 | **Splits** | Grouped split by `prompt_hash` + held-out attacks/topics → `test_unseen` | `python -m src.build_splits` |
-| **ML baseline** | Char n-gram TF-IDF + Unicode features → LogisticRegression per hierarchy level | `python -m src.ml_classifier.ml_baseline` → `data/processed/ml_baseline.pkl` |
+| **ML baseline** | Char n-gram TF-IDF + Unicode features → LogisticRegression per hierarchy level | `python -m src.ml_classifier.ml_baseline --research` → `data/processed/models/ml_baseline.pkl` |
 | **LLM classifier** | 3-stage sequential OpenAI classifier with JSON output; optional dynamic few-shot | `python -m src.llm_classifier.llm_classifier [--dynamic]` |
 | **Hybrid router** | ML-first; if ML conf < threshold → LLM cascade; if LLM conf < threshold → `abstain` | `python -m src.hybrid_router` |
-| **Evaluation** | Hierarchy-level metrics + calibration + usage stats | `python -m src.evaluate` + `reports/eval_report_*.md` |
+| **Evaluation** | Hierarchy-level metrics + calibration + usage stats | `python -m src.evaluate` + `reports/research/eval_report_*.md` |
 
 ## 5) Functional requirements
 
@@ -53,7 +52,7 @@ Derived from the repository’s intended use as a “gatekeeper” in front of a
 - **FR-7**: Generate evaluation reports as Markdown under `reports/`.
 - **FR-8**: Support external dataset evaluation (binary-only) via:
   - `python -m src.eval_external --dataset <key> --mode ml|hybrid`
-  - `python -m src.research_external --dataset <key> ...` (wide parquet + report)
+  - `python -m src.cli.research_external --dataset <key> ...` (wide parquet + report)
 
 ### 5.3 Dynamic few-shot (optional, implemented)
 - **FR-9**: Build/load an exemplar bank and retrieve similar examples per Unicode type for LLM Stage 2 (`--dynamic`, `src/embeddings.py`).
