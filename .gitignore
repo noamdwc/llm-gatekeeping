@@ -4,3 +4,5 @@
 .vscode/
 wandb/
 data/
+.coverage
+.cursor/
