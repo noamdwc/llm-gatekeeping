@@ -9,8 +9,6 @@ from src.ml_classifier.ml_baseline import MLBaseline
 from src.research import (
     compute_hybrid_routing,
     build_research_dataframe,
-    run_ml_full,
-    GROUND_TRUTH_COLS,
 )
 
 
@@ -261,51 +259,61 @@ class TestComputeHybridRouting:
 class TestBuildResearchDataframe:
     """Tests for merging into the wide research DataFrame."""
 
-    def test_without_llm(self, sample_dataframe):
-        """Without LLM, output has ground truth + ML + hybrid columns."""
-        n = len(sample_dataframe)
-        ml_df = pd.DataFrame({
+    def _make_ml_df(self, n):
+        """ML predictions parquet includes ground truth + predictions."""
+        return pd.DataFrame({
+            "modified_sample": [f"text_{i}" for i in range(n)],
+            "label_binary": ["adversarial"] * n,
+            "label_category": ["unicode_attack"] * n,
+            "label_type": ["Diacritcs"] * n,
             "ml_pred_binary": ["adversarial"] * n,
             "ml_conf_binary": [0.9] * n,
         })
+
+    def test_without_llm(self):
+        """Without LLM, output has ML + hybrid columns."""
+        n = 5
+        ml_df = self._make_ml_df(n)
         hybrid_df = pd.DataFrame({
             "hybrid_routed_to": ["ml"] * n,
             "hybrid_pred_binary": ["adversarial"] * n,
         })
-        result = build_research_dataframe(sample_dataframe, ml_df, hybrid_df)
+        result = build_research_dataframe(ml_df, hybrid_df)
         assert len(result) == n
-        for col in GROUND_TRUTH_COLS:
-            assert col in result.columns
         assert "ml_pred_binary" in result.columns
         assert "hybrid_routed_to" in result.columns
+        assert "label_binary" in result.columns
 
-    def test_with_llm(self, sample_dataframe):
+    def test_with_llm(self):
         """With LLM, output also includes llm columns."""
-        n = len(sample_dataframe)
-        ml_df = pd.DataFrame({"ml_pred_binary": ["adversarial"] * n})
-        llm_df = pd.DataFrame({"llm_pred_binary": ["benign"] * n})
+        n = 5
+        ml_df = self._make_ml_df(n)
+        llm_df = pd.DataFrame({
+            "llm_pred_binary": ["benign"] * n,
+            "llm_conf_binary": [0.8] * n,
+        })
         hybrid_df = pd.DataFrame({"hybrid_routed_to": ["ml"] * n})
-        result = build_research_dataframe(sample_dataframe, ml_df, hybrid_df, llm_df=llm_df)
+        result = build_research_dataframe(ml_df, hybrid_df, llm_df=llm_df)
         assert "llm_pred_binary" in result.columns
 
-    def test_row_count_preserved(self, sample_dataframe):
+    def test_row_count_preserved(self):
         """Output row count matches input."""
-        n = len(sample_dataframe)
-        ml_df = pd.DataFrame({"ml_pred_binary": ["adversarial"] * n})
+        n = 5
+        ml_df = self._make_ml_df(n)
         hybrid_df = pd.DataFrame({"hybrid_routed_to": ["ml"] * n})
-        result = build_research_dataframe(sample_dataframe, ml_df, hybrid_df)
+        result = build_research_dataframe(ml_df, hybrid_df)
         assert len(result) == n
 
 
 # ---------------------------------------------------------------------------
-# run_ml_full (integration with fitted model)
+# run_ml_full (integration with fitted model via predict_full)
 # ---------------------------------------------------------------------------
 class TestRunMlFull:
-    """Integration test for run_ml_full()."""
+    """Integration test for MLBaseline.predict_full() used by research pipeline."""
 
     def test_returns_correct_shape(self, fitted_ml_model, sample_dataframe):
-        """run_ml_full returns one row per input with expected columns."""
-        result = run_ml_full(fitted_ml_model, sample_dataframe, "modified_sample")
+        """predict_full returns one row per input with expected columns."""
+        result = fitted_ml_model.predict_full(sample_dataframe, "modified_sample")
         assert len(result) == len(sample_dataframe)
         assert "ml_pred_binary" in result.columns
         assert "ml_conf_binary" in result.columns

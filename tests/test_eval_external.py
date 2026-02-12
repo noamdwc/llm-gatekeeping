@@ -129,9 +129,9 @@ class TestEvaluateML:
     def test_returns_binary_metrics(self, sample_config, fitted_ml_model, tmp_path):
         """evaluate_ml returns valid binary metrics dict."""
         # Save the fitted model where evaluate_ml expects it
-        model_path = tmp_path / "data" / "processed"
-        model_path.mkdir(parents=True)
-        fitted_ml_model.save(str(model_path / "ml_baseline.pkl"))
+        models_dir = tmp_path / "data" / "processed" / "models"
+        models_dir.mkdir(parents=True)
+        fitted_ml_model.save(str(models_dir / "ml_baseline.pkl"))
 
         # Build a small external-style DataFrame
         df = pd.DataFrame({
@@ -146,7 +146,7 @@ class TestEvaluateML:
             "label_type": ["adversarial", "adversarial", "benign", "benign"],
         })
 
-        with patch("src.eval_external.ROOT", tmp_path):
+        with patch("src.eval_external.MODELS_DIR", models_dir):
             binary, cal, ml_preds = evaluate_ml(df, sample_config)
 
         # Check metric keys
