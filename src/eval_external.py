@@ -19,7 +19,7 @@ import pandas as pd
 from datasets import load_dataset
 
 from src.evaluate import binary_metrics, calibration_metrics
-from src.utils import ROOT, load_config
+from src.utils import load_config, MODELS_DIR, SPLITS_DIR, REPORTS_EXTERNAL_DIR
 
 
 # ---------------------------------------------------------------------------
@@ -135,8 +135,7 @@ def evaluate_ml(df: pd.DataFrame, cfg: dict) -> tuple[dict, dict, pd.DataFrame]:
     """Run ML-only evaluation on an external DataFrame. Returns (binary, calibration, ml_preds)."""
     from src.ml_classifier.ml_baseline import MLBaseline
 
-    data_dir = ROOT / "data" / "processed"
-    model_path = data_dir / "ml_baseline.pkl"
+    model_path = MODELS_DIR / "ml_baseline.pkl"
 
     ml = MLBaseline(cfg)
     ml.load(str(model_path))
@@ -163,14 +162,12 @@ def evaluate_hybrid(
     from src.llm_classifier.llm_classifier import HierarchicalLLMClassifier, build_few_shot_examples
     from src.hybrid_router import HybridRouter
 
-    data_dir = ROOT / "data" / "processed"
-
     # Load ML model
     ml = MLBaseline(cfg)
-    ml.load(str(data_dir / "ml_baseline.pkl"))
+    ml.load(str(MODELS_DIR / "ml_baseline.pkl"))
 
     # Load LLM classifier with few-shot examples from training data
-    df_train = pd.read_parquet(data_dir / "train.parquet")
+    df_train = pd.read_parquet(SPLITS_DIR / "train.parquet")
     few_shot, _ = build_few_shot_examples(df_train, cfg)
     llm = HierarchicalLLMClassifier(cfg, few_shot)
 
@@ -233,9 +230,8 @@ def run_single_dataset(
         calibration=cal,
         router_stats=router_stats,
     )
-    reports_dir = ROOT / "reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    report_path = reports_dir / f"eval_external_{ds_key}.md"
+    REPORTS_EXTERNAL_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = REPORTS_EXTERNAL_DIR / f"eval_external_{ds_key}.md"
     report_path.write_text(report)
     print(f"  Report saved -> {report_path}")
 

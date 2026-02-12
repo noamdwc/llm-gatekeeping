@@ -15,6 +15,7 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT / "data" / "processed"
 
 
 def load_config(path: str = None) -> dict:
@@ -103,7 +104,7 @@ def build_benign_set(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 def preprocess(config_path: str = None, output_dir: str = None) -> pd.DataFrame:
     """Full preprocessing pipeline. Returns combined DataFrame."""
     cfg = load_config(config_path)
-    out = Path(output_dir) if output_dir else ROOT / "data" / "processed"
+    out = Path(output_dir) if output_dir else DATA_DIR
     out.mkdir(parents=True, exist_ok=True)
 
     # Load raw
