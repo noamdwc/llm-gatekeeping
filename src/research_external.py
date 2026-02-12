@@ -1,53 +1,30 @@
 """
-Research mode for external datasets — comprehensive run capturing all
-intermediate ML probabilities and hybrid routing decisions.
+Backward-compatible wrapper for the CLI module.
 
-Produces per-dataset:
-  - Wide parquet file (data/processed/research_external_{ds_key}.parquet)
-  - Detailed markdown report (reports/research_external_{ds_key}.md)
-
-Usage:
-    python -m src.research_external --dataset deepset --skip-llm
-    python -m src.research_external --dataset jackhhao --skip-llm
-    python -m src.research_external --dataset all --skip-llm
+Canonical entrypoint:
+  python -m src.cli.research_external ...
 """
 
-import argparse
-
-import numpy as np
-import pandas as pd
-
-from src.utils import ROOT, load_config
-from src.evaluate import binary_metrics, calibration_metrics
-from src.eval_external import load_external_dataset
-from src.research import run_ml_full, run_llm_full, compute_hybrid_routing
+from src.cli.research_external import *  # noqa: F401,F403
 
 
-# Ground truth columns available in external datasets (subset of research.py's)
-EXTERNAL_GT_COLS = [
-    "modified_sample",
-    "label_binary",
-    "label_category",
-    "label_type",
-]
+if __name__ == "__main__":  # pragma: no cover
+    from src.cli.research_external import main
+    main()
+
+"""
+Backward-compatible wrapper for the CLI module.
+
+Canonical entrypoint:
+  python -m src.cli.research_external ...
+"""
+
+from src.cli.research_external import *  # noqa: F401,F403
 
 
-# ---------------------------------------------------------------------------
-# DataFrame assembly
-# ---------------------------------------------------------------------------
-
-def build_external_research_df(
-    df: pd.DataFrame,
-    ml_df: pd.DataFrame,
-    hybrid_df: pd.DataFrame,
-    llm_df: pd.DataFrame | None = None,
-) -> pd.DataFrame:
-    """Merge ground truth, ML, LLM, and hybrid results into one wide DataFrame."""
-    gt = df[EXTERNAL_GT_COLS].reset_index(drop=True)
-    parts = [gt, ml_df.reset_index(drop=True), hybrid_df.reset_index(drop=True)]
-    if llm_df is not None:
-        parts.insert(2, llm_df.reset_index(drop=True))
-    return pd.concat(parts, axis=1)
+if __name__ == "__main__":  # pragma: no cover
+    from src.cli.research_external import main
+    main()
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +139,6 @@ def generate_research_report(
             lines.append("|------|------------|")
             for _, row in fn.head(15).iterrows():
                 text = _truncate(str(row["modified_sample"]))
-                # Escape pipe characters for markdown tables
                 text = text.replace("|", "\\|")
                 lines.append(f"| {text} | {row['ml_conf_binary']:.4f} |")
             if len(fn) > 15:
@@ -258,9 +234,8 @@ def run_research_single(
 
     # ML full probabilities
     print("  Running ML predict_full()...")
-    data_dir = ROOT / "data" / "processed"
     ml = MLBaseline(cfg)
-    ml.load(str(data_dir / "ml_baseline.pkl"))
+    ml.load(str(MODELS_DIR / "ml_baseline.pkl"))
     ml_df = run_ml_full(ml, df, "modified_sample")
 
     # Optional LLM
@@ -277,17 +252,11 @@ def run_research_single(
     # Build wide research DataFrame
     research_df = build_external_research_df(df, ml_df, hybrid_df, llm_df)
 
-    # Save wide research parquet (all probabilities)
-    data_dir.mkdir(parents=True, exist_ok=True)
-    parquet_path = data_dir / f"research_external_{ds_key}.parquet"
+    # Save wide research parquet
+    RESEARCH_EXTERNAL_DIR.mkdir(parents=True, exist_ok=True)
+    parquet_path = RESEARCH_EXTERNAL_DIR / f"research_external_{ds_key}.parquet"
     research_df.to_parquet(parquet_path, index=False)
     print(f"  Research parquet saved -> {parquet_path} (shape: {research_df.shape})")
-
-    # Save compact predictions parquet (text + labels + model output)
-    predictions_df = build_predictions_df(research_df, has_llm=llm_df is not None)
-    pred_path = data_dir / f"predictions_external_{ds_key}.parquet"
-    predictions_df.to_parquet(pred_path, index=False)
-    print(f"  Predictions parquet saved -> {pred_path} (shape: {predictions_df.shape})")
 
     # Compute metrics for report
     binary = binary_metrics(
@@ -304,9 +273,8 @@ def run_research_single(
     report = generate_research_report(
         ds_key, ds_cfg["name"], research_df, binary, cal, threshold,
     )
-    reports_dir = ROOT / "reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    report_path = reports_dir / f"research_external_{ds_key}.md"
+    REPORTS_EXTERNAL_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = REPORTS_EXTERNAL_DIR / f"research_external_{ds_key}.md"
     report_path.write_text(report)
     print(f"  Report saved -> {report_path}")
 
@@ -333,7 +301,7 @@ def main():
     )
     parser.add_argument(
         "--dataset", required=True,
-        help="External dataset key from config (e.g. 'deepset', 'jackhhao', or 'all')",
+        help="External dataset key from config (e.g. 'deepset', 'jackhhao')",
     )
     parser.add_argument("--config", default=None, help="Path to config YAML")
     parser.add_argument("--limit", type=int, default=None, help="Max samples per dataset")
@@ -349,22 +317,17 @@ def main():
         print("No external_datasets defined in config.")
         return
 
-    if args.dataset == "all":
-        keys = list(ext_datasets.keys())
-    else:
-        if args.dataset not in ext_datasets:
-            print(f"Unknown dataset key: {args.dataset!r}")
-            print(f"Available: {list(ext_datasets.keys())}")
-            return
-        keys = [args.dataset]
+    if args.dataset not in ext_datasets:
+        print(f"Unknown dataset key: {args.dataset!r}")
+        print(f"Available: {list(ext_datasets.keys())}")
+        return
 
-    for ds_key in keys:
-        run_research_single(
-            ds_key, ext_datasets[ds_key], cfg,
-            skip_llm=args.skip_llm,
-            force_all_stages=args.force_all_stages,
-            limit=args.limit,
-        )
+    run_research_single(
+        args.dataset, ext_datasets[args.dataset], cfg,
+        skip_llm=args.skip_llm,
+        force_all_stages=args.force_all_stages,
+        limit=args.limit,
+    )
 
 
 if __name__ == "__main__":

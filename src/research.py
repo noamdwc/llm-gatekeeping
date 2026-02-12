@@ -1,81 +1,30 @@
 """
-Research mode pipeline — comprehensive run capturing all intermediate
-probabilities from ML and (optionally) LLM classifiers.
+Research mode pipeline — reads pre-computed ML and (optionally) LLM prediction
+parquets, computes hybrid routing, and produces a wide research parquet plus
+evaluation reports.
 
-Produces a wide parquet file suitable for offline analysis (calibration
-studies, error analysis, threshold tuning).
+In the DVC research pipeline:
+  - ml_model stage produces: predictions/ml_predictions_{split}.parquet
+  - llm_classifier stage produces: predictions/llm_predictions_{split}.parquet
+  - This stage merges them + computes hybrid routing + generates reports.
 
 Usage:
-    python -m src.research --split test [--limit N] [--skip-llm] [--force-all-stages]
+    python -m src.research --split test
 """
 
 import argparse
 
 import pandas as pd
-from tqdm import tqdm
 
-from src.utils import ROOT, load_config
-from src.ml_classifier.ml_baseline import MLBaseline
-
-
-GROUND_TRUTH_COLS = [
-    "modified_sample",
-    "original_sample",
-    "attack_name",
-    "label_binary",
-    "label_category",
-    "label_type",
-    "prompt_hash",
-]
-
-
-def run_ml_full(ml_model: MLBaseline, df: pd.DataFrame, text_col: str) -> pd.DataFrame:
-    """Run ML predict_full() and return the wide probability DataFrame."""
-    return ml_model.predict_full(df, text_col)
-
-
-def run_llm_full(
-    df: pd.DataFrame,
-    cfg: dict,
-    text_col: str,
-    force_all_stages: bool = False,
-) -> pd.DataFrame:
-    """Run LLM classifier on all samples and return predictions DataFrame.
-
-    Columns: llm_pred_{binary,category,type}, llm_conf_{binary,category,type},
-             llm_stages_run
-    """
-    import dotenv
-    dotenv.load_dotenv()
-
-    from src.llm_classifier.llm_classifier import (
-        HierarchicalLLMClassifier,
-        build_few_shot_examples,
-    )
-
-    data_dir = ROOT / "data" / "processed"
-    df_train = pd.read_parquet(data_dir / "train.parquet")
-    few_shot, _ = build_few_shot_examples(df_train, cfg)
-    classifier = HierarchicalLLMClassifier(cfg, few_shot)
-
-    results = classifier.predict_batch(
-        df[text_col].tolist(),
-        desc="LLM classifying",
-        force_all_stages=force_all_stages,
-    )
-
-    rows = []
-    for r in results:
-        rows.append({
-            "llm_pred_binary": r["label_binary"],
-            "llm_pred_category": r["label_category"],
-            "llm_pred_type": r["label_type"],
-            "llm_conf_binary": r["confidence_binary"],
-            "llm_conf_category": r["confidence_category"],
-            "llm_conf_type": r["confidence_type"],
-            "llm_stages_run": r.get("llm_stages_run"),
-        })
-    return pd.DataFrame(rows)
+from src.utils import (
+    load_config,
+    PREDICTIONS_DIR, RESEARCH_DIR,
+    REPORTS_RESEARCH_DIR,
+)
+from src.evaluate import (
+    binary_metrics, category_metrics, type_metrics,
+    calibration_metrics, generate_report,
+)
 
 
 def compute_hybrid_routing(
@@ -124,73 +73,141 @@ def compute_hybrid_routing(
 
 
 def build_research_dataframe(
-    df: pd.DataFrame,
     ml_df: pd.DataFrame,
     hybrid_df: pd.DataFrame,
     llm_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Merge ground truth, ML, LLM, and hybrid results into one wide DataFrame."""
-    gt = df[GROUND_TRUTH_COLS].reset_index(drop=True)
-    parts = [gt, ml_df.reset_index(drop=True), hybrid_df.reset_index(drop=True)]
+    """Merge ML predictions, LLM predictions, and hybrid results into one wide DataFrame.
+
+    The ML predictions parquet already contains ground-truth columns, so we
+    don't need the original split parquet.
+    """
+    parts = [ml_df.reset_index(drop=True), hybrid_df.reset_index(drop=True)]
     if llm_df is not None:
-        parts.insert(2, llm_df.reset_index(drop=True))
+        # Insert LLM columns (only the llm_* columns, not duplicated GT)
+        llm_cols = [c for c in llm_df.columns if c.startswith("llm_")]
+        parts.insert(1, llm_df[llm_cols].reset_index(drop=True))
     return pd.concat(parts, axis=1)
 
 
+def generate_ml_report(research_df: pd.DataFrame, output_path: str):
+    """Generate ML-only evaluation report from the research DataFrame."""
+    binary = binary_metrics(research_df["label_binary"], research_df["ml_pred_binary"])
+    cat = category_metrics(research_df["label_category"], research_df["ml_pred_category"])
+    types = type_metrics(research_df["label_type"], research_df["ml_pred_type"])
+    cal = calibration_metrics(
+        research_df["label_binary"], research_df["ml_pred_binary"],
+        research_df["ml_conf_binary"],
+    )
+    report = generate_report(research_df, binary, cat, types, cal)
+    # Replace title
+    report = report.replace("# LLM Classifier Evaluation Report", "# ML Classifier Evaluation Report")
+    with open(output_path, "w") as f:
+        f.write(report)
+    print(f"  ML report saved → {output_path}")
+    return binary
+
+
+def generate_hybrid_report(research_df: pd.DataFrame, output_path: str):
+    """Generate hybrid evaluation report from the research DataFrame."""
+    binary = binary_metrics(research_df["label_binary"], research_df["hybrid_pred_binary"])
+    cat = category_metrics(research_df["label_category"], research_df["hybrid_pred_category"])
+    types = type_metrics(research_df["label_type"], research_df["hybrid_pred_type"])
+
+    # Use ML confidence as proxy for hybrid confidence
+    cal = calibration_metrics(
+        research_df["label_binary"], research_df["hybrid_pred_binary"],
+        research_df["ml_conf_binary"],
+    )
+
+    # Add routing stats as usage info
+    routing = research_df["hybrid_routed_to"].value_counts().to_dict()
+    usage = {f"routed_{k}": v for k, v in routing.items()}
+
+    report = generate_report(research_df, binary, cat, types, cal, usage)
+    report = report.replace("# LLM Classifier Evaluation Report", "# Hybrid Router Evaluation Report")
+    with open(output_path, "w") as f:
+        f.write(report)
+    print(f"  Hybrid report saved → {output_path}")
+    return binary
+
+
+def generate_llm_report(research_df: pd.DataFrame, output_path: str):
+    """Generate LLM-only evaluation report from the research DataFrame."""
+    binary = binary_metrics(research_df["label_binary"], research_df["llm_pred_binary"])
+    cat = category_metrics(research_df["label_category"], research_df["llm_pred_category"])
+    types = type_metrics(research_df["label_type"], research_df["llm_pred_type"])
+    cal = calibration_metrics(
+        research_df["label_binary"], research_df["llm_pred_binary"],
+        research_df["llm_conf_binary"],
+    )
+    report = generate_report(research_df, binary, cat, types, cal)
+    with open(output_path, "w") as f:
+        f.write(report)
+    print(f"  LLM report saved → {output_path}")
+    return binary
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Research mode: comprehensive analysis run")
+    parser = argparse.ArgumentParser(
+        description="Research stage: merge predictions, compute hybrid routing, generate reports"
+    )
     parser.add_argument("--config", default=None)
     parser.add_argument("--split", default="test", help="Which split to run on")
-    parser.add_argument("--limit", type=int, default=None, help="Max samples")
-    parser.add_argument("--skip-llm", action="store_true", help="Skip LLM (ML + hybrid only)")
-    parser.add_argument("--force-all-stages", action="store_true",
-                        help="Force LLM to run all 3 stages on every sample")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    data_dir = ROOT / "data" / "processed"
-    text_col = cfg["dataset"]["text_col"]
-
-    # Load split data
-    df = pd.read_parquet(data_dir / f"{args.split}.parquet")
-    if args.limit and args.limit < len(df):
-        df = df.sample(n=args.limit, random_state=42)
-    print(f"Research run: {len(df)} samples from {args.split} split")
-
-    # ML full probabilities (fast, free)
-    print("Running ML predict_full()...")
-    ml = MLBaseline(cfg)
-    ml.load(str(data_dir / "ml_baseline.pkl"))
-    ml_df = run_ml_full(ml, df, text_col)
-
-    # Optional LLM
-    llm_df = None
-    if not args.skip_llm:
-        print("Running LLM classifier...")
-        llm_df = run_llm_full(df, cfg, text_col, force_all_stages=args.force_all_stages)
-
-    # Hybrid routing
     threshold = cfg["hybrid"]["ml_confidence_threshold"]
+
+    # ── Read pre-computed ML predictions ─────────────────────────────────────
+    ml_path = PREDICTIONS_DIR / f"ml_predictions_{args.split}.parquet"
+    if not ml_path.exists():
+        raise FileNotFoundError(
+            f"ML predictions not found: {ml_path}\n"
+            "Run the ml_model stage first (dvc repro ml_model)."
+        )
+    ml_df = pd.read_parquet(ml_path)
+    print(f"Loaded ML predictions: {ml_path} ({len(ml_df)} samples)")
+
+    # ── Read pre-computed LLM predictions (optional) ─────────────────────────
+    llm_path = PREDICTIONS_DIR / f"llm_predictions_{args.split}.parquet"
+    llm_df = None
+    if llm_path.exists():
+        llm_df = pd.read_parquet(llm_path)
+        print(f"Loaded LLM predictions: {llm_path} ({len(llm_df)} samples)")
+    else:
+        print(f"No LLM predictions found at {llm_path} — using ML-only hybrid routing")
+
+    # ── Compute hybrid routing ───────────────────────────────────────────────
     print(f"Computing hybrid routing (threshold={threshold})...")
     hybrid_df = compute_hybrid_routing(ml_df, llm_df, threshold)
 
-    # Build wide DataFrame
-    research_df = build_research_dataframe(df, ml_df, hybrid_df, llm_df)
+    # ── Build wide research DataFrame ────────────────────────────────────────
+    research_df = build_research_dataframe(ml_df, hybrid_df, llm_df)
 
-    # Save
-    out_path = data_dir / f"research_{args.split}.parquet"
+    # ── Save research parquet ────────────────────────────────────────────────
+    RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = RESEARCH_DIR / f"research_{args.split}.parquet"
     research_df.to_parquet(out_path, index=False)
     print(f"\nResearch parquet saved → {out_path}")
     print(f"Shape: {research_df.shape}")
     print(f"Columns: {research_df.columns.tolist()}")
 
-    # Quick sanity check on probabilities
+    # ── Generate evaluation reports ──────────────────────────────────────────
+    REPORTS_RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
+
+    print("\nGenerating reports...")
+    generate_ml_report(research_df, str(REPORTS_RESEARCH_DIR / "eval_report_ml.md"))
+    generate_hybrid_report(research_df, str(REPORTS_RESEARCH_DIR / "eval_report_hybrid.md"))
+    if llm_df is not None:
+        generate_llm_report(research_df, str(REPORTS_RESEARCH_DIR / "eval_report_llm.md"))
+
+    # ── Quick sanity check ───────────────────────────────────────────────────
     binary_cols = [c for c in research_df.columns if c.startswith("ml_proba_binary_")]
     if binary_cols:
         sums = research_df[binary_cols].sum(axis=1)
         print(f"\nBinary proba sum: min={sums.min():.6f}, max={sums.max():.6f}")
 
-    # Routing summary
     routing_counts = hybrid_df["hybrid_routed_to"].value_counts()
     print(f"\nRouting: {routing_counts.to_dict()}")
 
