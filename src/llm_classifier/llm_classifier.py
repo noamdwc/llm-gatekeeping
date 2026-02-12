@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 import openai
 import wandb
 
-from src.utils import ROOT, load_config
+from src.utils import load_config, SPLITS_DIR, PREDICTIONS_DIR
 from src.embeddings import ExemplarBank
 from src.llm_classifier.constants import UNICODE_TYPES, ATTACK_DESCRIPTIONS
 
@@ -315,10 +315,11 @@ def main():
     parser.add_argument("--no-wandb", action="store_true", help="Disable wandb logging")
     parser.add_argument("--dynamic", action="store_true", help="Use dynamic few-shot retrieval")
     parser.add_argument("--bank-path", default=None, help="Path to exemplar bank pickle (built if not exists)")
+    parser.add_argument("--research", action="store_true",
+                        help="Save research-grade parquet with full prediction columns")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    data_dir = ROOT / "data" / "processed"
 
     # Init wandb
     if not args.no_wandb:
@@ -336,8 +337,8 @@ def main():
         )
 
     # Load train for few-shot, eval split for evaluation
-    df_train = pd.read_parquet(data_dir / "train.parquet")
-    df_eval = pd.read_parquet(data_dir / f"{args.split}.parquet")
+    df_train = pd.read_parquet(SPLITS_DIR / "train.parquet")
+    df_eval = pd.read_parquet(SPLITS_DIR / f"{args.split}.parquet")
 
     if args.limit and args.limit < len(df_eval):
         df_eval = df_eval.sample(n=args.limit, random_state=42)
@@ -345,11 +346,11 @@ def main():
     # Build few-shot from train (static) or exemplar bank (dynamic)
     exemplar_bank = None
     few_shot = {}
-    
+
     if args.dynamic:
         from src.embeddings import ExemplarBank
-        
-        bank_path = args.bank_path or str(data_dir / "exemplar_bank.pkl")
+
+        bank_path = args.bank_path or str(PREDICTIONS_DIR / "exemplar_bank.pkl")
         if Path(bank_path).exists():
             print(f"Loading exemplar bank from {bank_path}")
             exemplar_bank = ExemplarBank.load(bank_path)
@@ -375,9 +376,39 @@ def main():
     df_out = pd.concat([df_eval.reset_index(drop=True), preds.reset_index(drop=True)], axis=1)
 
     # Save
-    out_path = args.output or str(data_dir / f"predictions_{args.split}.csv")
-    df_out.to_csv(out_path, index=False)
-    print(f"\nPredictions saved → {out_path}")
+    if args.research:
+        # Research mode: save parquet with prefixed LLM columns
+        PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
+        research_rows = []
+        for r in results:
+            research_rows.append({
+                "llm_pred_binary": r["label_binary"],
+                "llm_pred_category": r["label_category"],
+                "llm_pred_type": r["label_type"],
+                "llm_conf_binary": r["confidence_binary"],
+                "llm_conf_category": r["confidence_category"],
+                "llm_conf_type": r["confidence_type"],
+                "llm_stages_run": r.get("llm_stages_run"),
+            })
+        llm_df = pd.DataFrame(research_rows)
+
+        # Include ground truth columns
+        gt_cols = [c for c in df_eval.columns if c in [
+            "modified_sample", "original_sample", "attack_name",
+            "label_binary", "label_category", "label_type", "prompt_hash",
+        ]]
+        gt = df_eval[gt_cols].reset_index(drop=True)
+        research_out = pd.concat([gt, llm_df], axis=1)
+
+        out_path = str(PREDICTIONS_DIR / f"llm_predictions_{args.split}.parquet")
+        research_out.to_parquet(out_path, index=False)
+        print(f"\nResearch predictions saved → {out_path} (shape: {research_out.shape})")
+    else:
+        # Legacy mode: save CSV
+        out_path = args.output or str(PREDICTIONS_DIR / f"predictions_{args.split}.csv")
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+        df_out.to_csv(out_path, index=False)
+        print(f"\nPredictions saved → {out_path}")
 
     # Print + log usage stats
     usage = classifier.usage.to_dict()

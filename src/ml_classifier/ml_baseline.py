@@ -26,7 +26,7 @@ from sklearn.metrics import accuracy_score, classification_report, f1_score
 from sklearn.preprocessing import LabelEncoder
 from sklearn.base import BaseEstimator, ClassifierMixin
 
-from src.utils import ROOT, load_config
+from src.utils import ROOT, load_config, SPLITS_DIR, MODELS_DIR, PREDICTIONS_DIR
 from src.ml_classifier.utils import extract_features_df
 
 class MLBaseline(BaseEstimator, ClassifierMixin):
@@ -163,14 +163,41 @@ def evaluate_ml(model: MLBaseline, df: pd.DataFrame, text_col: str, split_name: 
     return preds
 
 
+GROUND_TRUTH_COLS = [
+    "modified_sample",
+    "original_sample",
+    "attack_name",
+    "label_binary",
+    "label_category",
+    "label_type",
+    "prompt_hash",
+]
+
+
+def save_research_predictions(
+    model: MLBaseline, df: pd.DataFrame, text_col: str, split_name: str,
+):
+    """Run predict_full() and save ground truth + ML predictions as parquet."""
+    ml_df = model.predict_full(df, text_col)
+    gt_cols = [c for c in GROUND_TRUTH_COLS if c in df.columns]
+    gt = df[gt_cols].reset_index(drop=True)
+    out = pd.concat([gt, ml_df.reset_index(drop=True)], axis=1)
+
+    PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
+    path = PREDICTIONS_DIR / f"ml_predictions_{split_name}.parquet"
+    out.to_parquet(path, index=False)
+    print(f"  Research predictions saved → {path} (shape: {out.shape})")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train and evaluate ML baseline")
     parser.add_argument("--config", default=None)
     parser.add_argument("--no-wandb", action="store_true", help="Disable wandb logging")
+    parser.add_argument("--research", action="store_true",
+                        help="Save full prediction parquets for research pipeline")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    data_dir = ROOT / "data" / "processed"
     text_col = cfg["dataset"]["text_col"]
 
     # Init wandb
@@ -186,9 +213,9 @@ def main():
             },
         )
 
-    df_train = pd.read_parquet(data_dir / "train.parquet")
-    df_val = pd.read_parquet(data_dir / "val.parquet")
-    df_test = pd.read_parquet(data_dir / "test.parquet")
+    df_train = pd.read_parquet(SPLITS_DIR / "train.parquet")
+    df_val = pd.read_parquet(SPLITS_DIR / "val.parquet")
+    df_test = pd.read_parquet(SPLITS_DIR / "test.parquet")
 
     print("Training ML baseline...")
     model = MLBaseline(cfg)
@@ -202,7 +229,8 @@ def main():
         })
 
     # Save model
-    model_path = data_dir / "ml_baseline.pkl"
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    model_path = MODELS_DIR / "ml_baseline.pkl"
     model.save(str(model_path))
 
     if wandb.run is not None:
@@ -215,11 +243,21 @@ def main():
     preds_test = evaluate_ml(model, df_test, text_col, "test")
 
     # Also try unseen attacks if available
-    unseen_path = data_dir / "test_unseen.parquet"
+    unseen_path = SPLITS_DIR / "test_unseen.parquet"
     if unseen_path.exists():
         df_unseen = pd.read_parquet(unseen_path)
         if len(df_unseen) > 0:
             evaluate_ml(model, df_unseen, text_col, "test_unseen")
+
+    # Research mode: save full predictions for all splits
+    if args.research:
+        print("\nSaving research prediction parquets...")
+        save_research_predictions(model, df_test, text_col, "test")
+        save_research_predictions(model, df_val, text_col, "val")
+        if unseen_path.exists():
+            df_unseen = pd.read_parquet(unseen_path)
+            if len(df_unseen) > 0:
+                save_research_predictions(model, df_unseen, text_col, "test_unseen")
 
     if wandb.run is not None:
         wandb.finish()
