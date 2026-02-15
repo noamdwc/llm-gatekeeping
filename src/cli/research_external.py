@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 from src.utils import (
-    load_config, MODELS_DIR, SPLITS_DIR,
+    load_config, build_sample_id, MODELS_DIR, SPLITS_DIR,
     RESEARCH_EXTERNAL_DIR, REPORTS_EXTERNAL_DIR,
 )
 from src.evaluate import binary_metrics, calibration_metrics
@@ -40,7 +40,9 @@ EXTERNAL_GT_COLS = [
 
 def run_ml_full(ml_model, df: pd.DataFrame, text_col: str) -> pd.DataFrame:
     """Run ML predict_full() and return the wide probability DataFrame."""
-    return ml_model.predict_full(df, text_col)
+    result = ml_model.predict_full(df, text_col)
+    result.insert(0, "sample_id", df[text_col].reset_index(drop=True).apply(build_sample_id))
+    return result
 
 
 def run_llm_full(
@@ -71,7 +73,9 @@ def run_llm_full(
             "llm_conf_type": r["confidence_type"],
             "llm_stages_run": r.get("llm_stages_run"),
         })
-    return pd.DataFrame(rows)
+    result = pd.DataFrame(rows)
+    result.insert(0, "sample_id", df[text_col].reset_index(drop=True).apply(build_sample_id))
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -84,12 +88,17 @@ def build_external_research_df(
     hybrid_df: pd.DataFrame,
     llm_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Merge ground truth, ML, LLM, and hybrid results into one wide DataFrame."""
+    """Merge ground truth, ML, LLM, and hybrid results into one wide DataFrame.
+
+    All DataFrames are joined on ``sample_id`` so row order doesn't matter.
+    """
     gt = df[EXTERNAL_GT_COLS].reset_index(drop=True)
-    parts = [gt, ml_df.reset_index(drop=True), hybrid_df.reset_index(drop=True)]
+    gt.insert(0, "sample_id", gt["modified_sample"].apply(build_sample_id))
+    result = gt.merge(ml_df, on="sample_id")
+    result = result.merge(hybrid_df, on="sample_id")
     if llm_df is not None:
-        parts.insert(2, llm_df.reset_index(drop=True))
-    return pd.concat(parts, axis=1)
+        result = result.merge(llm_df, on="sample_id", how="left")
+    return result
 
 
 # ---------------------------------------------------------------------------

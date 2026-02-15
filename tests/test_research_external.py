@@ -12,6 +12,7 @@ from src.cli.research_external import (
     build_predictions_df,
     generate_research_report,
 )
+from src.utils import build_sample_id
 
 
 # ---------------------------------------------------------------------------
@@ -19,6 +20,9 @@ from src.cli.research_external import (
 # ---------------------------------------------------------------------------
 class TestBuildExternalResearchDf:
     """Tests for build_external_research_df()."""
+
+    def _sample_ids(self, n=4):
+        return [build_sample_id(f"text_{i}") for i in range(n)]
 
     def _make_df(self, n=4):
         return pd.DataFrame({
@@ -30,6 +34,7 @@ class TestBuildExternalResearchDf:
 
     def _make_ml_df(self, n=4):
         return pd.DataFrame({
+            "sample_id": self._sample_ids(n),
             "ml_pred_binary": ["adversarial", "benign", "benign", "adversarial"][:n],
             "ml_conf_binary": [0.95, 0.60, 0.88, 0.70][:n],
             "ml_pred_category": ["unicode_attack", "benign", "benign", "nlp_attack"][:n],
@@ -40,6 +45,7 @@ class TestBuildExternalResearchDf:
 
     def _make_hybrid_df(self, n=4):
         return pd.DataFrame({
+            "sample_id": self._sample_ids(n),
             "hybrid_routed_to": ["ml", "llm", "ml", "llm"][:n],
             "hybrid_pred_binary": ["adversarial", "adversarial", "benign", "benign"][:n],
             "hybrid_pred_category": ["unicode_attack", "nlp_attack", "benign", "benign"][:n],
@@ -80,6 +86,7 @@ class TestBuildExternalResearchDf:
         ml_df = self._make_ml_df(n)
         hybrid_df = self._make_hybrid_df(n)
         llm_df = pd.DataFrame({
+            "sample_id": self._sample_ids(n),
             "llm_pred_binary": ["adversarial"] * n,
             "llm_conf_binary": [0.90] * n,
         })

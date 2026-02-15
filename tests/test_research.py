@@ -10,6 +10,7 @@ from src.research import (
     compute_hybrid_routing,
     build_research_dataframe,
 )
+from src.utils import build_sample_id
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +196,9 @@ class TestComputeHybridRouting:
         n = len(confs)
         if preds_binary is None:
             preds_binary = ["adversarial"] * n
+        samples = [f"sample_{i}" for i in range(n)]
         return pd.DataFrame({
+            "sample_id": [build_sample_id(s) for s in samples],
             "ml_pred_binary": preds_binary,
             "ml_pred_category": ["unicode_attack"] * n,
             "ml_pred_type": ["Diacritcs"] * n,
@@ -205,7 +208,9 @@ class TestComputeHybridRouting:
         })
 
     def _make_llm_df(self, n):
+        samples = [f"sample_{i}" for i in range(n)]
         return pd.DataFrame({
+            "sample_id": [build_sample_id(s) for s in samples],
             "llm_pred_binary": ["adversarial"] * n,
             "llm_pred_category": ["nlp_attack"] * n,
             "llm_pred_type": ["nlp_attack"] * n,
@@ -241,7 +246,7 @@ class TestComputeHybridRouting:
         """When LLM is None, escalated samples fall back to ML predictions."""
         ml_df = self._make_ml_df([0.50])
         result = compute_hybrid_routing(ml_df, None, threshold=0.85)
-        assert result.iloc[0]["hybrid_routed_to"] == "llm"
+        assert result.iloc[0]["hybrid_routed_to"] == "ml"
         assert result.iloc[0]["hybrid_pred_binary"] == "adversarial"
         assert result.iloc[0]["hybrid_pred_type"] == "Diacritcs"
 
@@ -249,7 +254,7 @@ class TestComputeHybridRouting:
         """Output has exactly the expected columns."""
         ml_df = self._make_ml_df([0.5])
         result = compute_hybrid_routing(ml_df, None, threshold=0.85)
-        expected = {"hybrid_routed_to", "hybrid_pred_binary", "hybrid_pred_category", "hybrid_pred_type"}
+        expected = {"sample_id", "hybrid_routed_to", "hybrid_pred_binary", "hybrid_pred_category", "hybrid_pred_type"}
         assert set(result.columns) == expected
 
 
@@ -261,8 +266,10 @@ class TestBuildResearchDataframe:
 
     def _make_ml_df(self, n):
         """ML predictions parquet includes ground truth + predictions."""
+        samples = [f"text_{i}" for i in range(n)]
         return pd.DataFrame({
-            "modified_sample": [f"text_{i}" for i in range(n)],
+            "sample_id": [build_sample_id(s) for s in samples],
+            "modified_sample": samples,
             "label_binary": ["adversarial"] * n,
             "label_category": ["unicode_attack"] * n,
             "label_type": ["Diacritcs"] * n,
@@ -274,7 +281,9 @@ class TestBuildResearchDataframe:
         """Without LLM, output has ML + hybrid columns."""
         n = 5
         ml_df = self._make_ml_df(n)
+        samples = [f"text_{i}" for i in range(n)]
         hybrid_df = pd.DataFrame({
+            "sample_id": [build_sample_id(s) for s in samples],
             "hybrid_routed_to": ["ml"] * n,
             "hybrid_pred_binary": ["adversarial"] * n,
         })
@@ -288,11 +297,16 @@ class TestBuildResearchDataframe:
         """With LLM, output also includes llm columns."""
         n = 5
         ml_df = self._make_ml_df(n)
+        samples = [f"text_{i}" for i in range(n)]
         llm_df = pd.DataFrame({
+            "sample_id": [build_sample_id(s) for s in samples],
             "llm_pred_binary": ["benign"] * n,
             "llm_conf_binary": [0.8] * n,
         })
-        hybrid_df = pd.DataFrame({"hybrid_routed_to": ["ml"] * n})
+        hybrid_df = pd.DataFrame({
+            "sample_id": [build_sample_id(s) for s in samples],
+            "hybrid_routed_to": ["ml"] * n,
+        })
         result = build_research_dataframe(ml_df, hybrid_df, llm_df=llm_df)
         assert "llm_pred_binary" in result.columns
 
@@ -300,7 +314,11 @@ class TestBuildResearchDataframe:
         """Output row count matches input."""
         n = 5
         ml_df = self._make_ml_df(n)
-        hybrid_df = pd.DataFrame({"hybrid_routed_to": ["ml"] * n})
+        samples = [f"text_{i}" for i in range(n)]
+        hybrid_df = pd.DataFrame({
+            "sample_id": [build_sample_id(s) for s in samples],
+            "hybrid_routed_to": ["ml"] * n,
+        })
         result = build_research_dataframe(ml_df, hybrid_df)
         assert len(result) == n
 

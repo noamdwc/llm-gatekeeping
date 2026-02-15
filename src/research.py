@@ -36,40 +36,49 @@ def compute_hybrid_routing(
 
     If LLM results are available, escalated samples use LLM predictions.
     Otherwise, escalated samples fall back to ML predictions.
+    Rows are matched between ml_df and llm_df via the ``sample_id`` column.
 
-    Returns DataFrame with: hybrid_routed_to, hybrid_pred_{binary,category,type}
+    Returns DataFrame with: sample_id, hybrid_routed_to, hybrid_pred_{binary,category,type}
     """
-    n = len(ml_df)
-    routed_to = []
-    pred_binary = []
-    pred_category = []
-    pred_type = []
+    # Build a lookup from sample_id → LLM predictions
+    llm_lookup: dict | None = None
+    if llm_df is not None:
+        llm_lookup = llm_df.set_index("sample_id")[
+            ["llm_pred_binary", "llm_pred_category", "llm_pred_type"]
+        ].to_dict(orient="index")
 
-    for i in range(n):
-        ml_conf = ml_df.iloc[i]["ml_conf_binary"]
-        if ml_conf >= threshold:
-            routed_to.append("ml")
-            pred_binary.append(ml_df.iloc[i]["ml_pred_binary"])
-            pred_category.append(ml_df.iloc[i]["ml_pred_category"])
-            pred_type.append(ml_df.iloc[i]["ml_pred_type"])
+    rows = []
+    for _, ml_row in ml_df.iterrows():
+        sid = ml_row["sample_id"]
+        if ml_row["ml_conf_binary"] >= threshold:
+            rows.append({
+                "sample_id": sid,
+                "hybrid_routed_to": "ml",
+                "hybrid_pred_binary": ml_row["ml_pred_binary"],
+                "hybrid_pred_category": ml_row["ml_pred_category"],
+                "hybrid_pred_type": ml_row["ml_pred_type"],
+            })
         else:
-            routed_to.append("llm")
-            if llm_df is not None:
-                pred_binary.append(llm_df.iloc[i]["llm_pred_binary"])
-                pred_category.append(llm_df.iloc[i]["llm_pred_category"])
-                pred_type.append(llm_df.iloc[i]["llm_pred_type"])
+            llm_row = llm_lookup.get(sid) if llm_lookup else None
+            if llm_row is not None:
+                rows.append({
+                    "sample_id": sid,
+                    "hybrid_routed_to": "llm",
+                    "hybrid_pred_binary": llm_row["llm_pred_binary"],
+                    "hybrid_pred_category": llm_row["llm_pred_category"],
+                    "hybrid_pred_type": llm_row["llm_pred_type"],
+                })
             else:
-                # Fallback to ML when LLM was skipped
-                pred_binary.append(ml_df.iloc[i]["ml_pred_binary"])
-                pred_category.append(ml_df.iloc[i]["ml_pred_category"])
-                pred_type.append(ml_df.iloc[i]["ml_pred_type"])
+                # Fallback to ML when LLM prediction is missing
+                rows.append({
+                    "sample_id": sid,
+                    "hybrid_routed_to": "ml",
+                    "hybrid_pred_binary": ml_row["ml_pred_binary"],
+                    "hybrid_pred_category": ml_row["ml_pred_category"],
+                    "hybrid_pred_type": ml_row["ml_pred_type"],
+                })
 
-    return pd.DataFrame({
-        "hybrid_routed_to": routed_to,
-        "hybrid_pred_binary": pred_binary,
-        "hybrid_pred_category": pred_category,
-        "hybrid_pred_type": pred_type,
-    })
+    return pd.DataFrame(rows)
 
 
 def build_research_dataframe(
@@ -79,15 +88,15 @@ def build_research_dataframe(
 ) -> pd.DataFrame:
     """Merge ML predictions, LLM predictions, and hybrid results into one wide DataFrame.
 
+    All DataFrames are joined on ``sample_id`` so row order doesn't matter.
     The ML predictions parquet already contains ground-truth columns, so we
     don't need the original split parquet.
     """
-    parts = [ml_df.reset_index(drop=True), hybrid_df.reset_index(drop=True)]
+    result = ml_df.merge(hybrid_df, on="sample_id")
     if llm_df is not None:
-        # Insert LLM columns (only the llm_* columns, not duplicated GT)
-        llm_cols = [c for c in llm_df.columns if c.startswith("llm_")]
-        parts.insert(1, llm_df[llm_cols].reset_index(drop=True))
-    return pd.concat(parts, axis=1)
+        llm_cols = ["sample_id"] + [c for c in llm_df.columns if c.startswith("llm_")]
+        result = result.merge(llm_df[llm_cols], on="sample_id", how="left")
+    return result
 
 
 def generate_ml_report(research_df: pd.DataFrame, output_path: str):
@@ -134,17 +143,19 @@ def generate_hybrid_report(research_df: pd.DataFrame, output_path: str):
 
 def generate_llm_report(research_df: pd.DataFrame, output_path: str):
     """Generate LLM-only evaluation report from the research DataFrame."""
-    binary = binary_metrics(research_df["label_binary"], research_df["llm_pred_binary"])
-    cat = category_metrics(research_df["label_category"], research_df["llm_pred_category"])
-    types = type_metrics(research_df["label_type"], research_df["llm_pred_type"])
+    # Only evaluate rows that have LLM predictions (left merge may leave NaN)
+    df = research_df.dropna(subset=["llm_pred_binary"])
+    binary = binary_metrics(df["label_binary"], df["llm_pred_binary"])
+    cat = category_metrics(df["label_category"], df["llm_pred_category"])
+    types = type_metrics(df["label_type"], df["llm_pred_type"])
     cal = calibration_metrics(
-        research_df["label_binary"], research_df["llm_pred_binary"],
-        research_df["llm_conf_binary"],
+        df["label_binary"], df["llm_pred_binary"],
+        df["llm_conf_binary"],
     )
-    report = generate_report(research_df, binary, cat, types, cal)
+    report = generate_report(df, binary, cat, types, cal)
     with open(output_path, "w") as f:
         f.write(report)
-    print(f"  LLM report saved → {output_path}")
+    print(f"  LLM report saved → {output_path} ({len(df)}/{len(research_df)} samples with LLM predictions)")
     return binary
 
 

@@ -26,7 +26,7 @@ from sklearn.metrics import accuracy_score, classification_report, f1_score
 from sklearn.preprocessing import LabelEncoder
 from sklearn.base import BaseEstimator, ClassifierMixin
 
-from src.utils import ROOT, load_config, SPLITS_DIR, MODELS_DIR, PREDICTIONS_DIR
+from src.utils import ROOT, load_config, build_sample_id, SPLITS_DIR, MODELS_DIR, PREDICTIONS_DIR
 from src.ml_classifier.utils import extract_features_df
 
 class MLBaseline(BaseEstimator, ClassifierMixin):
@@ -182,6 +182,7 @@ def save_research_predictions(
     gt_cols = [c for c in GROUND_TRUTH_COLS if c in df.columns]
     gt = df[gt_cols].reset_index(drop=True)
     out = pd.concat([gt, ml_df.reset_index(drop=True)], axis=1)
+    out.insert(0, "sample_id", out["modified_sample"].apply(build_sample_id))
 
     PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
     path = PREDICTIONS_DIR / f"ml_predictions_{split_name}.parquet"

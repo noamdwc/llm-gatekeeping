@@ -1,3 +1,5 @@
+import hashlib
+
 import yaml
 
 from pathlib import Path
@@ -24,6 +26,11 @@ def ensure_dirs():
         REPORTS_DIR, REPORTS_RESEARCH_DIR, REPORTS_EXTERNAL_DIR,
     ]:
         d.mkdir(parents=True, exist_ok=True)
+
+
+def build_sample_id(text: str) -> str:
+    """Deterministic ID for a modified sample, used to align prediction DataFrames."""
+    return hashlib.md5(text.encode()).hexdigest()[:16]
 
 
 def load_config(path: str = None) -> dict:
