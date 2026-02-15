@@ -3,7 +3,7 @@ Research mode for external datasets — comprehensive run capturing all
 intermediate ML probabilities and hybrid routing decisions.
 
 Designed to be called once per dataset by DVC foreach stages:
-    python -m src.cli.research_external --dataset deepset --skip-llm
+    python -m src.cli.research_external --dataset deepset
 
 Produces per-dataset:
   - Wide parquet file (data/processed/research_external/{ds_key}.parquet)
@@ -11,6 +11,8 @@ Produces per-dataset:
 """
 
 import argparse
+import os
+
 import dotenv
 import numpy as np
 import pandas as pd
@@ -382,9 +384,13 @@ def main():
         print(f"Available: {list(ext_datasets.keys())}")
         return
 
+    # CLI flag takes priority; otherwise fall back to SKIP_LLM env var
+    # (defaults to "1" = skip, so normal `dvc repro` skips LLM).
+    skip_llm = args.skip_llm or os.environ.get("SKIP_LLM", "1") == "1"
+
     run_research_single(
         args.dataset, ext_datasets[args.dataset], cfg,
-        skip_llm=args.skip_llm,
+        skip_llm=skip_llm,
         force_all_stages=args.force_all_stages,
         limit=args.limit,
     )

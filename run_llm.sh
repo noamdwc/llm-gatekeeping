@@ -7,9 +7,15 @@
 # llm_classifier → research (+ external datasets).
 #
 # Usage:
-#   ./run_llm.sh
+#   ./run_llm.sh            # normal run
+#   ./run_llm.sh --force    # force re-run all stages
 #
 set -euo pipefail
+
+DVC_FLAGS=""
+if [[ "${1:-}" == "--force" ]]; then
+    DVC_FLAGS="--force"
+fi
 
 LLM_STAGES="llm_classifier"
 
@@ -20,6 +26,6 @@ dvc unfreeze $LLM_STAGES
 trap 'echo "Re-freezing LLM stages..."; dvc freeze $LLM_STAGES' EXIT
 
 echo "Running full research pipeline..."
-dvc repro
+SKIP_LLM=0 dvc repro $DVC_FLAGS
 
 echo "Done."
