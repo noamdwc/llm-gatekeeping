@@ -24,7 +24,7 @@ Based on `dvc.yaml`, `src/`, and the existing `reports/` artifacts, the repo fun
 | **LLM classifier (3-stage, frozen by default)** | `python -m src.llm_classifier.llm_classifier --split test --limit 100 --research` | `data/processed/predictions/llm_predictions_test.parquet` |
 | **Research merge + hybrid routing + reports** | `python -m src.research --split test` | `data/processed/research/research_test.parquet`, `reports/research/eval_report_*.md` |
 | **External dataset eval (binary-only)** | `python -m src.eval_external --dataset <key> --mode ml|hybrid` | `reports/eval_external_<key>.md` |
-| **External dataset research (wide parquet + analysis)** | `python -m src.cli.research_external --dataset <key> --skip-llm` | `data/processed/research_external/research_external_<key>.parquet`, `reports/research_external/research_external_<key>.md` |
+| **External dataset research (wide parquet + analysis)** | `python -m src.cli.research_external --dataset <key>` | `data/processed/research_external/research_external_<key>.parquet`, `reports/research_external/research_external_<key>.md` |
 
 ### External datasets are additive (DVC foreach + caching)
 - External dataset research runs as independent DVC stages (e.g. `research_external@deepset`) via `foreach` in `dvc.yaml`.

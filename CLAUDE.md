@@ -18,9 +18,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Heavy, reproducible run via `dvc repro`. Each stage produces output files consumed by downstream stages (no redundant computation). Produces research parquets with all intermediate probabilities + evaluation reports.
 
 ```bash
-dvc repro                    # Run full pipeline (ML-only, LLM stages frozen)
-./run_llm.sh                 # Unfreeze LLM, run full pipeline, re-freeze
+dvc repro                    # Run full pipeline (ML-only; llm_classifier frozen, SKIP_LLM=1 by default)
+./run_llm.sh                 # Unfreeze LLM stages + set SKIP_LLM=0, run full pipeline, re-freeze
 ```
+
+**LLM control**: The `llm_classifier` DVC stage is frozen (unfreeze via `run_llm.sh`). For `research_external` stages, the `SKIP_LLM` env var controls LLM (defaults to `"1"` = skip); `run_llm.sh` sets `SKIP_LLM=0`.
 
 DVC stages: `preprocess → build_splits → ml_model → llm_classifier (frozen) → research → research_external@{dataset}`
 
@@ -45,7 +47,8 @@ python -m src.build_splits                                  # Grouped splits →
 python -m src.ml_classifier.ml_baseline --research          # Train ML + save research predictions
 python -m src.llm_classifier.llm_classifier --split test --research  # LLM classifier (API tokens)
 python -m src.research --split test                         # Merge predictions + hybrid routing + reports
-python -m src.cli.research_external --dataset deepset --skip-llm  # External dataset research
+python -m src.cli.research_external --dataset deepset             # External dataset research (SKIP_LLM=1 by default)
+SKIP_LLM=0 python -m src.cli.research_external --dataset deepset  # Include LLM predictions
 ```
 
 Prediction CLI:

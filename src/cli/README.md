@@ -46,10 +46,15 @@ echo "some prompt" | python -m src.cli.predict --mode hybrid --pretty
   - running ad-hoc external research for a single dataset
   - invoked by DVC `foreach` stages (`research_external@<key>`)
 
-Example:
+LLM control is via the `SKIP_LLM` environment variable (defaults to `"1"` = skip).
+The `--skip-llm` CLI flag can force skipping but cannot force LLM to run.
+
+Examples:
 
 ```bash
-python -m src.cli.research_external --dataset deepset --skip-llm
+python -m src.cli.research_external --dataset deepset             # ML-only (SKIP_LLM defaults to "1")
+SKIP_LLM=0 python -m src.cli.research_external --dataset deepset  # Include LLM predictions
+python -m src.cli.research_external --dataset deepset --skip-llm   # Force skip LLM regardless of env
 ```
 
 ## Differences at a glance

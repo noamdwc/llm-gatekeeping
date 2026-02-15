@@ -63,8 +63,6 @@ stages:
       - llm
     outs:
     - data/processed/predictions/llm_predictions_test.parquet
-
-  # ── Stage 5: Research (merge predictions + hybrid routing + reports) ─────
     frozen: true
   research:
     cmd: python -m src.research --split test

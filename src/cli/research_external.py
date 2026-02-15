@@ -367,9 +367,9 @@ def main():
     )
     parser.add_argument("--config", default=None, help="Path to config YAML")
     parser.add_argument("--limit", type=int, default=None, help="Max samples per dataset")
-    parser.add_argument("--skip-llm", action="store_true", help="Skip LLM (ML + hybrid only)")
+    parser.add_argument("--skip-llm", action="store_true", default=False, help="Skip LLM (ML + hybrid only)")
     parser.add_argument("--force-all-stages", action="store_true",
-                        help="Force LLM to run all 3 stages on every sample")
+                        default=False, help="Force LLM to run all 3 stages on every sample")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -386,7 +386,9 @@ def main():
 
     # CLI flag takes priority; otherwise fall back to SKIP_LLM env var
     # (defaults to "1" = skip, so normal `dvc repro` skips LLM).
-    skip_llm = args.skip_llm or os.environ.get("SKIP_LLM", "1") == "1"
+    skip_llm = os.environ.get("SKIP_LLM", "1") == "1"
+    if args.skip_llm: # CLI flag takes priority
+        skip_llm = True
 
     run_research_single(
         args.dataset, ext_datasets[args.dataset], cfg,

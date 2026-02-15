@@ -30,7 +30,7 @@ def ensure_dirs():
 
 def build_sample_id(text: str) -> str:
     """Deterministic ID for a modified sample, used to align prediction DataFrames."""
-    return hashlib.md5(text.encode()).hexdigest()[:16]
+    return hashlib.md5(text.encode()).hexdigest()
 
 
 def load_config(path: str = None) -> dict:
