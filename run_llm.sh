@@ -14,7 +14,7 @@ set -euo pipefail
 LLM_STAGES="llm_classifier"
 
 echo "Unfreezing LLM stages..."
-dvc freeze --unfreeze $LLM_STAGES
+dvc unfreeze $LLM_STAGES
 
 # Re-freeze on exit (success or failure) so dvc.yaml stays clean
 trap 'echo "Re-freezing LLM stages..."; dvc freeze $LLM_STAGES' EXIT
