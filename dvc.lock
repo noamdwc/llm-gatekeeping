@@ -1,0 +1,428 @@
+schema: '2.0'
+stages:
+  preprocess:
+    cmd: python -m src.preprocess
+    deps:
+    - path: src/preprocess.py
+      hash: md5
+      md5: 1bed13f1b49dfc615f895ff3e4004d48
+      size: 5168
+    - path: src/utils.py
+      hash: md5
+      md5: f6663ef711a654f426dd863059ceabdf
+      size: 1321
+    params:
+      configs/default.yaml:
+        benign:
+          use_originals: true
+          target_count: 2000
+          paraphrase_model: gpt-4o-mini
+          paraphrases_per_prompt: 2
+        dataset:
+          name: Mindgard/evaded-prompt-injection-and-jailbreak-samples
+          split: train
+          text_col: modified_sample
+          original_text_col: original_sample
+          label_col: attack_name
+        labels:
+          unicode_attacks:
+          - Diacritcs
+          - Underline Accent Marks
+          - Upside Down Text
+          - Bidirectional Text
+          - Full Width Text
+          - Emoji Smuggling
+          - Spaces
+          - Homoglyphs
+          - Deletion Characters
+          - Unicode Tags Smuggling
+          - Zero Width
+          - Numbers
+          nlp_attacks:
+          - BAE
+          - Bert-Attack
+          - Deep Word Bug
+          - Alzantot
+          - Pruthi
+          - PWWS
+          - TextBugger
+          - TextFooler
+          held_out_attacks:
+          - Emoji Smuggling
+          - Pruthi
+    outs:
+    - path: data/processed/full_dataset.parquet
+      hash: md5
+      md5: fac8569deb8765d8dd2b366edf747d2e
+      size: 3223648
+  build_splits:
+    cmd: python -m src.build_splits
+    deps:
+    - path: data/processed/full_dataset.parquet
+      hash: md5
+      md5: fac8569deb8765d8dd2b366edf747d2e
+      size: 3223648
+    - path: src/build_splits.py
+      hash: md5
+      md5: b73963e040ab28472232da020fa80735
+      size: 3041
+    - path: src/utils.py
+      hash: md5
+      md5: f6663ef711a654f426dd863059ceabdf
+      size: 1321
+    params:
+      configs/default.yaml:
+        labels.held_out_attacks:
+        - Emoji Smuggling
+        - Pruthi
+        splits:
+          train: 0.7
+          val: 0.15
+          test: 0.15
+          random_seed: 42
+    outs:
+    - path: data/processed/splits/test.parquet
+      hash: md5
+      md5: 2cf5701c17b93d03abbc7197b246f66c
+      size: 422839
+    - path: data/processed/splits/test_unseen.parquet
+      hash: md5
+      md5: 40065fa276afdda14d815daf762ef204
+      size: 520616
+    - path: data/processed/splits/train.parquet
+      hash: md5
+      md5: 2ecf6b8c32c982f19f1754db97279bd5
+      size: 1845316
+    - path: data/processed/splits/val.parquet
+      hash: md5
+      md5: 433d4810c65e2dea7ed29277cb354bb6
+      size: 585455
+  ml_model:
+    cmd: python -m src.ml_classifier.ml_baseline --research --no-wandb
+    deps:
+    - path: data/processed/splits/test.parquet
+      hash: md5
+      md5: 2cf5701c17b93d03abbc7197b246f66c
+      size: 422839
+    - path: data/processed/splits/test_unseen.parquet
+      hash: md5
+      md5: 40065fa276afdda14d815daf762ef204
+      size: 520616
+    - path: data/processed/splits/train.parquet
+      hash: md5
+      md5: 2ecf6b8c32c982f19f1754db97279bd5
+      size: 1845316
+    - path: data/processed/splits/val.parquet
+      hash: md5
+      md5: 433d4810c65e2dea7ed29277cb354bb6
+      size: 585455
+    - path: src/ml_classifier/
+      hash: md5
+      md5: 3a940ca88ee9dcd3e14c3fd8fc270527.dir
+      size: 48254
+      nfiles: 12
+    - path: src/utils.py
+      hash: md5
+      md5: f6663ef711a654f426dd863059ceabdf
+      size: 1321
+    params:
+      configs/default.yaml:
+        ml:
+          char_ngram_range:
+          - 2
+          - 5
+          max_features: 50000
+          C: 1.0
+    outs:
+    - path: data/processed/models/ml_baseline.pkl
+      hash: md5
+      md5: 4df1310dadaa059940a377ba4d33bcbd
+      size: 8637209
+    - path: data/processed/predictions/ml_predictions_test.parquet
+      hash: md5
+      md5: 3fc375a34cc99f66901fdcf514573006
+      size: 765043
+    - path: data/processed/predictions/ml_predictions_test_unseen.parquet
+      hash: md5
+      md5: ba1285250df27389c60e822bd01a430d
+      size: 694699
+    - path: data/processed/predictions/ml_predictions_val.parquet
+      hash: md5
+      md5: 51e5b0973719bee4aca5ae14cf3a5e09
+      size: 910699
+  llm_classifier:
+    cmd: python -m src.llm_classifier.llm_classifier --split test --research --no-wandb
+    deps:
+    - path: data/processed/splits/test.parquet
+      hash: md5
+      md5: 2cf5701c17b93d03abbc7197b246f66c
+      size: 422839
+    - path: data/processed/splits/train.parquet
+      hash: md5
+      md5: 2ecf6b8c32c982f19f1754db97279bd5
+      size: 1845316
+    - path: src/embeddings.py
+      hash: md5
+      md5: 6f308b8b543bdf0931842b7dac551364
+      size: 6836
+    - path: src/llm_classifier/
+      hash: md5
+      md5: 2f7c24825b6d89c9557bc2a9952334fc.dir
+      size: 57765
+      nfiles: 10
+    - path: src/utils.py
+      hash: md5
+      md5: f6663ef711a654f426dd863059ceabdf
+      size: 1321
+    params:
+      configs/default.yaml:
+        llm:
+          model: gpt-4o-mini
+          model_quality: gpt-4o
+          temperature: 0
+          max_tokens_binary: 30
+          max_tokens_category: 30
+          max_tokens_type: 50
+          few_shot:
+            unicode: 2
+            nlp: 5
+            embedding_model: text-embedding-3-small
+            bank_size_per_type: 15
+            dynamic_k: 2
+    outs:
+    - path: data/processed/predictions/llm_predictions_test.parquet
+      hash: md5
+      md5: 592ac852c984a52e40e4b77517e6501f
+      size: 55742
+  research:
+    cmd: python -m src.research --split test
+    deps:
+    - path: data/processed/predictions/
+      hash: md5
+      md5: a5109635054941098d24bbca41b74c34.dir
+      size: 2426183
+      nfiles: 4
+    - path: data/processed/splits/test.parquet
+      hash: md5
+      md5: 2cf5701c17b93d03abbc7197b246f66c
+      size: 422839
+    - path: src/evaluate.py
+      hash: md5
+      md5: 1fe85913563d4471133c8c518cc913df
+      size: 10270
+    - path: src/research.py
+      hash: md5
+      md5: 676cba58288f9f5136136331d5a57ca6
+      size: 10030
+    - path: src/utils.py
+      hash: md5
+      md5: f6663ef711a654f426dd863059ceabdf
+      size: 1321
+    params:
+      configs/default.yaml:
+        hybrid.ml_confidence_threshold: 0.85
+    outs:
+    - path: data/processed/research/research_test.parquet
+      hash: md5
+      md5: c2743bd8efabd10c42f9cdb12a3bad4e
+      size: 774356
+    - path: reports/research/eval_report_hybrid.md
+      hash: md5
+      md5: 5ccd4dc3626351178b3af35788ca2a2d
+      size: 1678
+    - path: reports/research/eval_report_ml.md
+      hash: md5
+      md5: d2fc9010260b6705ee278ccb02e1aa31
+      size: 1625
+  research_external@deepset:
+    cmd: python -m src.cli.research_external --dataset deepset
+    deps:
+    - path: data/processed/models/ml_baseline.pkl
+      hash: md5
+      md5: 4df1310dadaa059940a377ba4d33bcbd
+      size: 8637209
+    - path: data/processed/splits/train.parquet
+      hash: md5
+      md5: 2ecf6b8c32c982f19f1754db97279bd5
+      size: 1845316
+    - path: src/cli/research_external.py
+      hash: md5
+      md5: 363334ae3a4c7382e54a279089fce6d5
+      size: 14466
+    - path: src/eval_external.py
+      hash: md5
+      md5: 0e306a2199f8e819a6453c1adc54cd93
+      size: 10565
+    - path: src/ml_classifier/
+      hash: md5
+      md5: 3a940ca88ee9dcd3e14c3fd8fc270527.dir
+      size: 48254
+      nfiles: 12
+    - path: src/utils.py
+      hash: md5
+      md5: f6663ef711a654f426dd863059ceabdf
+      size: 1321
+    params:
+      configs/default.yaml:
+        external_datasets.deepset:
+          name: deepset/prompt-injections
+          split: test
+          text_col: text
+          label_col: label
+          label_map:
+            1: adversarial
+            0: benign
+        hybrid.ml_confidence_threshold: 0.85
+    outs:
+    - path: data/processed/research_external/research_external_deepset.parquet
+      hash: md5
+      md5: 5c078c980f6e4049a4edf70584bd3cf9
+      size: 60242
+    - path: reports/research_external/research_external_deepset.md
+      hash: md5
+      md5: ac373057160ca70339530c1fed965b98
+      size: 2367
+  research_external@jackhhao:
+    cmd: python -m src.cli.research_external --dataset jackhhao
+    deps:
+    - path: data/processed/models/ml_baseline.pkl
+      hash: md5
+      md5: 4df1310dadaa059940a377ba4d33bcbd
+      size: 8637209
+    - path: data/processed/splits/train.parquet
+      hash: md5
+      md5: 2ecf6b8c32c982f19f1754db97279bd5
+      size: 1845316
+    - path: src/cli/research_external.py
+      hash: md5
+      md5: 363334ae3a4c7382e54a279089fce6d5
+      size: 14466
+    - path: src/eval_external.py
+      hash: md5
+      md5: 0e306a2199f8e819a6453c1adc54cd93
+      size: 10565
+    - path: src/ml_classifier/
+      hash: md5
+      md5: 3a940ca88ee9dcd3e14c3fd8fc270527.dir
+      size: 48254
+      nfiles: 12
+    - path: src/utils.py
+      hash: md5
+      md5: f6663ef711a654f426dd863059ceabdf
+      size: 1321
+    params:
+      configs/default.yaml:
+        external_datasets.jackhhao:
+          name: jackhhao/jailbreak-classification
+          split: test
+          text_col: prompt
+          label_col: type
+          label_map:
+            jailbreak: adversarial
+            benign: benign
+        hybrid.ml_confidence_threshold: 0.85
+    outs:
+    - path: data/processed/research_external/research_external_jackhhao.parquet
+      hash: md5
+      md5: 8e66258c9050bd5f5eeb9ccfd30a8984
+      size: 280874
+    - path: reports/research_external/research_external_jackhhao.md
+      hash: md5
+      md5: fd0005aae269f2325f8fffa473e3eb92
+      size: 4101
+  research_external@safeguard:
+    cmd: python -m src.cli.research_external --dataset safeguard
+    deps:
+    - path: data/processed/models/ml_baseline.pkl
+      hash: md5
+      md5: 4df1310dadaa059940a377ba4d33bcbd
+      size: 8637209
+    - path: data/processed/splits/train.parquet
+      hash: md5
+      md5: 2ecf6b8c32c982f19f1754db97279bd5
+      size: 1845316
+    - path: src/cli/research_external.py
+      hash: md5
+      md5: 363334ae3a4c7382e54a279089fce6d5
+      size: 14466
+    - path: src/eval_external.py
+      hash: md5
+      md5: 0e306a2199f8e819a6453c1adc54cd93
+      size: 10565
+    - path: src/ml_classifier/
+      hash: md5
+      md5: 3a940ca88ee9dcd3e14c3fd8fc270527.dir
+      size: 48254
+      nfiles: 12
+    - path: src/utils.py
+      hash: md5
+      md5: f6663ef711a654f426dd863059ceabdf
+      size: 1321
+    params:
+      configs/default.yaml:
+        external_datasets.safeguard:
+          name: xTRam1/safe-guard-prompt-injection
+          split: test
+          text_col: text
+          label_col: label
+          label_map:
+            1: adversarial
+            0: benign
+        hybrid.ml_confidence_threshold: 0.85
+    outs:
+    - path: data/processed/research_external/research_external_safeguard.parquet
+      hash: md5
+      md5: 3039cc137bfccd3484deaefedf6fafdb
+      size: 928043
+    - path: reports/research_external/research_external_safeguard.md
+      hash: md5
+      md5: d36eedf65bed8a4b29cdf7fc53edd59c
+      size: 4282
+  research_external@spml:
+    cmd: python -m src.cli.research_external --dataset spml
+    deps:
+    - path: data/processed/models/ml_baseline.pkl
+      hash: md5
+      md5: 4df1310dadaa059940a377ba4d33bcbd
+      size: 8637209
+    - path: data/processed/splits/train.parquet
+      hash: md5
+      md5: 2ecf6b8c32c982f19f1754db97279bd5
+      size: 1845316
+    - path: src/cli/research_external.py
+      hash: md5
+      md5: 363334ae3a4c7382e54a279089fce6d5
+      size: 14466
+    - path: src/eval_external.py
+      hash: md5
+      md5: 0e306a2199f8e819a6453c1adc54cd93
+      size: 10565
+    - path: src/ml_classifier/
+      hash: md5
+      md5: 3a940ca88ee9dcd3e14c3fd8fc270527.dir
+      size: 48254
+      nfiles: 12
+    - path: src/utils.py
+      hash: md5
+      md5: f6663ef711a654f426dd863059ceabdf
+      size: 1321
+    params:
+      configs/default.yaml:
+        external_datasets.spml:
+          name: reshabhs/SPML_Chatbot_Prompt_Injection
+          split: train
+          text_col: User Prompt
+          label_col: Prompt injection
+          label_map:
+            1: adversarial
+            0: benign
+        hybrid.ml_confidence_threshold: 0.85
+    outs:
+    - path: data/processed/research_external/research_external_spml.parquet
+      hash: md5
+      md5: 73c1a91f1ca3818e78b9b1dbdadb21b8
+      size: 8702065
+    - path: reports/research_external/research_external_spml.md
+      hash: md5
+      md5: 7e9bb496c4e988c170d2a976bfeb9bf4
+      size: 4352
