@@ -1,4 +1,4 @@
-"""Tests for src.research_external — research mode on external datasets."""
+"""Tests for src.cli.research_external — research mode on external datasets."""
 
 from unittest.mock import patch
 
@@ -306,7 +306,7 @@ class TestEndToEnd:
 
     def test_research_df_from_fitted_model(self, sample_config, fitted_ml_model):
         """Full pipeline: predict_full -> hybrid routing -> research DataFrame."""
-        from src.research_external import run_ml_full
+        from src.cli.research_external import run_ml_full
         from src.research import compute_hybrid_routing
 
         # Build external-style DataFrame
