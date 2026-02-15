@@ -374,13 +374,14 @@ def main():
     parser.add_argument("--config", default=None, help="Path to config YAML")
     parser.add_argument("--limit", type=int, default=None, help="Max samples per dataset")
     parser.add_argument(
-        "--skip-llm", action="store_true", default=None, dest="skip_llm",
+        "--skip-llm", action="store_true", dest="skip_llm",
         help="Force skip LLM (overrides SKIP_LLM env var)",
     )
     parser.add_argument(
         "--no-skip-llm", action="store_false", dest="skip_llm",
         help="Force run LLM (overrides SKIP_LLM env var)",
     )
+    parser.set_defaults(skip_llm=None)
     parser.add_argument("--force-all-stages", action="store_true",
                         default=False, help="Force LLM to run all 3 stages on every sample")
     args = parser.parse_args()
