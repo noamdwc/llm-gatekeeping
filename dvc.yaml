@@ -53,11 +53,11 @@ stages:
   llm_classifier:
     cmd: python -m src.llm_classifier.llm_classifier --split test --research --no-wandb
     deps:
-    - data/processed/splits/test.parquet
-    - data/processed/splits/train.parquet
-    - src/embeddings.py
     - src/llm_classifier/
+    - src/embeddings.py
     - src/utils.py
+    - data/processed/splits/train.parquet
+    - data/processed/splits/test.parquet
     params:
     - configs/default.yaml:
       - llm

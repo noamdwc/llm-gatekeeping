@@ -5,6 +5,12 @@ intermediate ML probabilities and hybrid routing decisions.
 Designed to be called once per dataset by DVC foreach stages:
     python -m src.cli.research_external --dataset deepset
 
+LLM execution is controlled primarily via the ``SKIP_LLM`` environment
+variable.  By default ``SKIP_LLM`` is ``"1"`` (skip LLM), so a plain
+``dvc repro`` will not compute LLM predictions.  To enable LLM predictions,
+set ``SKIP_LLM=0`` in the environment.  The CLI flags ``--skip-llm`` and
+``--no-skip-llm`` can override the environment variable explicitly.
+
 Produces per-dataset:
   - Wide parquet file (data/processed/research_external/{ds_key}.parquet)
   - Detailed markdown report (reports/research_external/{ds_key}.md)
@@ -96,10 +102,10 @@ def build_external_research_df(
     """
     gt = df[EXTERNAL_GT_COLS].reset_index(drop=True)
     gt.insert(0, "sample_id", gt["modified_sample"].apply(build_sample_id))
-    result = gt.merge(ml_df, on="sample_id")
-    result = result.merge(hybrid_df, on="sample_id")
+    result = gt.merge(ml_df, on="sample_id", validate="one_to_one")
+    result = result.merge(hybrid_df, on="sample_id", validate="one_to_one")
     if llm_df is not None:
-        result = result.merge(llm_df, on="sample_id", how="left")
+        result = result.merge(llm_df, on="sample_id", how="left", validate="one_to_one")
     return result
 
 
@@ -367,7 +373,14 @@ def main():
     )
     parser.add_argument("--config", default=None, help="Path to config YAML")
     parser.add_argument("--limit", type=int, default=None, help="Max samples per dataset")
-    parser.add_argument("--skip-llm", action="store_true", default=False, help="Skip LLM (ML + hybrid only)")
+    parser.add_argument(
+        "--skip-llm", action="store_true", default=None, dest="skip_llm",
+        help="Force skip LLM (overrides SKIP_LLM env var)",
+    )
+    parser.add_argument(
+        "--no-skip-llm", action="store_false", dest="skip_llm",
+        help="Force run LLM (overrides SKIP_LLM env var)",
+    )
     parser.add_argument("--force-all-stages", action="store_true",
                         default=False, help="Force LLM to run all 3 stages on every sample")
     args = parser.parse_args()
@@ -386,9 +399,10 @@ def main():
 
     # CLI flag takes priority; otherwise fall back to SKIP_LLM env var
     # (defaults to "1" = skip, so normal `dvc repro` skips LLM).
-    skip_llm = os.environ.get("SKIP_LLM", "1") == "1"
-    if args.skip_llm: # CLI flag takes priority
-        skip_llm = True
+    if args.skip_llm is not None:
+        skip_llm = args.skip_llm
+    else:
+        skip_llm = os.environ.get("SKIP_LLM", "1") == "1"
 
     run_research_single(
         args.dataset, ext_datasets[args.dataset], cfg,
