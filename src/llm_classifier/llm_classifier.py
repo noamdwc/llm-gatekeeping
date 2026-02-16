@@ -1,8 +1,7 @@
 """
-Hierarchical LLM classifier with three stages:
-  Stage 0: Binary — adversarial vs benign
-  Stage 1: Category — unicode_attack vs nlp_attack
-  Stage 2: Specific type — 12 unicode sub-types (NLP stays collapsed)
+LLM classifier with classifier + judge pattern:
+  Stage 1: Classifier — single call predicts binary + type together
+  Stage 2: Judge — conditional higher-quality model call on low-confidence predictions
 
 Usage:
     python -m src.llm_classifier [--config configs/default.yaml] [--split test] [--limit 100]
@@ -56,7 +55,7 @@ class UsageStats:
 
 
 class HierarchicalLLMClassifier:
-    """Three-stage hierarchical classifier using OpenAI chat completions."""
+    """Classifier + judge pattern using OpenAI chat completions."""
 
     def __init__(
         self,
@@ -68,10 +67,11 @@ class HierarchicalLLMClassifier:
         self.cfg = cfg
         self.client = openai.OpenAI()
         self.model = cfg["llm"]["model"]
+        self.model_quality = cfg["llm"].get("model_quality", self.model)
         self.temperature = cfg["llm"]["temperature"]
         self.few_shot = few_shot_examples or {}
         self.usage = UsageStats()
-        
+
         # Dynamic few-shot settings
         self.dynamic = dynamic
         self.exemplar_bank = exemplar_bank
@@ -80,11 +80,14 @@ class HierarchicalLLMClassifier:
 
     # -- internal helpers --------------------------------------------------
 
-    def _call_llm(self, messages: list[dict], max_tokens: int, stage: str) -> dict:
+    def _call_llm(
+        self, messages: list[dict], max_tokens: int, stage: str,
+        model: str | None = None,
+    ) -> dict:
         """Make one LLM call, track usage, return parsed JSON."""
         t0 = time.time()
         response = self.client.chat.completions.create(
-            model=self.model,
+            model=model or self.model,
             messages=messages,
             temperature=self.temperature,
             max_tokens=max_tokens,
@@ -104,167 +107,215 @@ class HierarchicalLLMClassifier:
         except (json.JSONDecodeError, IndexError):
             return {}
 
-    # -- Stage 0: Binary ---------------------------------------------------
-
-    def classify_binary(self, text: str) -> dict:
-        """Is the text adversarial or benign?"""
-        system = (
-            "You are a security classifier. Determine whether the following text "
-            "is a benign prompt or an adversarial/attack prompt that has been "
-            "manipulated to bypass safety filters.\n\n"
-            "Adversarial prompts often contain: unusual Unicode characters, "
-            "invisible characters, homoglyphs, words replaced with synonyms to "
-            "evade detection, reversed text, or encoded content.\n\n"
-            "Benign prompts are normal, unmanipulated text.\n\n"
-            'Respond ONLY with JSON: {"label": "adversarial" or "benign", '
-            '"confidence": 0.0-1.0}'
-        )
-        messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": f"Text: {text}"},
-        ]
-        result = self._call_llm(messages, self.cfg["llm"]["max_tokens_binary"], "binary")
-        return {
-            "label": result.get("label", "adversarial"),
-            "confidence": float(result.get("confidence", 0.5)),
-        }
-
-    # -- Stage 1: Category -------------------------------------------------
-
-    def classify_category(self, text: str) -> dict:
-        """Unicode-based or NLP-based attack?"""
-        system = (
-            "You are an expert at identifying text manipulation attacks.\n\n"
-            "Classify whether the text was modified using:\n"
-            '1. "unicode_attack" — Unicode/encoding manipulation (special characters, '
-            "invisible characters, visual tricks, homoglyphs, full-width, diacritics)\n"
-            '2. "nlp_attack" — NLP-based word substitution (replacing words with '
-            "synonyms or similar-meaning words, character-level typos)\n\n"
-            "Unicode attacks show: unusual characters, visual artifacts, encoding oddities, "
-            "invisible characters.\n"
-            "NLP attacks show: grammatically plausible text with some words swapped for "
-            "synonyms or near-synonyms.\n\n"
-            'Respond ONLY with JSON: {"label": "unicode_attack" or "nlp_attack", '
-            '"confidence": 0.0-1.0}'
-        )
-        messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": f"Text: {text}"},
-        ]
-        result = self._call_llm(messages, self.cfg["llm"]["max_tokens_category"], "category")
-        label = result.get("label", "nlp_attack")
-        if label not in ("unicode_attack", "nlp_attack"):
-            label = "nlp_attack"
-        return {
-            "label": label,
-            "confidence": float(result.get("confidence", 0.5)),
-        }
-
-    # -- Stage 2: Specific type (unicode only) -----------------------------
+    # -- Few-shot helpers --------------------------------------------------
 
     def _get_dynamic_few_shot(self, text: str) -> list[dict]:
         """Get dynamic few-shot examples using embedding similarity."""
         from src.embeddings import get_embeddings
-        
+
         k = self.cfg["llm"]["few_shot"].get("dynamic_k", 2)
-        
+
         # Embed the query
         query_emb = get_embeddings([text], model=self.exemplar_bank.embedding_model)[0]
-        
+
         # Retrieve examples from each unicode type
         examples = []
         for attack_type in UNICODE_TYPES:
             type_examples = self.exemplar_bank.select(query_emb, attack_type, k=k)
             examples.extend(type_examples)
-        
+
         return examples
 
-    def classify_type(self, text: str) -> dict:
-        """Classify into one of 12 unicode attack sub-types."""
-        descs = "\n".join(
-            f"- {t}: {ATTACK_DESCRIPTIONS[t]}" for t in UNICODE_TYPES
-        )
-        system = (
-            "You are an expert Unicode attack classifier. The text below was "
-            "modified using one of these Unicode-based attack techniques:\n\n"
-            f"{descs}\n\n"
-            "Analyze the text carefully and identify the specific technique.\n"
-            'Respond ONLY with JSON: {"label": "<attack_type>", "confidence": 0.0-1.0}'
-        )
-        messages = [{"role": "system", "content": system}]
-
-        # Add few-shot examples
+    def _build_few_shot_messages(self, text: str) -> list[dict]:
+        """Build few-shot example messages for the classifier prompt."""
+        messages = []
         if self.dynamic and self.exemplar_bank:
-            # Dynamic: retrieve similar examples per type
             examples = self._get_dynamic_few_shot(text)
             for ex in examples:
                 messages.append({"role": "user", "content": f"Text: {ex['text']}"})
                 messages.append(
-                    {"role": "assistant", "content": json.dumps({"label": ex["label"], "confidence": 0.99})}
+                    {"role": "assistant", "content": json.dumps(
+                        {"label": ex["label"], "confidence": 0.99}
+                    )}
                 )
         else:
-            # Static: use pre-selected random examples
+            # Static: use pre-selected random examples (unicode types + NLP)
             for attack_type in UNICODE_TYPES:
                 if attack_type in self.few_shot:
                     for example in self.few_shot[attack_type]:
                         messages.append({"role": "user", "content": f"Text: {example}"})
                         messages.append(
-                            {"role": "assistant", "content": json.dumps({"label": attack_type, "confidence": 0.99})}
+                            {"role": "assistant", "content": json.dumps(
+                                {"label": attack_type, "confidence": 0.99}
+                            )}
                         )
+            # NLP few-shot examples
+            for nlp_type in self.few_shot:
+                if nlp_type not in UNICODE_TYPES and nlp_type != "benign":
+                    for example in self.few_shot[nlp_type]:
+                        messages.append({"role": "user", "content": f"Text: {example}"})
+                        messages.append(
+                            {"role": "assistant", "content": json.dumps(
+                                {"label": "nlp_attack", "confidence": 0.99}
+                            )}
+                        )
+        return messages
+
+    # -- Classifier --------------------------------------------------------
+
+    def classify(self, text: str) -> dict:
+        """Single LLM call returning label + confidence.
+
+        Returns:
+            {"label": str, "confidence": float} where label is one of:
+            "benign", one of UNICODE_TYPES, or "nlp_attack".
+        """
+        descs = "\n".join(
+            f"- {t}: {ATTACK_DESCRIPTIONS[t]}" for t in UNICODE_TYPES
+        )
+        system = (
+            "You are a security classifier. Analyze the text and determine if it is "
+            "benign or an adversarial attack. If adversarial, identify the specific "
+            "attack type.\n\n"
+            "Possible labels:\n"
+            '- "benign": Normal, unmanipulated text\n'
+            f'- "nlp_attack": NLP-based word substitution (synonyms, typos)\n'
+            f"- Unicode attack types:\n{descs}\n\n"
+            "Respond ONLY with JSON: "
+            '{"label": "<label>", "confidence": 0.0-1.0}'
+        )
+        messages = [{"role": "system", "content": system}]
+
+        # Add few-shot examples
+        messages.extend(self._build_few_shot_messages(text))
 
         messages.append({"role": "user", "content": f"Text: {text}"})
 
-        result = self._call_llm(messages, self.cfg["llm"]["max_tokens_type"], "type")
-        label = result.get("label", "unknown")
-        if label not in UNICODE_TYPES:
-            label = "unknown"
-        return {
-            "label": label,
-            "confidence": float(result.get("confidence", 0.5)),
-        }
+        result = self._call_llm(
+            messages, self.cfg["llm"]["max_tokens_classifier"], "classifier"
+        )
+        label = result.get("label", "")
+        confidence = float(result.get("confidence", 0.5))
+
+        # Normalize label
+        if label == "benign":
+            pass
+        elif label in UNICODE_TYPES:
+            pass
+        elif label == "nlp_attack":
+            pass
+        else:
+            # Unknown label → default to nlp_attack (adversarial)
+            label = "nlp_attack"
+
+        return {"label": label, "confidence": confidence}
+
+    # -- Judge -------------------------------------------------------------
+
+    def judge(self, text: str, classifier_output: dict) -> dict:
+        """Conditional LLM call using model_quality for chain-of-thought review.
+
+        Args:
+            text: The input text.
+            classifier_output: The classifier's prediction dict.
+
+        Returns:
+            {"label": str, "confidence": float, "reasoning": str}
+        """
+        descs = "\n".join(
+            f"- {t}: {ATTACK_DESCRIPTIONS[t]}" for t in UNICODE_TYPES
+        )
+        classifier_label = classifier_output["label"]
+        classifier_conf = classifier_output["confidence"]
+
+        system = (
+            "You are a senior security analyst reviewing a classifier's prediction. "
+            "The classifier analyzed a text and predicted it as "
+            f'"{classifier_label}" with confidence {classifier_conf:.2f}.\n\n'
+            "Your job: review the text and the prediction, reason step by step, "
+            "and provide your own assessment.\n\n"
+            "Possible labels:\n"
+            '- "benign": Normal, unmanipulated text\n'
+            f'- "nlp_attack": NLP-based word substitution (synonyms, typos)\n'
+            f"- Unicode attack types:\n{descs}\n\n"
+            "Respond ONLY with JSON: "
+            '{"label": "<label>", "confidence": 0.0-1.0, '
+            '"reasoning": "<your step-by-step reasoning>"}'
+        )
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": f"Text: {text}"},
+        ]
+
+        result = self._call_llm(
+            messages, self.cfg["llm"]["max_tokens_judge"], "judge",
+            model=self.model_quality,
+        )
+
+        label = result.get("label", "")
+        confidence = float(result.get("confidence", 0.5))
+        reasoning = result.get("reasoning", "")
+
+        # Validate label; fall back to classifier prediction on unrecognizable
+        valid_labels = {"benign", "nlp_attack"} | set(UNICODE_TYPES)
+        if label not in valid_labels:
+            label = classifier_label
+            confidence = classifier_conf
+
+        return {"label": label, "confidence": confidence, "reasoning": reasoning}
+
+    # -- Category derivation -----------------------------------------------
+
+    @staticmethod
+    def _derive_category(label_binary: str, label_type: str) -> str:
+        """Derive category from binary + type labels."""
+        if label_binary == "benign":
+            return "benign"
+        if label_type in UNICODE_TYPES:
+            return "unicode_attack"
+        return "nlp_attack"
 
     # -- Full pipeline -----------------------------------------------------
 
     def predict(self, text: str, force_all_stages: bool = False) -> dict:
-        """Run full hierarchical classification.
+        """Run classifier + conditional judge.
 
         Args:
-            force_all_stages: If True, run category+type even for benign,
-                and type even for NLP. Useful for research/analysis.
+            force_all_stages: If True, always run the judge regardless of
+                classifier confidence.
         """
-        stages_run = 1  # binary always runs
+        # Stage 1: Classifier
+        clf_result = self.classify(text)
+        stages_run = 1
 
-        # Stage 0: binary
-        binary = self.classify_binary(text)
-        if binary["label"] == "benign" and not force_all_stages:
-            return {
-                "label_binary": "benign",
-                "label_category": "benign",
-                "label_type": "benign",
-                "confidence_binary": binary["confidence"],
-                "confidence_category": None,
-                "confidence_type": None,
-                "llm_stages_run": stages_run,
-            }
+        label = clf_result["label"]
+        confidence = clf_result["confidence"]
 
-        # Stage 1: category
-        category = self.classify_category(text)
-        stages_run += 1
+        threshold = self.cfg["llm"].get("judge_confidence_threshold", 0.7)
 
-        # Stage 2: type (unicode only, unless forced)
-        if category["label"] == "unicode_attack" or force_all_stages:
-            type_result = self.classify_type(text)
-            stages_run += 1
+        # Stage 2: Judge (conditional)
+        if confidence < threshold or force_all_stages:
+            judge_result = self.judge(text, clf_result)
+            stages_run = 2
+            label = judge_result["label"]
+            confidence = judge_result["confidence"]
+
+        # Derive binary and category from the final label
+        if label == "benign":
+            label_binary = "benign"
         else:
-            type_result = {"label": "nlp_attack", "confidence": category["confidence"]}
+            label_binary = "adversarial"
+
+        label_type = label if label != "benign" else "benign"
+        label_category = self._derive_category(label_binary, label_type)
 
         return {
-            "label_binary": binary["label"],
-            "label_category": category["label"],
-            "label_type": type_result["label"],
-            "confidence_binary": binary["confidence"],
-            "confidence_category": category["confidence"],
-            "confidence_type": type_result["confidence"],
+            "label_binary": label_binary,
+            "label_category": label_category,
+            "label_type": label_type,
+            "confidence_binary": confidence,
+            "confidence_category": confidence,
+            "confidence_type": confidence,
             "llm_stages_run": stages_run,
         }
 

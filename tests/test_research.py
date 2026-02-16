@@ -90,90 +90,72 @@ class TestForceAllStages:
             from src.llm_classifier.llm_classifier import HierarchicalLLMClassifier
             return HierarchicalLLMClassifier(cfg, few_shot_examples={})
 
-    def test_default_benign_skips_stages(self, sample_config):
-        """Default (force_all_stages=False): benign skips category+type."""
+    def test_default_high_confidence_skips_judge(self, sample_config):
+        """Default (force_all_stages=False): high-confidence skips judge."""
         clf = self._make_classifier(sample_config)
-        clf.classify_binary = MagicMock(
+        clf.classify = MagicMock(
             return_value={"label": "benign", "confidence": 0.99}
         )
-        clf.classify_category = MagicMock()
-        clf.classify_type = MagicMock()
+        clf.judge = MagicMock()
 
         result = clf.predict("normal text", force_all_stages=False)
 
         assert result["llm_stages_run"] == 1
-        clf.classify_category.assert_not_called()
-        clf.classify_type.assert_not_called()
+        clf.judge.assert_not_called()
 
-    def test_forced_benign_runs_all_stages(self, sample_config):
-        """force_all_stages=True: benign still runs category+type."""
+    def test_forced_benign_runs_judge(self, sample_config):
+        """force_all_stages=True: always runs judge even for high confidence."""
         clf = self._make_classifier(sample_config)
-        clf.classify_binary = MagicMock(
+        clf.classify = MagicMock(
             return_value={"label": "benign", "confidence": 0.99}
         )
-        clf.classify_category = MagicMock(
-            return_value={"label": "nlp_attack", "confidence": 0.7}
-        )
-        clf.classify_type = MagicMock(
-            return_value={"label": "unknown", "confidence": 0.3}
+        clf.judge = MagicMock(
+            return_value={"label": "benign", "confidence": 0.98, "reasoning": ""}
         )
 
         result = clf.predict("normal text", force_all_stages=True)
 
-        assert result["llm_stages_run"] == 3
-        clf.classify_category.assert_called_once()
-        clf.classify_type.assert_called_once()
+        assert result["llm_stages_run"] == 2
+        clf.judge.assert_called_once()
 
-    def test_forced_nlp_runs_type(self, sample_config):
-        """force_all_stages=True: NLP category still runs type stage."""
+    def test_low_confidence_triggers_judge(self, sample_config):
+        """Low-confidence classifier result triggers judge."""
         clf = self._make_classifier(sample_config)
-        clf.classify_binary = MagicMock(
-            return_value={"label": "adversarial", "confidence": 0.95}
+        clf.classify = MagicMock(
+            return_value={"label": "nlp_attack", "confidence": 0.5}
         )
-        clf.classify_category = MagicMock(
-            return_value={"label": "nlp_attack", "confidence": 0.88}
+        clf.judge = MagicMock(
+            return_value={"label": "Homoglyphs", "confidence": 0.9, "reasoning": ""}
         )
-        clf.classify_type = MagicMock(
-            return_value={"label": "unknown", "confidence": 0.4}
-        )
-
-        result = clf.predict("some text", force_all_stages=True)
-
-        assert result["llm_stages_run"] == 3
-        clf.classify_type.assert_called_once()
-
-    def test_default_nlp_skips_type(self, sample_config):
-        """Default: NLP category skips type, stages_run=2."""
-        clf = self._make_classifier(sample_config)
-        clf.classify_binary = MagicMock(
-            return_value={"label": "adversarial", "confidence": 0.95}
-        )
-        clf.classify_category = MagicMock(
-            return_value={"label": "nlp_attack", "confidence": 0.88}
-        )
-        clf.classify_type = MagicMock()
 
         result = clf.predict("some text", force_all_stages=False)
 
         assert result["llm_stages_run"] == 2
-        clf.classify_type.assert_not_called()
+        clf.judge.assert_called_once()
+
+    def test_high_confidence_nlp_skips_judge(self, sample_config):
+        """High-confidence NLP prediction skips judge, stages_run=1."""
+        clf = self._make_classifier(sample_config)
+        clf.classify = MagicMock(
+            return_value={"label": "nlp_attack", "confidence": 0.88}
+        )
+        clf.judge = MagicMock()
+
+        result = clf.predict("some text", force_all_stages=False)
+
+        assert result["llm_stages_run"] == 1
+        clf.judge.assert_not_called()
 
     def test_stages_run_in_result(self, sample_config):
         """llm_stages_run is always present in result dict."""
         clf = self._make_classifier(sample_config)
-        clf.classify_binary = MagicMock(
-            return_value={"label": "adversarial", "confidence": 0.95}
-        )
-        clf.classify_category = MagicMock(
-            return_value={"label": "unicode_attack", "confidence": 0.9}
-        )
-        clf.classify_type = MagicMock(
-            return_value={"label": "Diacritcs", "confidence": 0.85}
+        clf.classify = MagicMock(
+            return_value={"label": "Diacritcs", "confidence": 0.95}
         )
 
         result = clf.predict("text")
         assert "llm_stages_run" in result
-        assert result["llm_stages_run"] == 3
+        assert result["llm_stages_run"] == 1
 
     def test_predict_batch_passes_force_flag(self, sample_config):
         """predict_batch forwards force_all_stages to predict."""

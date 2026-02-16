@@ -2,7 +2,7 @@
 
 import json
 from collections import defaultdict
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 
 import pandas as pd
 import pytest
@@ -12,6 +12,7 @@ from src.llm_classifier.llm_classifier import (
     UsageStats,
     build_few_shot_examples,
 )
+from src.llm_classifier.constants import UNICODE_TYPES
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +84,7 @@ class TestBuildFewShotExamples:
 
 
 # ---------------------------------------------------------------------------
-# HierarchicalLLMClassifier (mocked)
+# Helper: create classifier with mocked OpenAI client
 # ---------------------------------------------------------------------------
 def _make_classifier(cfg, few_shot=None):
     """Create a classifier with a mocked OpenAI client."""
@@ -94,170 +95,287 @@ def _make_classifier(cfg, few_shot=None):
     return classifier
 
 
-def _mock_call_llm_response(label, confidence=0.95):
+def _mock_call_llm_response(label, confidence=0.95, reasoning=""):
     """Return a dict as if parsed from LLM JSON response."""
-    return {"label": label, "confidence": confidence}
+    d = {"label": label, "confidence": confidence}
+    if reasoning:
+        d["reasoning"] = reasoning
+    return d
 
 
-class TestClassifyBinary:
-    """Tests for classify_binary() with mocked _call_llm."""
-
-    def test_adversarial(self, sample_config):
-        clf = _make_classifier(sample_config)
-        clf._call_llm = MagicMock(
-            return_value=_mock_call_llm_response("adversarial", 0.95)
-        )
-        result = clf.classify_binary("some text")
-        assert result["label"] == "adversarial"
-        assert result["confidence"] == 0.95
+# ---------------------------------------------------------------------------
+# TestClassify
+# ---------------------------------------------------------------------------
+class TestClassify:
+    """Tests for classify() — single-call classifier."""
 
     def test_benign(self, sample_config):
         clf = _make_classifier(sample_config)
         clf._call_llm = MagicMock(
             return_value=_mock_call_llm_response("benign", 0.99)
         )
-        result = clf.classify_binary("normal text")
+        result = clf.classify("normal text")
         assert result["label"] == "benign"
         assert result["confidence"] == 0.99
 
-    def test_empty_response_defaults(self, sample_config):
-        """Empty LLM response defaults to adversarial with 0.5 confidence."""
-        clf = _make_classifier(sample_config)
-        clf._call_llm = MagicMock(return_value={})
-        result = clf.classify_binary("text")
-        assert result["label"] == "adversarial"
-        assert result["confidence"] == 0.5
-
-
-class TestClassifyCategory:
-    """Tests for classify_category() with mocked _call_llm."""
-
-    def test_unicode_attack(self, sample_config):
+    def test_unicode_type(self, sample_config):
         clf = _make_classifier(sample_config)
         clf._call_llm = MagicMock(
-            return_value=_mock_call_llm_response("unicode_attack", 0.9)
+            return_value=_mock_call_llm_response("Diacritcs", 0.9)
         )
-        result = clf.classify_category("text")
-        assert result["label"] == "unicode_attack"
+        result = clf.classify("héllö wörld")
+        assert result["label"] == "Diacritcs"
+        assert result["confidence"] == 0.9
 
     def test_nlp_attack(self, sample_config):
         clf = _make_classifier(sample_config)
         clf._call_llm = MagicMock(
             return_value=_mock_call_llm_response("nlp_attack", 0.85)
         )
-        result = clf.classify_category("text")
+        result = clf.classify("greetings earth")
         assert result["label"] == "nlp_attack"
+        assert result["confidence"] == 0.85
 
-    def test_invalid_label_defaults_to_nlp(self, sample_config):
-        """Invalid label falls back to nlp_attack."""
+    def test_unknown_label_defaults_to_nlp_attack(self, sample_config):
+        """Unknown label from LLM defaults to nlp_attack."""
         clf = _make_classifier(sample_config)
         clf._call_llm = MagicMock(
-            return_value=_mock_call_llm_response("something_else", 0.5)
+            return_value=_mock_call_llm_response("something_weird", 0.6)
         )
-        result = clf.classify_category("text")
+        result = clf.classify("text")
         assert result["label"] == "nlp_attack"
 
+    def test_empty_response_defaults(self, sample_config):
+        """Empty LLM response defaults to nlp_attack with 0.5 confidence."""
+        clf = _make_classifier(sample_config)
+        clf._call_llm = MagicMock(return_value={})
+        result = clf.classify("text")
+        assert result["label"] == "nlp_attack"
+        assert result["confidence"] == 0.5
 
-class TestClassifyType:
-    """Tests for classify_type() with mocked _call_llm."""
-
-    def test_valid_unicode_type(self, sample_config):
+    def test_calls_with_classifier_stage(self, sample_config):
+        """Verify _call_llm is called with stage='classifier'."""
         clf = _make_classifier(sample_config)
         clf._call_llm = MagicMock(
-            return_value=_mock_call_llm_response("Diacritcs", 0.9)
+            return_value=_mock_call_llm_response("benign", 0.9)
         )
-        result = clf.classify_type("text")
+        clf.classify("text")
+        args, kwargs = clf._call_llm.call_args
+        assert args[2] == "classifier"  # stage parameter
+
+
+# ---------------------------------------------------------------------------
+# TestJudge
+# ---------------------------------------------------------------------------
+class TestJudge:
+    """Tests for judge() — conditional higher-quality review."""
+
+    def test_overrides_classifier(self, sample_config):
+        """Judge can change the classifier's prediction."""
+        clf = _make_classifier(sample_config)
+        clf._call_llm = MagicMock(
+            return_value=_mock_call_llm_response("Homoglyphs", 0.95, "Cyrillic chars detected")
+        )
+        classifier_output = {"label": "nlp_attack", "confidence": 0.5}
+        result = clf.judge("hеllo", classifier_output)
+        assert result["label"] == "Homoglyphs"
+        assert result["confidence"] == 0.95
+        assert result["reasoning"] == "Cyrillic chars detected"
+
+    def test_invalid_label_falls_back_to_classifier(self, sample_config):
+        """Invalid judge label falls back to classifier's prediction."""
+        clf = _make_classifier(sample_config)
+        clf._call_llm = MagicMock(
+            return_value=_mock_call_llm_response("garbage_label", 0.8)
+        )
+        classifier_output = {"label": "Diacritcs", "confidence": 0.6}
+        result = clf.judge("text", classifier_output)
         assert result["label"] == "Diacritcs"
+        assert result["confidence"] == 0.6
 
-    def test_unknown_type_defaults(self, sample_config):
-        """Invalid type label falls back to 'unknown'."""
+    def test_uses_quality_model(self, sample_config):
+        """Judge calls _call_llm with model_quality."""
         clf = _make_classifier(sample_config)
         clf._call_llm = MagicMock(
-            return_value=_mock_call_llm_response("not_a_real_type", 0.5)
+            return_value=_mock_call_llm_response("benign", 0.95)
         )
-        result = clf.classify_type("text")
-        assert result["label"] == "unknown"
+        classifier_output = {"label": "nlp_attack", "confidence": 0.5}
+        clf.judge("text", classifier_output)
+        _, kwargs = clf._call_llm.call_args
+        assert kwargs["model"] == "gpt-4o"
 
-
-class TestPredict:
-    """Tests for the full predict() pipeline with mocked stages."""
-
-    def test_benign_skips_stages_1_2(self, sample_config):
-        """Benign classification skips category and type stages."""
+    def test_empty_response_falls_back(self, sample_config):
+        """Empty judge response falls back to classifier prediction."""
         clf = _make_classifier(sample_config)
-        clf.classify_binary = MagicMock(
+        clf._call_llm = MagicMock(return_value={})
+        classifier_output = {"label": "Zero Width", "confidence": 0.65}
+        result = clf.judge("text", classifier_output)
+        # Empty response → label="" which is invalid → falls back
+        assert result["label"] == "Zero Width"
+        assert result["confidence"] == 0.65
+
+    def test_calls_with_judge_stage(self, sample_config):
+        """Verify _call_llm is called with stage='judge'."""
+        clf = _make_classifier(sample_config)
+        clf._call_llm = MagicMock(
+            return_value=_mock_call_llm_response("benign", 0.9)
+        )
+        clf.judge("text", {"label": "nlp_attack", "confidence": 0.5})
+        args, kwargs = clf._call_llm.call_args
+        assert args[2] == "judge"
+
+
+# ---------------------------------------------------------------------------
+# TestDeriveCategory
+# ---------------------------------------------------------------------------
+class TestDeriveCategory:
+    """Tests for _derive_category() — pure function."""
+
+    def test_benign(self):
+        assert HierarchicalLLMClassifier._derive_category("benign", "benign") == "benign"
+
+    def test_unicode_type(self):
+        for utype in UNICODE_TYPES:
+            assert HierarchicalLLMClassifier._derive_category("adversarial", utype) == "unicode_attack"
+
+    def test_nlp_attack(self):
+        assert HierarchicalLLMClassifier._derive_category("adversarial", "nlp_attack") == "nlp_attack"
+
+    def test_unknown_adversarial_type(self):
+        """Unknown adversarial type defaults to nlp_attack category."""
+        assert HierarchicalLLMClassifier._derive_category("adversarial", "unknown") == "nlp_attack"
+
+
+# ---------------------------------------------------------------------------
+# TestPredict
+# ---------------------------------------------------------------------------
+class TestPredict:
+    """Tests for the full predict() pipeline with mocked classify/judge."""
+
+    def test_high_confidence_skips_judge(self, sample_config):
+        """High-confidence classifier result skips judge."""
+        clf = _make_classifier(sample_config)
+        clf.classify = MagicMock(
+            return_value={"label": "Diacritcs", "confidence": 0.95}
+        )
+        clf.judge = MagicMock()
+
+        result = clf.predict("héllö")
+
+        clf.classify.assert_called_once()
+        clf.judge.assert_not_called()
+        assert result["llm_stages_run"] == 1
+
+    def test_low_confidence_triggers_judge(self, sample_config):
+        """Low-confidence classifier result triggers judge."""
+        clf = _make_classifier(sample_config)
+        clf.classify = MagicMock(
+            return_value={"label": "nlp_attack", "confidence": 0.5}
+        )
+        clf.judge = MagicMock(
+            return_value={"label": "Homoglyphs", "confidence": 0.9, "reasoning": ""}
+        )
+
+        result = clf.predict("text")
+
+        clf.classify.assert_called_once()
+        clf.judge.assert_called_once()
+        assert result["llm_stages_run"] == 2
+        assert result["label_type"] == "Homoglyphs"
+        assert result["label_binary"] == "adversarial"
+        assert result["label_category"] == "unicode_attack"
+
+    def test_force_all_stages(self, sample_config):
+        """force_all_stages=True always runs judge even with high confidence."""
+        clf = _make_classifier(sample_config)
+        clf.classify = MagicMock(
             return_value={"label": "benign", "confidence": 0.99}
         )
-        clf.classify_category = MagicMock()
-        clf.classify_type = MagicMock()
+        clf.judge = MagicMock(
+            return_value={"label": "benign", "confidence": 0.98, "reasoning": ""}
+        )
 
-        result = clf.predict("normal text")
+        result = clf.predict("normal text", force_all_stages=True)
+
+        clf.judge.assert_called_once()
+        assert result["llm_stages_run"] == 2
+
+    def test_output_contract_keys(self, sample_config):
+        """Predict output has all required keys."""
+        clf = _make_classifier(sample_config)
+        clf.classify = MagicMock(
+            return_value={"label": "benign", "confidence": 0.95}
+        )
+
+        result = clf.predict("text")
+
+        expected_keys = {
+            "label_binary", "label_category", "label_type",
+            "confidence_binary", "confidence_category", "confidence_type",
+            "llm_stages_run",
+        }
+        assert set(result.keys()) == expected_keys
+
+    def test_benign_prediction(self, sample_config):
+        """Benign classifier output produces correct labels."""
+        clf = _make_classifier(sample_config)
+        clf.classify = MagicMock(
+            return_value={"label": "benign", "confidence": 0.95}
+        )
+
+        result = clf.predict("hello world")
 
         assert result["label_binary"] == "benign"
         assert result["label_category"] == "benign"
         assert result["label_type"] == "benign"
-        clf.classify_category.assert_not_called()
-        clf.classify_type.assert_not_called()
 
-    def test_adversarial_unicode_full_pipeline(self, sample_config):
-        """Adversarial + unicode_attack → all three stages called."""
+    def test_category_derived_correctly_unicode(self, sample_config):
+        """Unicode type → category = unicode_attack."""
         clf = _make_classifier(sample_config)
-        clf.classify_binary = MagicMock(
-            return_value={"label": "adversarial", "confidence": 0.95}
-        )
-        clf.classify_category = MagicMock(
-            return_value={"label": "unicode_attack", "confidence": 0.9}
-        )
-        clf.classify_type = MagicMock(
-            return_value={"label": "Diacritcs", "confidence": 0.85}
+        clf.classify = MagicMock(
+            return_value={"label": "Zero Width", "confidence": 0.9}
         )
 
-        result = clf.predict("héllö")
+        result = clf.predict("text")
 
         assert result["label_binary"] == "adversarial"
         assert result["label_category"] == "unicode_attack"
-        assert result["label_type"] == "Diacritcs"
-        clf.classify_binary.assert_called_once()
-        clf.classify_category.assert_called_once()
-        clf.classify_type.assert_called_once()
+        assert result["label_type"] == "Zero Width"
 
-    def test_adversarial_nlp_skips_type(self, sample_config):
-        """Adversarial + nlp_attack → type stage skipped, type='nlp_attack'."""
+    def test_category_derived_correctly_nlp(self, sample_config):
+        """nlp_attack type → category = nlp_attack."""
         clf = _make_classifier(sample_config)
-        clf.classify_binary = MagicMock(
-            return_value={"label": "adversarial", "confidence": 0.95}
+        clf.classify = MagicMock(
+            return_value={"label": "nlp_attack", "confidence": 0.85}
         )
-        clf.classify_category = MagicMock(
-            return_value={"label": "nlp_attack", "confidence": 0.88}
-        )
-        clf.classify_type = MagicMock()
 
         result = clf.predict("greetings earth")
 
         assert result["label_binary"] == "adversarial"
         assert result["label_category"] == "nlp_attack"
         assert result["label_type"] == "nlp_attack"
-        clf.classify_type.assert_not_called()
 
-    def test_confidence_propagation(self, sample_config):
-        """Confidence values from each stage appear in final result."""
+    def test_judge_result_used_when_triggered(self, sample_config):
+        """When judge is triggered, its label/confidence are used."""
         clf = _make_classifier(sample_config)
-        clf.classify_binary = MagicMock(
-            return_value={"label": "adversarial", "confidence": 0.91}
+        clf.classify = MagicMock(
+            return_value={"label": "nlp_attack", "confidence": 0.4}
         )
-        clf.classify_category = MagicMock(
-            return_value={"label": "unicode_attack", "confidence": 0.82}
-        )
-        clf.classify_type = MagicMock(
-            return_value={"label": "Zero Width", "confidence": 0.73}
+        clf.judge = MagicMock(
+            return_value={"label": "benign", "confidence": 0.92, "reasoning": ""}
         )
 
         result = clf.predict("text")
-        assert result["confidence_binary"] == 0.91
-        assert result["confidence_category"] == 0.82
-        assert result["confidence_type"] == 0.73
+
+        assert result["label_binary"] == "benign"
+        assert result["label_category"] == "benign"
+        assert result["label_type"] == "benign"
+        assert result["confidence_binary"] == 0.92
 
 
+# ---------------------------------------------------------------------------
+# TestDynamicFewShot
+# ---------------------------------------------------------------------------
 class TestDynamicFewShot:
     """Tests for dynamic=True requiring an ExemplarBank."""
 

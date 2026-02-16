@@ -46,9 +46,9 @@ def sample_config():
             "model": "gpt-4o-mini",
             "model_quality": "gpt-4o",
             "temperature": 0,
-            "max_tokens_binary": 30,
-            "max_tokens_category": 30,
-            "max_tokens_type": 50,
+            "max_tokens_classifier": 60,
+            "max_tokens_judge": 300,
+            "judge_confidence_threshold": 0.7,
             "few_shot": {
                 "unicode": 2,
                 "nlp": 2,
