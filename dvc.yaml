@@ -51,6 +51,7 @@ stages:
 
   # ── Stage 4: LLM Classifier (frozen by default — costs API tokens) ──────
   llm_classifier:
+    frozen: true
     cmd: python -m src.llm_classifier.llm_classifier --split test --research --no-wandb
     deps:
       - src/llm_classifier/
@@ -66,7 +67,6 @@ stages:
 
   # ── Stage 5: Research (merge predictions + hybrid routing + reports) ─────
   research:
-    frozen: true
     cmd: python -m src.research --split test
     deps:
       - src/research.py
