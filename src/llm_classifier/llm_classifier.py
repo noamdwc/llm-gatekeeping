@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 import openai
 import wandb
 
-from src.utils import load_config, SPLITS_DIR, PREDICTIONS_DIR
+from src.utils import load_config, build_sample_id, SPLITS_DIR, PREDICTIONS_DIR
 from src.embeddings import ExemplarBank
 from src.llm_classifier.constants import UNICODE_TYPES, ATTACK_DESCRIPTIONS
 
@@ -399,6 +399,7 @@ def main():
         ]]
         gt = df_eval[gt_cols].reset_index(drop=True)
         research_out = pd.concat([gt, llm_df], axis=1)
+        research_out.insert(0, "sample_id", research_out["modified_sample"].apply(build_sample_id))
 
         out_path = str(PREDICTIONS_DIR / f"llm_predictions_{args.split}.parquet")
         research_out.to_parquet(out_path, index=False)

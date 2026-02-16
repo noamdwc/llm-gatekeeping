@@ -121,8 +121,14 @@ def preprocess(config_path: str = None, output_dir: str = None) -> pd.DataFrame:
     df_benign = add_hierarchical_labels_benign(df_benign)
     print(f"  Benign samples: {len(df_benign)}")
 
-    # Combine
+    # Combine and drop duplicates
+    text_col = cfg["dataset"]["text_col"]
     df = pd.concat([df_adv, df_benign], ignore_index=True)
+    n_before = len(df)
+    df = df.drop_duplicates(subset=[text_col]).reset_index(drop=True)
+    n_dropped = n_before - len(df)
+    if n_dropped:
+        print(f"  Dropped {n_dropped} duplicate rows ({len(df)} remaining)")
 
     # Add prompt hash for grouped splitting
     orig_col = cfg["dataset"]["original_text_col"]

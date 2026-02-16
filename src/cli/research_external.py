@@ -3,7 +3,13 @@ Research mode for external datasets — comprehensive run capturing all
 intermediate ML probabilities and hybrid routing decisions.
 
 Designed to be called once per dataset by DVC foreach stages:
-    python -m src.cli.research_external --dataset deepset --skip-llm
+    python -m src.cli.research_external --dataset deepset
+
+LLM execution is controlled primarily via the ``SKIP_LLM`` environment
+variable.  By default ``SKIP_LLM`` is ``"1"`` (skip LLM), so a plain
+``dvc repro`` will not compute LLM predictions.  To enable LLM predictions,
+set ``SKIP_LLM=0`` in the environment.  The CLI flags ``--skip-llm`` and
+``--no-skip-llm`` can override the environment variable explicitly.
 
 Produces per-dataset:
   - Wide parquet file (data/processed/research_external/{ds_key}.parquet)
@@ -11,12 +17,14 @@ Produces per-dataset:
 """
 
 import argparse
+import os
+
 import dotenv
 import numpy as np
 import pandas as pd
 
 from src.utils import (
-    load_config, MODELS_DIR, SPLITS_DIR,
+    load_config, build_sample_id, MODELS_DIR, SPLITS_DIR,
     RESEARCH_EXTERNAL_DIR, REPORTS_EXTERNAL_DIR,
 )
 from src.evaluate import binary_metrics, calibration_metrics
@@ -40,7 +48,9 @@ EXTERNAL_GT_COLS = [
 
 def run_ml_full(ml_model, df: pd.DataFrame, text_col: str) -> pd.DataFrame:
     """Run ML predict_full() and return the wide probability DataFrame."""
-    return ml_model.predict_full(df, text_col)
+    result = ml_model.predict_full(df, text_col)
+    result.insert(0, "sample_id", df[text_col].reset_index(drop=True).apply(build_sample_id))
+    return result
 
 
 def run_llm_full(
@@ -71,7 +81,9 @@ def run_llm_full(
             "llm_conf_type": r["confidence_type"],
             "llm_stages_run": r.get("llm_stages_run"),
         })
-    return pd.DataFrame(rows)
+    result = pd.DataFrame(rows)
+    result.insert(0, "sample_id", df[text_col].reset_index(drop=True).apply(build_sample_id))
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -84,12 +96,17 @@ def build_external_research_df(
     hybrid_df: pd.DataFrame,
     llm_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Merge ground truth, ML, LLM, and hybrid results into one wide DataFrame."""
+    """Merge ground truth, ML, LLM, and hybrid results into one wide DataFrame.
+
+    All DataFrames are joined on ``sample_id`` so row order doesn't matter.
+    """
     gt = df[EXTERNAL_GT_COLS].reset_index(drop=True)
-    parts = [gt, ml_df.reset_index(drop=True), hybrid_df.reset_index(drop=True)]
+    gt.insert(0, "sample_id", gt["modified_sample"].apply(build_sample_id))
+    result = gt.merge(ml_df, on="sample_id", validate="one_to_one")
+    result = result.merge(hybrid_df, on="sample_id", validate="one_to_one")
     if llm_df is not None:
-        parts.insert(2, llm_df.reset_index(drop=True))
-    return pd.concat(parts, axis=1)
+        result = result.merge(llm_df, on="sample_id", how="left", validate="one_to_one")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +363,18 @@ def run_research_single(
 # CLI
 # ---------------------------------------------------------------------------
 
+def resolve_skip_llm(cli_flag: bool | None) -> bool:
+    """Resolve the skip_llm tri-state: CLI flag > SKIP_LLM env var > default (True).
+
+    ``cli_flag`` is ``True`` (``--skip-llm``), ``False`` (``--no-skip-llm``),
+    or ``None`` (neither flag given → fall back to the ``SKIP_LLM`` env var,
+    which itself defaults to ``"1"`` = skip).
+    """
+    if cli_flag is not None:
+        return cli_flag
+    return os.environ.get("SKIP_LLM", "1") == "1"
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Research mode: comprehensive analysis on external datasets"
@@ -356,9 +385,17 @@ def main():
     )
     parser.add_argument("--config", default=None, help="Path to config YAML")
     parser.add_argument("--limit", type=int, default=None, help="Max samples per dataset")
-    parser.add_argument("--skip-llm", action="store_true", help="Skip LLM (ML + hybrid only)")
+    parser.add_argument(
+        "--skip-llm", action="store_true", dest="skip_llm",
+        help="Force skip LLM (overrides SKIP_LLM env var)",
+    )
+    parser.add_argument(
+        "--no-skip-llm", action="store_false", dest="skip_llm",
+        help="Force run LLM (overrides SKIP_LLM env var)",
+    )
+    parser.set_defaults(skip_llm=None)
     parser.add_argument("--force-all-stages", action="store_true",
-                        help="Force LLM to run all 3 stages on every sample")
+                        default=False, help="Force LLM to run all 3 stages on every sample")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -373,9 +410,11 @@ def main():
         print(f"Available: {list(ext_datasets.keys())}")
         return
 
+    skip_llm = resolve_skip_llm(args.skip_llm)
+
     run_research_single(
         args.dataset, ext_datasets[args.dataset], cfg,
-        skip_llm=args.skip_llm,
+        skip_llm=skip_llm,
         force_all_stages=args.force_all_stages,
         limit=args.limit,
     )

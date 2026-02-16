@@ -1,4 +1,4 @@
-"""Tests for src.research_external — research mode on external datasets."""
+"""Tests for src.cli.research_external — research mode on external datasets."""
 
 from unittest.mock import patch
 
@@ -11,7 +11,9 @@ from src.cli.research_external import (
     build_external_research_df,
     build_predictions_df,
     generate_research_report,
+    resolve_skip_llm,
 )
+from src.utils import build_sample_id
 
 
 # ---------------------------------------------------------------------------
@@ -19,6 +21,9 @@ from src.cli.research_external import (
 # ---------------------------------------------------------------------------
 class TestBuildExternalResearchDf:
     """Tests for build_external_research_df()."""
+
+    def _sample_ids(self, n=4):
+        return [build_sample_id(f"text_{i}") for i in range(n)]
 
     def _make_df(self, n=4):
         return pd.DataFrame({
@@ -30,6 +35,7 @@ class TestBuildExternalResearchDf:
 
     def _make_ml_df(self, n=4):
         return pd.DataFrame({
+            "sample_id": self._sample_ids(n),
             "ml_pred_binary": ["adversarial", "benign", "benign", "adversarial"][:n],
             "ml_conf_binary": [0.95, 0.60, 0.88, 0.70][:n],
             "ml_pred_category": ["unicode_attack", "benign", "benign", "nlp_attack"][:n],
@@ -40,6 +46,7 @@ class TestBuildExternalResearchDf:
 
     def _make_hybrid_df(self, n=4):
         return pd.DataFrame({
+            "sample_id": self._sample_ids(n),
             "hybrid_routed_to": ["ml", "llm", "ml", "llm"][:n],
             "hybrid_pred_binary": ["adversarial", "adversarial", "benign", "benign"][:n],
             "hybrid_pred_category": ["unicode_attack", "nlp_attack", "benign", "benign"][:n],
@@ -80,6 +87,7 @@ class TestBuildExternalResearchDf:
         ml_df = self._make_ml_df(n)
         hybrid_df = self._make_hybrid_df(n)
         llm_df = pd.DataFrame({
+            "sample_id": self._sample_ids(n),
             "llm_pred_binary": ["adversarial"] * n,
             "llm_conf_binary": [0.90] * n,
         })
@@ -299,7 +307,7 @@ class TestEndToEnd:
 
     def test_research_df_from_fitted_model(self, sample_config, fitted_ml_model):
         """Full pipeline: predict_full -> hybrid routing -> research DataFrame."""
-        from src.research_external import run_ml_full
+        from src.cli.research_external import run_ml_full
         from src.research import compute_hybrid_routing
 
         # Build external-style DataFrame
@@ -336,3 +344,35 @@ class TestEndToEnd:
         if proba_cols:
             sums = research_df[proba_cols].sum(axis=1)
             np.testing.assert_allclose(sums, 1.0, atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# resolve_skip_llm tri-state
+# ---------------------------------------------------------------------------
+class TestResolveSkipLlm:
+    """Tests for the --skip-llm / --no-skip-llm / env-var tri-state."""
+
+    def test_cli_skip_overrides_env(self):
+        """--skip-llm (True) wins even when SKIP_LLM=0."""
+        with patch.dict("os.environ", {"SKIP_LLM": "0"}):
+            assert resolve_skip_llm(True) is True
+
+    def test_cli_no_skip_overrides_env(self):
+        """--no-skip-llm (False) wins even when SKIP_LLM=1."""
+        with patch.dict("os.environ", {"SKIP_LLM": "1"}):
+            assert resolve_skip_llm(False) is False
+
+    def test_no_flag_falls_back_to_env_skip(self):
+        """No CLI flag + SKIP_LLM=1 → skip."""
+        with patch.dict("os.environ", {"SKIP_LLM": "1"}):
+            assert resolve_skip_llm(None) is True
+
+    def test_no_flag_falls_back_to_env_no_skip(self):
+        """No CLI flag + SKIP_LLM=0 → don't skip."""
+        with patch.dict("os.environ", {"SKIP_LLM": "0"}):
+            assert resolve_skip_llm(None) is False
+
+    def test_no_flag_no_env_defaults_to_skip(self):
+        """No CLI flag + no SKIP_LLM env var → default skip (True)."""
+        with patch.dict("os.environ", {}, clear=True):
+            assert resolve_skip_llm(None) is True

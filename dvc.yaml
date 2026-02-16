@@ -92,7 +92,7 @@ stages:
       - safeguard
       - spml
     do:
-      cmd: python -m src.cli.research_external --dataset ${item} --skip-llm
+      cmd: python -m src.cli.research_external --dataset ${item}
       deps:
         - src/cli/research_external.py
         - src/eval_external.py

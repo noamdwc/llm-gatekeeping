@@ -70,6 +70,13 @@ def load_external_dataset(ds_cfg: dict) -> pd.DataFrame:
     # Rename text column to what the ML pipeline expects
     df = df.rename(columns={text_col: "modified_sample"})
 
+    # Drop duplicate texts
+    n_before = len(df)
+    df = df.drop_duplicates(subset=["modified_sample"]).reset_index(drop=True)
+    n_dropped = n_before - len(df)
+    if n_dropped:
+        print(f"  Warning: dropping {n_dropped} duplicate modified_sample rows")
+
     # Fill hierarchy columns with binary value (external data has no sub-labels)
     df["label_category"] = df["label_binary"]
     df["label_type"] = df["label_binary"]

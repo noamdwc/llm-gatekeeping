@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 
+import numpy as np
 import pandas as pd
 
 from src.utils import (
@@ -36,40 +37,47 @@ def compute_hybrid_routing(
 
     If LLM results are available, escalated samples use LLM predictions.
     Otherwise, escalated samples fall back to ML predictions.
+    Rows are matched between ml_df and llm_df via the ``sample_id`` column.
 
-    Returns DataFrame with: hybrid_routed_to, hybrid_pred_{binary,category,type}
+    Returns DataFrame with: sample_id, hybrid_routed_to, hybrid_pred_{binary,category,type}
     """
-    n = len(ml_df)
-    routed_to = []
-    pred_binary = []
-    pred_category = []
-    pred_type = []
+    confident = ml_df["ml_conf_binary"] >= threshold
 
-    for i in range(n):
-        ml_conf = ml_df.iloc[i]["ml_conf_binary"]
-        if ml_conf >= threshold:
-            routed_to.append("ml")
-            pred_binary.append(ml_df.iloc[i]["ml_pred_binary"])
-            pred_category.append(ml_df.iloc[i]["ml_pred_category"])
-            pred_type.append(ml_df.iloc[i]["ml_pred_type"])
-        else:
-            routed_to.append("llm")
-            if llm_df is not None:
-                pred_binary.append(llm_df.iloc[i]["llm_pred_binary"])
-                pred_category.append(llm_df.iloc[i]["llm_pred_category"])
-                pred_type.append(llm_df.iloc[i]["llm_pred_type"])
-            else:
-                # Fallback to ML when LLM was skipped
-                pred_binary.append(ml_df.iloc[i]["ml_pred_binary"])
-                pred_category.append(ml_df.iloc[i]["ml_pred_category"])
-                pred_type.append(ml_df.iloc[i]["ml_pred_type"])
-
-    return pd.DataFrame({
-        "hybrid_routed_to": routed_to,
-        "hybrid_pred_binary": pred_binary,
-        "hybrid_pred_category": pred_category,
-        "hybrid_pred_type": pred_type,
+    # Start with ML predictions for every row (default / fallback)
+    result = pd.DataFrame({
+        "sample_id": ml_df["sample_id"].values,
+        "hybrid_routed_to": np.where(confident, "ml", "llm"),
+        "hybrid_pred_binary": ml_df["ml_pred_binary"].values,
+        "hybrid_pred_category": ml_df["ml_pred_category"].values,
+        "hybrid_pred_type": ml_df["ml_pred_type"].values,
     })
+
+    if llm_df is not None:
+        escalated = ~confident
+        llm_indexed = llm_df.set_index("sample_id")
+
+        # Among escalated rows, find which have matching LLM predictions
+        esc_ids = result.loc[escalated, "sample_id"]
+        has_llm = esc_ids.isin(llm_indexed.index)
+
+        # Override escalated rows that have LLM predictions
+        override_idx = has_llm[has_llm].index
+        if len(override_idx) > 0:
+            matched_ids = result.loc[override_idx, "sample_id"]
+            llm_rows = llm_indexed.loc[matched_ids]
+            result.loc[override_idx, "hybrid_pred_binary"] = llm_rows["llm_pred_binary"].values
+            result.loc[override_idx, "hybrid_pred_category"] = llm_rows["llm_pred_category"].values
+            result.loc[override_idx, "hybrid_pred_type"] = llm_rows["llm_pred_type"].values
+
+        # Escalated rows without LLM fall back to ML (predictions already set);
+        # correct routing label from "llm" → "ml"
+        no_llm_idx = has_llm[~has_llm].index
+        result.loc[no_llm_idx, "hybrid_routed_to"] = "ml"
+    else:
+        # No LLM at all — everything routes to ML
+        result["hybrid_routed_to"] = "ml"
+
+    return result
 
 
 def build_research_dataframe(
@@ -79,15 +87,15 @@ def build_research_dataframe(
 ) -> pd.DataFrame:
     """Merge ML predictions, LLM predictions, and hybrid results into one wide DataFrame.
 
+    All DataFrames are joined on ``sample_id`` so row order doesn't matter.
     The ML predictions parquet already contains ground-truth columns, so we
     don't need the original split parquet.
     """
-    parts = [ml_df.reset_index(drop=True), hybrid_df.reset_index(drop=True)]
+    result = ml_df.merge(hybrid_df, on="sample_id", validate="one_to_one")
     if llm_df is not None:
-        # Insert LLM columns (only the llm_* columns, not duplicated GT)
-        llm_cols = [c for c in llm_df.columns if c.startswith("llm_")]
-        parts.insert(1, llm_df[llm_cols].reset_index(drop=True))
-    return pd.concat(parts, axis=1)
+        llm_cols = ["sample_id"] + [c for c in llm_df.columns if c.startswith("llm_")]
+        result = result.merge(llm_df[llm_cols], on="sample_id", how="left", validate="one_to_one")
+    return result
 
 
 def generate_ml_report(research_df: pd.DataFrame, output_path: str):
@@ -134,17 +142,22 @@ def generate_hybrid_report(research_df: pd.DataFrame, output_path: str):
 
 def generate_llm_report(research_df: pd.DataFrame, output_path: str):
     """Generate LLM-only evaluation report from the research DataFrame."""
-    binary = binary_metrics(research_df["label_binary"], research_df["llm_pred_binary"])
-    cat = category_metrics(research_df["label_category"], research_df["llm_pred_category"])
-    types = type_metrics(research_df["label_type"], research_df["llm_pred_type"])
+    # Only evaluate rows that have LLM predictions (left merge may leave NaN)
+    df = research_df.dropna(subset=["llm_pred_binary"])
+    if df.empty:
+        print(f"  Skipping LLM report — no LLM predictions available (0/{len(research_df)} samples)")
+        return None
+    binary = binary_metrics(df["label_binary"], df["llm_pred_binary"])
+    cat = category_metrics(df["label_category"], df["llm_pred_category"])
+    types = type_metrics(df["label_type"], df["llm_pred_type"])
     cal = calibration_metrics(
-        research_df["label_binary"], research_df["llm_pred_binary"],
-        research_df["llm_conf_binary"],
+        df["label_binary"], df["llm_pred_binary"],
+        df["llm_conf_binary"],
     )
-    report = generate_report(research_df, binary, cat, types, cal)
+    report = generate_report(df, binary, cat, types, cal)
     with open(output_path, "w") as f:
         f.write(report)
-    print(f"  LLM report saved → {output_path}")
+    print(f"  LLM report saved → {output_path} ({len(df)}/{len(research_df)} samples with LLM predictions)")
     return binary
 
 
