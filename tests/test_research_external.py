@@ -11,6 +11,7 @@ from src.cli.research_external import (
     build_external_research_df,
     build_predictions_df,
     generate_research_report,
+    resolve_skip_llm,
 )
 from src.utils import build_sample_id
 
@@ -343,3 +344,35 @@ class TestEndToEnd:
         if proba_cols:
             sums = research_df[proba_cols].sum(axis=1)
             np.testing.assert_allclose(sums, 1.0, atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# resolve_skip_llm tri-state
+# ---------------------------------------------------------------------------
+class TestResolveSkipLlm:
+    """Tests for the --skip-llm / --no-skip-llm / env-var tri-state."""
+
+    def test_cli_skip_overrides_env(self):
+        """--skip-llm (True) wins even when SKIP_LLM=0."""
+        with patch.dict("os.environ", {"SKIP_LLM": "0"}):
+            assert resolve_skip_llm(True) is True
+
+    def test_cli_no_skip_overrides_env(self):
+        """--no-skip-llm (False) wins even when SKIP_LLM=1."""
+        with patch.dict("os.environ", {"SKIP_LLM": "1"}):
+            assert resolve_skip_llm(False) is False
+
+    def test_no_flag_falls_back_to_env_skip(self):
+        """No CLI flag + SKIP_LLM=1 → skip."""
+        with patch.dict("os.environ", {"SKIP_LLM": "1"}):
+            assert resolve_skip_llm(None) is True
+
+    def test_no_flag_falls_back_to_env_no_skip(self):
+        """No CLI flag + SKIP_LLM=0 → don't skip."""
+        with patch.dict("os.environ", {"SKIP_LLM": "0"}):
+            assert resolve_skip_llm(None) is False
+
+    def test_no_flag_no_env_defaults_to_skip(self):
+        """No CLI flag + no SKIP_LLM env var → default skip (True)."""
+        with patch.dict("os.environ", {}, clear=True):
+            assert resolve_skip_llm(None) is True

@@ -363,6 +363,18 @@ def run_research_single(
 # CLI
 # ---------------------------------------------------------------------------
 
+def resolve_skip_llm(cli_flag: bool | None) -> bool:
+    """Resolve the skip_llm tri-state: CLI flag > SKIP_LLM env var > default (True).
+
+    ``cli_flag`` is ``True`` (``--skip-llm``), ``False`` (``--no-skip-llm``),
+    or ``None`` (neither flag given → fall back to the ``SKIP_LLM`` env var,
+    which itself defaults to ``"1"`` = skip).
+    """
+    if cli_flag is not None:
+        return cli_flag
+    return os.environ.get("SKIP_LLM", "1") == "1"
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Research mode: comprehensive analysis on external datasets"
@@ -398,12 +410,7 @@ def main():
         print(f"Available: {list(ext_datasets.keys())}")
         return
 
-    # CLI flag takes priority; otherwise fall back to SKIP_LLM env var
-    # (defaults to "1" = skip, so normal `dvc repro` skips LLM).
-    if args.skip_llm is not None:
-        skip_llm = args.skip_llm
-    else:
-        skip_llm = os.environ.get("SKIP_LLM", "1") == "1"
+    skip_llm = resolve_skip_llm(args.skip_llm)
 
     run_research_single(
         args.dataset, ext_datasets[args.dataset], cfg,

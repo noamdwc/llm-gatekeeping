@@ -250,6 +250,30 @@ class TestComputeHybridRouting:
         assert result.iloc[0]["hybrid_pred_binary"] == "adversarial"
         assert result.iloc[0]["hybrid_pred_type"] == "Diacritcs"
 
+    def test_partial_llm_coverage_falls_back_to_ml(self):
+        """Escalated samples missing from llm_df fall back to ML predictions."""
+        # 4 samples: 0 confident, 1-3 escalated; LLM only covers samples 1 & 2
+        ml_df = self._make_ml_df([0.95, 0.50, 0.40, 0.30])
+        llm_df = self._make_llm_df(3)  # covers sample_0, sample_1, sample_2
+        # sample_3 is escalated but has no LLM prediction
+        result = compute_hybrid_routing(ml_df, llm_df, threshold=0.85)
+
+        # sample_0: confident → ml
+        assert result.iloc[0]["hybrid_routed_to"] == "ml"
+        assert result.iloc[0]["hybrid_pred_category"] == "unicode_attack"  # ML pred
+
+        # sample_1, sample_2: escalated + LLM available → llm
+        assert result.iloc[1]["hybrid_routed_to"] == "llm"
+        assert result.iloc[1]["hybrid_pred_category"] == "nlp_attack"  # LLM pred
+        assert result.iloc[2]["hybrid_routed_to"] == "llm"
+        assert result.iloc[2]["hybrid_pred_category"] == "nlp_attack"  # LLM pred
+
+        # sample_3: escalated but missing from llm_df → falls back to ml
+        assert result.iloc[3]["hybrid_routed_to"] == "ml"
+        assert result.iloc[3]["hybrid_pred_binary"] == "adversarial"  # ML pred
+        assert result.iloc[3]["hybrid_pred_category"] == "unicode_attack"  # ML pred
+        assert result.iloc[3]["hybrid_pred_type"] == "Diacritcs"  # ML pred
+
     def test_output_columns(self):
         """Output has exactly the expected columns."""
         ml_df = self._make_ml_df([0.5])
