@@ -17,4 +17,15 @@ ATTACK_DESCRIPTIONS = {
     "Numbers": "Replaces letters with similar-looking numbers, e.g., 'e' → '3', 'a' → '4'",
 }
 
+NLP_TYPES = [
+    "BAE",
+    "Bert-Attack",
+    "Deep Word Bug",
+    "Alzantot",
+    "Pruthi",
+    "PWWS",
+    "TextBugger",
+    "TextFooler",
+]
 UNICODE_TYPES = list(ATTACK_DESCRIPTIONS.keys())
+ATTACK_TYPES = UNICODE_TYPES + NLP_TYPES

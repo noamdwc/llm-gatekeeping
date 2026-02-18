@@ -11,6 +11,7 @@ import argparse
 import json
 import time
 import dotenv
+import random
 import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
@@ -20,9 +21,11 @@ from dataclasses import dataclass, field
 import openai
 import wandb
 
+from src.llm_classifier.constants import NLP_TYPES
+from src.embeddings import ExemplarBank, get_embeddings
+from src.llm_classifier.utils import decide_accept_or_override
 from src.utils import load_config, build_sample_id, SPLITS_DIR, PREDICTIONS_DIR
-from src.embeddings import ExemplarBank
-from src.llm_classifier.constants import UNICODE_TYPES, ATTACK_DESCRIPTIONS
+from src.llm_classifier.prompts import build_classifier_system_message, build_judge_system_message
 
 dotenv.load_dotenv()
 
@@ -62,7 +65,7 @@ class HierarchicalLLMClassifier:
         cfg: dict,
         few_shot_examples: dict | None = None,
         dynamic: bool = False,
-        exemplar_bank: "ExemplarBank | None" = None,
+        exemplar_bank: ExemplarBank | None = None,
     ):
         self.cfg = cfg
         self.client = openai.OpenAI()
@@ -109,56 +112,53 @@ class HierarchicalLLMClassifier:
 
     # -- Few-shot helpers --------------------------------------------------
 
+    def _get_static_few_shot(self, text: str) -> list[dict]:
+        """Get static few-shot examples."""
+        return self.few_shot
+
     def _get_dynamic_few_shot(self, text: str) -> list[dict]:
         """Get dynamic few-shot examples using embedding similarity."""
-        from src.embeddings import get_embeddings
-
         k = self.cfg["llm"]["few_shot"].get("dynamic_k", 2)
-
-        # Embed the query
         query_emb = get_embeddings([text], model=self.exemplar_bank.embedding_model)[0]
+        pairs = self.exemplar_bank.select_pairs_by_benign(query_emb, k=k)
 
-        # Retrieve examples from each unicode type
-        examples = []
-        for attack_type in UNICODE_TYPES:
-            type_examples = self.exemplar_bank.select(query_emb, attack_type, k=k)
-            examples.extend(type_examples)
-
-        return examples
+        return pairs
 
     def _build_few_shot_messages(self, text: str) -> list[dict]:
         """Build few-shot example messages for the classifier prompt."""
         messages = []
         if self.dynamic and self.exemplar_bank:
-            examples = self._get_dynamic_few_shot(text)
-            for ex in examples:
-                messages.append({"role": "user", "content": f"Text: {ex['text']}"})
-                messages.append(
-                    {"role": "assistant", "content": json.dumps(
-                        {"label": ex["label"], "confidence": 0.99}
-                    )}
-                )
+            pairs = self._get_dynamic_few_shot(text)
         else:
-            # Static: use pre-selected random examples (unicode types + NLP)
-            for attack_type in UNICODE_TYPES:
-                if attack_type in self.few_shot:
-                    for example in self.few_shot[attack_type]:
-                        messages.append({"role": "user", "content": f"Text: {example}"})
-                        messages.append(
-                            {"role": "assistant", "content": json.dumps(
-                                {"label": attack_type, "confidence": 0.99}
-                            )}
-                        )
-            # NLP few-shot examples
-            for nlp_type in self.few_shot:
-                if nlp_type not in UNICODE_TYPES and nlp_type != "benign":
-                    for example in self.few_shot[nlp_type]:
-                        messages.append({"role": "user", "content": f"Text: {example}"})
-                        messages.append(
-                            {"role": "assistant", "content": json.dumps(
-                                {"label": "nlp_attack", "confidence": 0.99}
-                            )}
-                        )
+            pairs = self._get_static_few_shot(text)
+        
+            
+            
+        for (benign_text, attack_text, attack_type) in pairs:
+            # Add benign example
+            confidence = random.uniform(0.7, 0.9)
+            messages.append({"role": "user", "content": f"Text: {benign_text}"})
+            messages.append({
+                "role": "assistant", "content": json.dumps({
+                    "label": 'benign',
+                    "confidence": confidence,
+                    "nlp_attack_type": 'none',
+                    "evidence": "",
+                    "reason": f"This is an example of benign text.",
+                }
+            )})
+            # Add attack example
+            confidence = random.random(0.7, 0.9)
+            messages.append({"role": "user", "content": f"Text: {attack_text}"})
+            messages.append({
+                "role": "assistant", "content": json.dumps({
+                    "label": 'adversarial',
+                    "confidence": confidence,
+                    "nlp_attack_type": attack_type if attack_type in NLP_TYPES else 'none',
+                    "evidence": attack_text[:200],
+                    "reason": f"This is an example of {attack_type} text.",
+                }
+            )})
         return messages
 
     # -- Classifier --------------------------------------------------------
@@ -170,47 +170,11 @@ class HierarchicalLLMClassifier:
             {"label": str, "confidence": float} where label is one of:
             "benign", one of UNICODE_TYPES, or "nlp_attack".
         """
-        descs = "\n".join(
-            f"- {t}: {ATTACK_DESCRIPTIONS[t]}" for t in UNICODE_TYPES
-        )
-        system = (
-            "You are a security classifier. Analyze the text and determine if it is "
-            "benign or an adversarial attack. If adversarial, identify the specific "
-            "attack type.\n\n"
-            "Possible labels:\n"
-            '- "benign": Normal, unmanipulated text\n'
-            f'- "nlp_attack": NLP-based word substitution (synonyms, typos)\n'
-            f"- Unicode attack types:\n{descs}\n\n"
-            "Respond ONLY with JSON: "
-            '{"label": "<label>", "confidence": 0.0-1.0}'
-        )
-        messages = [{"role": "system", "content": system}]
-
-        # Add few-shot examples
-        messages.extend(self._build_few_shot_messages(text))
-
-        messages.append({"role": "user", "content": f"Text: {text}"})
-
+        messages = build_classifier_system_message(text, self._build_few_shot_messages(text))
         result = self._call_llm(
             messages, self.cfg["llm"]["max_tokens_classifier"], "classifier"
         )
-        label = result.get("label", "")
-        confidence = float(result.get("confidence", 0.5))
-
-        # Normalize label
-        if label == "benign":
-            pass
-        elif label in UNICODE_TYPES:
-            pass
-        elif label == "nlp_attack":
-            pass
-        else:
-            # Unknown label → default to nlp_attack (adversarial)
-            label = "nlp_attack"
-
-        return {"label": label, "confidence": confidence}
-
-    # -- Judge -------------------------------------------------------------
+        return result
 
     def judge(self, text: str, classifier_output: dict) -> dict:
         """Conditional LLM call using model_quality for chain-of-thought review.
@@ -222,58 +186,14 @@ class HierarchicalLLMClassifier:
         Returns:
             {"label": str, "confidence": float, "reasoning": str}
         """
-        descs = "\n".join(
-            f"- {t}: {ATTACK_DESCRIPTIONS[t]}" for t in UNICODE_TYPES
-        )
-        classifier_label = classifier_output["label"]
-        classifier_conf = classifier_output["confidence"]
-
-        system = (
-            "You are a senior security analyst reviewing a classifier's prediction. "
-            "The classifier analyzed a text and predicted it as "
-            f'"{classifier_label}" with confidence {classifier_conf:.2f}.\n\n'
-            "Your job: review the text and the prediction, reason step by step, "
-            "and provide your own assessment.\n\n"
-            "Possible labels:\n"
-            '- "benign": Normal, unmanipulated text\n'
-            f'- "nlp_attack": NLP-based word substitution (synonyms, typos)\n'
-            f"- Unicode attack types:\n{descs}\n\n"
-            "Respond ONLY with JSON: "
-            '{"label": "<label>", "confidence": 0.0-1.0, '
-            '"reasoning": "<your step-by-step reasoning>"}'
-        )
-        messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": f"Text: {text}"},
-        ]
-
+        messages = build_judge_system_message(text, classifier_output)
         result = self._call_llm(
             messages, self.cfg["llm"]["max_tokens_judge"], "judge",
             model=self.model_quality,
         )
-
-        label = result.get("label", "")
-        confidence = float(result.get("confidence", 0.5))
-        reasoning = result.get("reasoning", "")
-
-        # Validate label; fall back to classifier prediction on unrecognizable
-        valid_labels = {"benign", "nlp_attack"} | set(UNICODE_TYPES)
-        if label not in valid_labels:
-            label = classifier_label
-            confidence = classifier_conf
-
-        return {"label": label, "confidence": confidence, "reasoning": reasoning}
-
-    # -- Category derivation -----------------------------------------------
-
-    @staticmethod
-    def _derive_category(label_binary: str, label_type: str) -> str:
-        """Derive category from binary + type labels."""
-        if label_binary == "benign":
-            return "benign"
-        if label_type in UNICODE_TYPES:
-            return "unicode_attack"
-        return "nlp_attack"
+        decision = decide_accept_or_override(result, classifier_output)
+        result['computed_decision'] = decision
+        return result
 
     # -- Full pipeline -----------------------------------------------------
 
@@ -294,28 +214,33 @@ class HierarchicalLLMClassifier:
         threshold = self.cfg["llm"].get("judge_confidence_threshold", 0.7)
 
         # Stage 2: Judge (conditional)
+        evidence = clf_result.get("evidence", "")
         if confidence < threshold or force_all_stages:
             judge_result = self.judge(text, clf_result)
             stages_run = 2
-            label = judge_result["label"]
-            confidence = judge_result["confidence"]
+            if judge_result["computed_decision"] == "override_candidate":
+                label = judge_result["independent_label"]
+                confidence = judge_result["independent_confidence"]
+                evidence = judge_result["independent_evidence"]
+            else:
+                label = clf_result["label"]
+                confidence = clf_result["confidence"]
+                evidence = clf_result["evidence"]
 
         # Derive binary and category from the final label
         if label == "benign":
             label_binary = "benign"
-        else:
+        elif label == "adversarial":
             label_binary = "adversarial"
-
-        label_type = label if label != "benign" else "benign"
-        label_category = self._derive_category(label_binary, label_type)
+        elif label == "uncertain":
+            label_binary = "adversarial" # default to adversarial for now
+        else:
+            raise ValueError(f"Invalid label: {label}")
 
         return {
-            "label_binary": label_binary,
-            "label_category": label_category,
-            "label_type": label_type,
-            "confidence_binary": confidence,
-            "confidence_category": confidence,
-            "confidence_type": confidence,
+            "label": label_binary,
+            "confidence": confidence,
+            "evidence": evidence,
             "llm_stages_run": stages_run,
         }
 
@@ -399,8 +324,6 @@ def main():
     few_shot = {}
 
     if args.dynamic:
-        from src.embeddings import ExemplarBank
-
         bank_path = args.bank_path or str(PREDICTIONS_DIR / "exemplar_bank.pkl")
         if Path(bank_path).exists():
             print(f"Loading exemplar bank from {bank_path}")
