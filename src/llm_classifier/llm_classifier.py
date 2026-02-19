@@ -63,7 +63,7 @@ class HierarchicalLLMClassifier:
     def __init__(
         self,
         cfg: dict,
-        few_shot_examples: dict | None = None,
+        few_shot_examples: list[tuple[str, str, str]] | None = None,
         dynamic: bool = False,
         exemplar_bank: ExemplarBank | None = None,
     ):
@@ -72,7 +72,7 @@ class HierarchicalLLMClassifier:
         self.model = cfg["llm"]["model"]
         self.model_quality = cfg["llm"].get("model_quality", self.model)
         self.temperature = cfg["llm"]["temperature"]
-        self.few_shot = few_shot_examples or {}
+        self.few_shot = few_shot_examples or []
         self.usage = UsageStats()
 
         # Dynamic few-shot settings
@@ -112,7 +112,7 @@ class HierarchicalLLMClassifier:
 
     # -- Few-shot helpers --------------------------------------------------
 
-    def _get_static_few_shot(self, text: str) -> list[dict]:
+    def _get_static_few_shot(self, text: str) -> list[tuple[str, str, str]]:
         """Get static few-shot examples."""
         return self.few_shot
 
@@ -193,13 +193,14 @@ class HierarchicalLLMClassifier:
         result = self._call_llm(
             messages, self.cfg["llm"]["max_tokens_classifier"], "classifier"
         )
-        # Normalize: LLM should output binary labels; any deviation defaults to adversarial
+        # Normalize label: LLM should output binary labels; any deviation defaults to adversarial
         label = result.get("label", "")
         if label not in ("benign", "adversarial", "uncertain"):
             label = "adversarial"
         result["label"] = label
-        if "confidence" not in result:
-            result["confidence"] = 0.5
+        # Normalize confidence: prompts use 0-100 scale; clamp to [0, 1]
+        raw_conf = result.get("confidence", 50)
+        result["confidence"] = float(raw_conf) / 100.0 if float(raw_conf) > 1.0 else float(raw_conf)
         return result
 
     def judge(self, text: str, classifier_output: dict) -> dict:

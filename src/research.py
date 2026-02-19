@@ -153,7 +153,8 @@ def generate_llm_report(research_df: pd.DataFrame, output_path: str):
     # Category metrics only if LLM provides category predictions
     if "llm_pred_category" in df.columns:
         cat = category_metrics(df["label_category"], df["llm_pred_category"])
-        types = type_metrics(df["label_type"], df["llm_pred_category"])
+        # LLM does not predict type-level labels; skip type metrics
+        types = {"type_accuracy": 0.0, "type_f1_macro": 0.0}
     else:
         cat = {"category_accuracy": 0.0, "category_f1_macro": 0.0}
         types = {"type_accuracy": 0.0, "type_f1_macro": 0.0}

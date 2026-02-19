@@ -83,6 +83,7 @@ class TestPredictSingle:
 
         assert result["routed_to"] == "llm"
         assert result["label_binary"] == "adversarial"
+        assert result["label_category"] == "nlp_attack"  # LLM category preferred over ML's
         router.llm.predict.assert_called_once_with("text")
 
     def test_low_llm_confidence_abstains(self, router):
