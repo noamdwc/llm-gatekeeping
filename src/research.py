@@ -66,8 +66,10 @@ def compute_hybrid_routing(
             matched_ids = result.loc[override_idx, "sample_id"]
             llm_rows = llm_indexed.loc[matched_ids]
             result.loc[override_idx, "hybrid_pred_binary"] = llm_rows["llm_pred_binary"].values
-            result.loc[override_idx, "hybrid_pred_category"] = llm_rows["llm_pred_category"].values
-            result.loc[override_idx, "hybrid_pred_type"] = llm_rows["llm_pred_type"].values
+            # Override category if LLM provides it (llm_pred_category exists when LLM derives category)
+            if "llm_pred_category" in llm_indexed.columns:
+                result.loc[override_idx, "hybrid_pred_category"] = llm_rows["llm_pred_category"].values
+            # LLM does not provide type-level predictions; hybrid_pred_type stays as ML's prediction
 
         # Escalated rows without LLM fall back to ML (predictions already set);
         # correct routing label from "llm" → "ml"
@@ -148,8 +150,13 @@ def generate_llm_report(research_df: pd.DataFrame, output_path: str):
         print(f"  Skipping LLM report — no LLM predictions available (0/{len(research_df)} samples)")
         return None
     binary = binary_metrics(df["label_binary"], df["llm_pred_binary"])
-    cat = category_metrics(df["label_category"], df["llm_pred_category"])
-    types = type_metrics(df["label_type"], df["llm_pred_type"])
+    # Category metrics only if LLM provides category predictions
+    if "llm_pred_category" in df.columns:
+        cat = category_metrics(df["label_category"], df["llm_pred_category"])
+        types = type_metrics(df["label_type"], df["llm_pred_category"])
+    else:
+        cat = {"category_accuracy": 0.0, "category_f1_macro": 0.0}
+        types = {"type_accuracy": 0.0, "type_f1_macro": 0.0}
     cal = calibration_metrics(
         df["label_binary"], df["llm_pred_binary"],
         df["llm_conf_binary"],

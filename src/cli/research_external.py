@@ -73,12 +73,9 @@ def run_llm_full(
     rows = []
     for r in results:
         rows.append({
-            "llm_pred_binary": r["label_binary"],
+            "llm_pred_binary": r["label"],
             "llm_pred_category": r["label_category"],
-            "llm_pred_type": r["label_type"],
-            "llm_conf_binary": r["confidence_binary"],
-            "llm_conf_category": r["confidence_category"],
-            "llm_conf_type": r["confidence_type"],
+            "llm_conf_binary": r["confidence"],
             "llm_stages_run": r.get("llm_stages_run"),
         })
     result = pd.DataFrame(rows)
@@ -271,11 +268,8 @@ def build_predictions_df(
     if has_llm:
         cols.extend([
             "llm_pred_binary",
-            "llm_conf_binary",
             "llm_pred_category",
-            "llm_conf_category",
-            "llm_pred_type",
-            "llm_conf_type",
+            "llm_conf_binary",
         ])
     cols = [c for c in cols if c in research_df.columns]
     return research_df[cols].copy()

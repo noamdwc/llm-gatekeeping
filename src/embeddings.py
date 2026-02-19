@@ -27,6 +27,8 @@ import openai
 import pandas as pd
 from tqdm import tqdm
 
+from src.llm_classifier.constants import ATTACK_TYPES
+
 # Load .env from project root or parent directories
 dotenv.load_dotenv(dotenv.find_dotenv(usecwd=True))
 
@@ -117,17 +119,28 @@ class ExemplarBank:
             n = min(bank_size, len(pool))
             if n == 0:
                 continue
-            
+
             samples = pool.sample(n=n, random_state=42).tolist()
-            
+
             # Compute embeddings
             embeddings = get_embeddings(samples, model=bank.embedding_model)
-            
+
             bank.bank[attack_type] = {
                 "texts": samples,
                 "embeddings": embeddings,
             }
-        
+
+        # Also store benign examples for contrastive pairing
+        benign_pool = df_train.loc[df_train[label_col] == "benign", text_col]
+        n_benign = min(bank_size, len(benign_pool))
+        if n_benign > 0:
+            benign_samples = benign_pool.sample(n=n_benign, random_state=42).tolist()
+            benign_embeddings = get_embeddings(benign_samples, model=bank.embedding_model)
+            bank.bank["benign"] = {
+                "texts": benign_samples,
+                "embeddings": benign_embeddings,
+            }
+
         return bank
     
     def select(
@@ -186,7 +199,25 @@ class ExemplarBank:
         for attack_type in attack_types:
             results.extend(self.select(query_embedding, attack_type, k=k_per_type))
         return results
-    
+
+    def select_pairs_by_benign(
+        self,
+        query_embedding: np.ndarray,
+        k: int = 2,
+    ) -> list[tuple[str, str, str]]:
+        """
+        Select pairs of benign and attack examples for contrastive learning.
+        Outputs a list of tuples (benign_text, attack_text, attack_type).
+        """
+        benign_examples = self.select(query_embedding, "benign", k=k)
+        attack_examples = self.select_multi_type(query_embedding, ATTACK_TYPES, k_per_type=1)
+        return [
+            (b["text"], a["text"], a["label"])
+            for b in benign_examples
+            for a in attack_examples
+        ]
+
+
     def save(self, path: str) -> None:
         """Save the exemplar bank to a pickle file."""
         path = Path(path)

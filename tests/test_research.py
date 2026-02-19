@@ -195,11 +195,8 @@ class TestComputeHybridRouting:
             "sample_id": [build_sample_id(s) for s in samples],
             "llm_pred_binary": ["adversarial"] * n,
             "llm_pred_category": ["nlp_attack"] * n,
-            "llm_pred_type": ["nlp_attack"] * n,
             "llm_conf_binary": [0.95] * n,
-            "llm_conf_category": [0.8] * n,
-            "llm_conf_type": [0.7] * n,
-            "llm_stages_run": [3] * n,
+            "llm_stages_run": [2] * n,
         })
 
     def test_high_confidence_routes_to_ml(self):
@@ -215,7 +212,11 @@ class TestComputeHybridRouting:
         llm_df = self._make_llm_df(2)
         result = compute_hybrid_routing(ml_df, llm_df, threshold=0.85)
         assert (result["hybrid_routed_to"] == "llm").all()
+        # Binary from LLM; category from LLM's llm_pred_category
+        assert list(result["hybrid_pred_binary"]) == ["adversarial", "adversarial"]
         assert list(result["hybrid_pred_category"]) == ["nlp_attack", "nlp_attack"]
+        # Type stays as ML's prediction (LLM doesn't provide type)
+        assert list(result["hybrid_pred_type"]) == ["Diacritcs", "Diacritcs"]
 
     def test_mixed_routing(self):
         """Mix of ML and LLM routing."""
@@ -246,9 +247,9 @@ class TestComputeHybridRouting:
 
         # sample_1, sample_2: escalated + LLM available → llm
         assert result.iloc[1]["hybrid_routed_to"] == "llm"
-        assert result.iloc[1]["hybrid_pred_category"] == "nlp_attack"  # LLM pred
+        assert result.iloc[1]["hybrid_pred_category"] == "nlp_attack"  # LLM pred_category
         assert result.iloc[2]["hybrid_routed_to"] == "llm"
-        assert result.iloc[2]["hybrid_pred_category"] == "nlp_attack"  # LLM pred
+        assert result.iloc[2]["hybrid_pred_category"] == "nlp_attack"  # LLM pred_category
 
         # sample_3: escalated but missing from llm_df → falls back to ml
         assert result.iloc[3]["hybrid_routed_to"] == "ml"

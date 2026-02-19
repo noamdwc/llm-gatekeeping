@@ -148,7 +148,7 @@ class HierarchicalLLMClassifier:
                 }
             )})
             # Add attack example
-            confidence = random.random(0.7, 0.9)
+            confidence = random.uniform(0.7, 0.9)
             messages.append({"role": "user", "content": f"Text: {attack_text}"})
             messages.append({
                 "role": "assistant", "content": json.dumps({
@@ -161,19 +161,45 @@ class HierarchicalLLMClassifier:
             )})
         return messages
 
+    # -- Category derivation -----------------------------------------------
+
+    @staticmethod
+    def _derive_category(label_binary: str, nlp_attack_type: str) -> str:
+        """Derive category from binary label and NLP attack type field.
+
+        Args:
+            label_binary: "benign", "adversarial", or "uncertain"
+            nlp_attack_type: value of nlp_attack_type from classifier/judge output
+
+        Returns:
+            "benign", "nlp_attack", or "unicode_attack"
+        """
+        if label_binary == "benign":
+            return "benign"
+        if nlp_attack_type and nlp_attack_type != "none":
+            return "nlp_attack"
+        return "unicode_attack"
+
     # -- Classifier --------------------------------------------------------
 
     def classify(self, text: str) -> dict:
-        """Single LLM call returning label + confidence.
+        """Single LLM call returning binary label + confidence.
 
         Returns:
             {"label": str, "confidence": float} where label is one of:
-            "benign", one of UNICODE_TYPES, or "nlp_attack".
+            "benign", "adversarial", or "uncertain".
         """
         messages = build_classifier_system_message(text, self._build_few_shot_messages(text))
         result = self._call_llm(
             messages, self.cfg["llm"]["max_tokens_classifier"], "classifier"
         )
+        # Normalize: LLM should output binary labels; any deviation defaults to adversarial
+        label = result.get("label", "")
+        if label not in ("benign", "adversarial", "uncertain"):
+            label = "adversarial"
+        result["label"] = label
+        if "confidence" not in result:
+            result["confidence"] = 0.5
         return result
 
     def judge(self, text: str, classifier_output: dict) -> dict:
@@ -215,34 +241,69 @@ class HierarchicalLLMClassifier:
 
         # Stage 2: Judge (conditional)
         evidence = clf_result.get("evidence", "")
+        judge_result = None
         if confidence < threshold or force_all_stages:
             judge_result = self.judge(text, clf_result)
             stages_run = 2
-            if judge_result["computed_decision"] == "override_candidate":
-                label = judge_result["independent_label"]
-                confidence = judge_result["independent_confidence"]
-                evidence = judge_result["independent_evidence"]
+            if judge_result.get("computed_decision") == "override_candidate":
+                # Use independent_label; normalize to binary in code
+                raw_label = judge_result.get("independent_label", clf_result["label"])
+                label = raw_label if raw_label in ("benign", "adversarial", "uncertain") else "adversarial"
+                confidence = judge_result.get("independent_confidence", clf_result["confidence"])
+                evidence = judge_result.get("independent_evidence", "")
             else:
                 label = clf_result["label"]
                 confidence = clf_result["confidence"]
-                evidence = clf_result["evidence"]
+                evidence = clf_result.get("evidence", "")
 
-        # Derive binary and category from the final label
-        if label == "benign":
-            label_binary = "benign"
-        elif label == "adversarial":
-            label_binary = "adversarial"
-        elif label == "uncertain":
-            label_binary = "adversarial" # default to adversarial for now
+        # Derive binary: benign stays benign; everything else → adversarial
+        label_binary = "benign" if label == "benign" else "adversarial"
+
+        # Derive categories from each stage's nlp_attack_type
+        clf_nlp_attack_type = clf_result.get("nlp_attack_type", "none")
+        clf_category = self._derive_category(clf_result.get("label", label_binary), clf_nlp_attack_type)
+
+        judge_category = None
+        if judge_result is not None:
+            judge_nlp_attack_type = judge_result.get("nlp_attack_type", "none")
+            judge_ind_label = judge_result.get("independent_label", "")
+            judge_ind_binary = "benign" if judge_ind_label == "benign" else "adversarial" if judge_ind_label else None
+            judge_category = self._derive_category(judge_ind_binary or label_binary, judge_nlp_attack_type)
+
+        # Final category: use judge's if it overrode, else classifier's
+        if judge_result is not None and judge_result.get("computed_decision") == "override_candidate":
+            label_category = judge_category
         else:
-            raise ValueError(f"Invalid label: {label}")
+            label_category = clf_category
 
-        return {
+        result = {
             "label": label_binary,
+            "label_category": label_category,
             "confidence": confidence,
             "evidence": evidence,
             "llm_stages_run": stages_run,
+            # Classifier stage
+            "clf_label": clf_result.get("label"),
+            "clf_category": clf_category,
+            "clf_confidence": clf_result.get("confidence"),
+            "clf_evidence": clf_result.get("evidence", ""),
+            "clf_nlp_attack_type": clf_nlp_attack_type,
         }
+        # Judge stage (None if judge was not run)
+        if judge_result is not None:
+            result["judge_independent_label"] = judge_result.get("independent_label")
+            result["judge_category"] = judge_category
+            result["judge_independent_confidence"] = judge_result.get("independent_confidence")
+            result["judge_independent_evidence"] = judge_result.get("independent_evidence", "")
+            result["judge_computed_decision"] = judge_result.get("computed_decision")
+        else:
+            result["judge_independent_label"] = None
+            result["judge_category"] = None
+            result["judge_independent_confidence"] = None
+            result["judge_independent_evidence"] = None
+            result["judge_computed_decision"] = None
+
+        return result
 
     def predict_batch(
         self,
@@ -257,16 +318,19 @@ class HierarchicalLLMClassifier:
 # ---------------------------------------------------------------------------
 # Few-shot builder
 # ---------------------------------------------------------------------------
-def build_few_shot_examples(df: pd.DataFrame, cfg: dict) -> tuple[dict, list]:
-    """Build few-shot exemplar bank from training data."""
+def build_few_shot_examples(df: pd.DataFrame, cfg: dict) -> tuple[list[tuple[str, str, str]], list]:
+    """Build static few-shot examples as (benign_text, attack_text, attack_type) pairs."""
     text_col = cfg["dataset"]["text_col"]
     label_col = cfg["dataset"]["label_col"]
     n_unicode = cfg["llm"]["few_shot"]["unicode"]
     n_nlp = cfg["llm"]["few_shot"]["nlp"]
     unicode_set = set(cfg["labels"]["unicode_attacks"])
 
-    few_shot = {}
+    pairs = []
     used_ids = []
+    rng = random.Random(42)
+
+    benign_pool = df.loc[df[label_col] == "benign", text_col].tolist()
 
     for attack_type in cfg["labels"]["unicode_attacks"] + cfg["labels"]["nlp_attacks"]:
         n = n_unicode if attack_type in unicode_set else n_nlp
@@ -275,11 +339,13 @@ def build_few_shot_examples(df: pd.DataFrame, cfg: dict) -> tuple[dict, list]:
             n = len(pool)
         if n == 0:
             continue
-        samples = pool.sample(n=n, random_state=42)
-        few_shot[attack_type] = samples.tolist()
-        used_ids.extend(samples.index.tolist())
+        attack_samples = pool.sample(n=n, random_state=42)
+        used_ids.extend(attack_samples.index.tolist())
+        for attack_text in attack_samples.tolist():
+            benign_text = rng.choice(benign_pool) if benign_pool else ""
+            pairs.append((benign_text, attack_text, attack_type))
 
-    return few_shot, used_ids
+    return pairs, used_ids
 
 
 def main():
@@ -335,7 +401,7 @@ def main():
         print(f"Exemplar bank: {exemplar_bank}")
     else:
         few_shot, _ = build_few_shot_examples(df_train, cfg)
-        print(f"Few-shot examples: {sum(len(v) for v in few_shot.values())} total")
+        print(f"Few-shot examples: {len(few_shot)} pairs")
 
     # Classify
     classifier = HierarchicalLLMClassifier(
@@ -356,13 +422,24 @@ def main():
         research_rows = []
         for r in results:
             research_rows.append({
-                "llm_pred_binary": r["label_binary"],
+                # Final prediction
+                "llm_pred_binary": r["label"],
                 "llm_pred_category": r["label_category"],
-                "llm_pred_type": r["label_type"],
-                "llm_conf_binary": r["confidence_binary"],
-                "llm_conf_category": r["confidence_category"],
-                "llm_conf_type": r["confidence_type"],
+                "llm_conf_binary": r["confidence"],
+                "llm_evidence": r.get("evidence", ""),
                 "llm_stages_run": r.get("llm_stages_run"),
+                # Classifier stage
+                "clf_label": r.get("clf_label"),
+                "clf_category": r.get("clf_category"),
+                "clf_confidence": r.get("clf_confidence"),
+                "clf_evidence": r.get("clf_evidence", ""),
+                "clf_nlp_attack_type": r.get("clf_nlp_attack_type", "none"),
+                # Judge stage (None if not run)
+                "judge_independent_label": r.get("judge_independent_label"),
+                "judge_category": r.get("judge_category"),
+                "judge_independent_confidence": r.get("judge_independent_confidence"),
+                "judge_independent_evidence": r.get("judge_independent_evidence"),
+                "judge_computed_decision": r.get("judge_computed_decision"),
             })
         llm_df = pd.DataFrame(research_rows)
 

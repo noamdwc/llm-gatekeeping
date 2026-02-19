@@ -74,17 +74,15 @@ class TestPredictSingle:
             "confidence_label_binary": 0.5,  # below 0.85 threshold
         }
         router.llm.predict.return_value = {
-            "label_binary": "adversarial",
+            "label": "adversarial",
             "label_category": "nlp_attack",
-            "label_type": "nlp_attack",
-            "confidence_binary": 0.9,
-            "confidence_category": 0.85,
-            "confidence_type": 0.85,
+            "confidence": 0.9,
         }
 
         result = router.predict_single("text", ml_pred)
 
         assert result["routed_to"] == "llm"
+        assert result["label_binary"] == "adversarial"
         router.llm.predict.assert_called_once_with("text")
 
     def test_low_llm_confidence_abstains(self, router):
@@ -94,8 +92,8 @@ class TestPredictSingle:
             "confidence_label_binary": 0.5,
         }
         router.llm.predict.return_value = {
-            "label_binary": "adversarial",
-            "confidence_binary": 0.3,  # below 0.7 threshold
+            "label": "adversarial",
+            "confidence": 0.3,  # below 0.7 threshold
         }
 
         result = router.predict_single("text", ml_pred)
@@ -110,8 +108,8 @@ class TestPredictSingle:
         })
         # Route via LLM
         router.llm.predict.return_value = {
-            "label_binary": "adversarial",
-            "confidence_binary": 0.9,
+            "label": "adversarial",
+            "confidence": 0.9,
         }
         router.predict_single("t2", {
             "pred_label_binary": "adversarial",
