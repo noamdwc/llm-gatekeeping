@@ -103,7 +103,7 @@ def _make_classifier(cfg, few_shot=None):
     """Create a classifier with a mocked OpenAI client."""
     with patch("src.llm_classifier.llm_classifier.openai.OpenAI"):
         classifier = HierarchicalLLMClassifier(
-            cfg, few_shot_examples=few_shot or {}
+            cfg, few_shot_examples=few_shot or []
         )
     return classifier
 
@@ -450,7 +450,7 @@ class TestForceAllStages:
     def _make_classifier(self, cfg):
         with patch("src.llm_classifier.llm_classifier.openai.OpenAI"):
             from src.llm_classifier.llm_classifier import HierarchicalLLMClassifier
-            return HierarchicalLLMClassifier(cfg, few_shot_examples={})
+            return HierarchicalLLMClassifier(cfg, few_shot_examples=[])
 
     def test_default_high_confidence_skips_judge(self, sample_config):
         """Default (force_all_stages=False): high-confidence skips judge."""

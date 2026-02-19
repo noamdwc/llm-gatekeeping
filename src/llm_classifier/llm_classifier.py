@@ -116,7 +116,7 @@ class HierarchicalLLMClassifier:
         """Get static few-shot examples."""
         return self.few_shot
 
-    def _get_dynamic_few_shot(self, text: str) -> list[dict]:
+    def _get_dynamic_few_shot(self, text: str) -> list[tuple[str, str, str]]:
         """Get dynamic few-shot examples using embedding similarity."""
         k = self.cfg["llm"]["few_shot"].get("dynamic_k", 2)
         query_emb = get_embeddings([text], model=self.exemplar_bank.embedding_model)[0]
@@ -180,6 +180,18 @@ class HierarchicalLLMClassifier:
             return "nlp_attack"
         return "unicode_attack"
 
+    @staticmethod
+    def _normalize_confidence(raw_conf: object, default: float = 0.5) -> float:
+        """Normalize confidence to [0, 1], accepting either 0-1 or 0-100 inputs."""
+        try:
+            conf = float(raw_conf)
+        except (TypeError, ValueError):
+            return default
+
+        if conf > 1.0:
+            conf /= 100.0
+        return max(0.0, min(1.0, conf))
+
     # -- Classifier --------------------------------------------------------
 
     def classify(self, text: str) -> dict:
@@ -200,7 +212,7 @@ class HierarchicalLLMClassifier:
         result["label"] = label
         # Normalize confidence: prompts use 0-100 scale; clamp to [0, 1]
         raw_conf = result.get("confidence", 50)
-        result["confidence"] = float(raw_conf) / 100.0 if float(raw_conf) > 1.0 else float(raw_conf)
+        result["confidence"] = self._normalize_confidence(raw_conf)
         return result
 
     def judge(self, text: str, classifier_output: dict) -> dict:
@@ -250,7 +262,9 @@ class HierarchicalLLMClassifier:
                 # Use independent_label; normalize to binary in code
                 raw_label = judge_result.get("independent_label", clf_result["label"])
                 label = raw_label if raw_label in ("benign", "adversarial", "uncertain") else "adversarial"
-                confidence = judge_result.get("independent_confidence", clf_result["confidence"])
+                confidence = self._normalize_confidence(
+                    judge_result.get("independent_confidence", clf_result["confidence"])
+                )
                 evidence = judge_result.get("independent_evidence", "")
             else:
                 label = clf_result["label"]
@@ -268,8 +282,8 @@ class HierarchicalLLMClassifier:
         if judge_result is not None:
             judge_nlp_attack_type = judge_result.get("nlp_attack_type", "none")
             judge_ind_label = judge_result.get("independent_label", "")
-            judge_ind_binary = "benign" if judge_ind_label == "benign" else "adversarial" if judge_ind_label else None
-            judge_category = self._derive_category(judge_ind_binary or label_binary, judge_nlp_attack_type)
+            judge_ind_binary = "benign" if judge_ind_label == "benign" else "adversarial"
+            judge_category = self._derive_category(judge_ind_binary, judge_nlp_attack_type)
 
         # Final category: use judge's if it overrode, else classifier's
         if judge_result is not None and judge_result.get("computed_decision") == "override_candidate":
@@ -292,9 +306,10 @@ class HierarchicalLLMClassifier:
         }
         # Judge stage (None if judge was not run)
         if judge_result is not None:
+            judge_conf = self._normalize_confidence(judge_result.get("independent_confidence"))
             result["judge_independent_label"] = judge_result.get("independent_label")
             result["judge_category"] = judge_category
-            result["judge_independent_confidence"] = judge_result.get("independent_confidence")
+            result["judge_independent_confidence"] = judge_conf
             result["judge_independent_evidence"] = judge_result.get("independent_evidence", "")
             result["judge_computed_decision"] = judge_result.get("computed_decision")
         else:
@@ -388,7 +403,7 @@ def main():
 
     # Build few-shot from train (static) or exemplar bank (dynamic)
     exemplar_bank = None
-    few_shot = {}
+    few_shot = []
 
     if args.dynamic:
         bank_path = args.bank_path or str(PREDICTIONS_DIR / "exemplar_bank.pkl")
@@ -413,7 +428,6 @@ def main():
 
     # Build results DataFrame
     preds = pd.DataFrame(results)
-    preds.index = df_eval.index
     df_out = pd.concat([df_eval.reset_index(drop=True), preds.reset_index(drop=True)], axis=1)
 
     # Save

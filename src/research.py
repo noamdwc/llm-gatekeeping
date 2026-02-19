@@ -109,9 +109,8 @@ def generate_ml_report(research_df: pd.DataFrame, output_path: str):
         research_df["label_binary"], research_df["ml_pred_binary"],
         research_df["ml_conf_binary"],
     )
-    report = generate_report(research_df, binary, cat, types, cal)
-    # Replace title
-    report = report.replace("# LLM Classifier Evaluation Report", "# ML Classifier Evaluation Report")
+    report = generate_report(research_df, binary, cat, types, cal,
+                             title="ML Classifier Evaluation Report")
     with open(output_path, "w") as f:
         f.write(report)
     print(f"  ML report saved → {output_path}")
@@ -134,8 +133,8 @@ def generate_hybrid_report(research_df: pd.DataFrame, output_path: str):
     routing = research_df["hybrid_routed_to"].value_counts().to_dict()
     usage = {f"routed_{k}": v for k, v in routing.items()}
 
-    report = generate_report(research_df, binary, cat, types, cal, usage)
-    report = report.replace("# LLM Classifier Evaluation Report", "# Hybrid Router Evaluation Report")
+    report = generate_report(research_df, binary, cat, types, cal, usage,
+                             title="Hybrid Router Evaluation Report")
     with open(output_path, "w") as f:
         f.write(report)
     print(f"  Hybrid report saved → {output_path}")

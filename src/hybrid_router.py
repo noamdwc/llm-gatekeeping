@@ -97,7 +97,6 @@ class HybridRouter:
             }
 
         # Low-confidence ML → escalate to LLM
-        self.stats.llm_escalated += 1
         llm_result = self.llm.predict(text)
 
         # Check LLM confidence for abstention (new schema: "confidence")
@@ -106,6 +105,8 @@ class HybridRouter:
         routed_to = "abstain" if llm_conf < self.llm_threshold else "llm"
         if routed_to == "abstain":
             self.stats.abstained += 1
+        else:
+            self.stats.llm_escalated += 1
 
         # Build unified return dict: LLM for binary+category (if available), ML for type
         llm_category = llm_result.get("label_category")

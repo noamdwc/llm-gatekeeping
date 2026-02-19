@@ -206,15 +206,17 @@ class ExemplarBank:
         k: int = 2,
     ) -> list[tuple[str, str, str]]:
         """
-        Select pairs of benign and attack examples for contrastive learning.
-        Outputs a list of tuples (benign_text, attack_text, attack_type).
+        Select k pairs of (benign_text, attack_text, attack_type) for few-shot prompting.
+
+        Retrieves the single most similar benign example and the k most similar attack
+        examples across all attack types (one per type), then returns k pairs total.
         """
-        benign_examples = self.select(query_embedding, "benign", k=k)
+        benign_examples = self.select(query_embedding, "benign", k=1)
+        benign_text = benign_examples[0]["text"] if benign_examples else ""
         attack_examples = self.select_multi_type(query_embedding, ATTACK_TYPES, k_per_type=1)
         return [
-            (b["text"], a["text"], a["label"])
-            for b in benign_examples
-            for a in attack_examples
+            (benign_text, a["text"], a["label"])
+            for a in attack_examples[:k]
         ]
 
 

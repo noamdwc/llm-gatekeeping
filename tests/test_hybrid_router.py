@@ -22,7 +22,14 @@ class TestRouterStats:
         assert stats.abstain_rate == 0.0
 
     def test_rates_sum_to_one(self):
+        # ml_handled + llm_escalated + abstained must equal total (mutually exclusive)
         stats = RouterStats(total=10, ml_handled=5, llm_escalated=3, abstained=2)
+        total = stats.ml_rate + stats.llm_rate + stats.abstain_rate
+        assert abs(total - 1.0) < 1e-9
+
+    def test_rates_sum_to_one_with_all_abstained(self):
+        """All escalated samples abstaining: llm_escalated=0, abstained=5."""
+        stats = RouterStats(total=10, ml_handled=5, llm_escalated=0, abstained=5)
         total = stats.ml_rate + stats.llm_rate + stats.abstain_rate
         assert abs(total - 1.0) < 1e-9
 

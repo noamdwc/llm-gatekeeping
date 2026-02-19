@@ -59,8 +59,8 @@ def binary_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
 
 def category_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
     """Compute category-level metrics (unicode_attack vs nlp_attack)."""
-    # Filter to adversarial only
-    mask = (y_true != "benign") & (y_pred != "benign")
+    # Filter to adversarial ground truth only; keep FNs (adv predicted as benign) as errors
+    mask = y_true != "benign"
     yt, yp = y_true[mask], y_pred[mask]
     if len(yt) == 0:
         return {"category_accuracy": 0.0, "category_f1_macro": 0.0}
@@ -130,9 +130,10 @@ def generate_report(
     types: dict,
     calibration: dict,
     usage: dict | None = None,
+    title: str = "LLM Classifier Evaluation Report",
 ) -> str:
     """Generate a Markdown evaluation report."""
-    lines = ["# LLM Classifier Evaluation Report\n"]
+    lines = [f"# {title}\n"]
 
     # Binary
     lines.append("## Binary Detection (Adversarial vs Benign)\n")
@@ -208,7 +209,12 @@ def evaluate(predictions_path: str, output_path: str = None):
     pred_binary = df.get("label_binary.1", gt_binary)
     pred_category = df.get("label_category.1", gt_category)
     pred_type = df.get("label_type.1", gt_type)
-    conf_binary = df.get("confidence_binary", pd.Series([0.5] * len(df)))
+    if "confidence_binary" in df.columns:
+        conf_binary = df["confidence_binary"]
+    elif "confidence" in df.columns:
+        conf_binary = df["confidence"]
+    else:
+        conf_binary = pd.Series([0.5] * len(df))
 
     # Handle case where there's a separate 'pred_' prefix
     if "pred_label_binary" in df.columns:
