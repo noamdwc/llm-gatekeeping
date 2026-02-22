@@ -20,6 +20,7 @@ Usage:
 
 import os
 import pickle
+import time
 from pathlib import Path
 
 import dotenv
@@ -59,10 +60,20 @@ def get_embeddings(
     all_embeddings = []
 
     extra = {"extra_body": {"input_type": input_type}} if input_type else {}
+    max_retries = 5
 
     for i in range(0, len(texts), batch_size):
         batch = texts[i : i + batch_size]
-        response = client.embeddings.create(model=model, input=batch, **extra)
+        for attempt in range(max_retries):
+            try:
+                response = client.embeddings.create(model=model, input=batch, **extra)
+                break
+            except openai.RateLimitError:
+                if attempt == max_retries - 1:
+                    raise
+                wait = min(2 ** attempt * 5, 60)
+                print(f"\nRate limit hit, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                time.sleep(wait)
         batch_embeddings = [item.embedding for item in response.data]
         all_embeddings.extend(batch_embeddings)
 

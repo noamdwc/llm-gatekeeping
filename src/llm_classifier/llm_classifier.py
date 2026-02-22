@@ -90,17 +90,27 @@ class HierarchicalLLMClassifier:
     def _call_llm(
         self, messages: list[dict], max_tokens: int, stage: str,
         model: str | None = None,
+        max_retries: int = 5,
     ) -> dict:
         """Make one LLM call, track usage, return parsed JSON."""
-        t0 = time.time()
-        response = self.client.chat.completions.create(
-            model=model or self.model,
-            messages=messages,
-            temperature=self.temperature,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"},
-        )
-        latency = time.time() - t0
+        for attempt in range(max_retries):
+            try:
+                t0 = time.time()
+                response = self.client.chat.completions.create(
+                    model=model or self.model,
+                    messages=messages,
+                    temperature=self.temperature,
+                    max_tokens=max_tokens,
+                    response_format={"type": "json_object"},
+                )
+                latency = time.time() - t0
+                break
+            except openai.RateLimitError:
+                if attempt == max_retries - 1:
+                    raise
+                wait = min(2 ** attempt * 5, 60)
+                print(f"\nRate limit hit, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                time.sleep(wait)
 
         self.usage.total_calls += 1
         self.usage.calls_by_stage[stage] += 1
