@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Python environment**: `/Users/noamc/miniconda3/envs/llm_gate/bin/python` (Python 3.14)
 - **Activate**: `conda activate llm_gate`
 - **Dependencies**: `pip install -r requirements.txt`
-- **OpenAI API key**: Required for LLM and hybrid modes; stored in `.env` (gitignored)
+- **NVIDIA API key**: Required for LLM and hybrid modes; stored in `.env` as `NVIDIA_API_KEY` (gitignored). Get one at https://integrate.api.nvidia.com
 - **HuggingFace auth**: `huggingface-cli login` (dataset requires access approval)
 - **Experiment tracking**: wandb (optional, disable with `--no-wandb`)
 
@@ -100,7 +100,7 @@ NLP attack sub-types are collapsed to a single "nlp_attack" label (sub-types are
 
 Three classifier backends share this hierarchy:
 - **ML** (`ml_classifier/ml_baseline.py`): Char n-gram TF-IDF + handcrafted Unicode features → LogisticRegression per level. `MLBaseline` class handles fit/predict/save/load.
-- **LLM** (`llm_classifier/llm_classifier.py`): Classifier + conditional judge OpenAI chat calls with JSON mode. `HierarchicalLLMClassifier` predicts binary + derived category and can invoke judge on low-confidence cases. Supports static and dynamic few-shot (via `embeddings.py` ExemplarBank).
+- **LLM** (`llm_classifier/llm_classifier.py`): Classifier + conditional judge NVIDIA NIM chat calls with JSON mode. `HierarchicalLLMClassifier` predicts binary + derived category and can invoke judge on low-confidence cases. Supports static and dynamic few-shot (via `embeddings.py` ExemplarBank).
 - **Hybrid** (`hybrid_router.py`): ML runs first on all samples; low-confidence ones (below `ml_confidence_threshold` in config) escalate to LLM. `HybridRouter` wraps both.
 
 ## Key Design Decisions

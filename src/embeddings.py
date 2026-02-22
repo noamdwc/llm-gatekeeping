@@ -18,6 +18,7 @@ Usage:
     examples = bank.select(query_emb, "Diacritcs", k=2)
 """
 
+import os
 import pickle
 from pathlib import Path
 
@@ -35,29 +36,36 @@ dotenv.load_dotenv(dotenv.find_dotenv(usecwd=True))
 
 def get_embeddings(
     texts: list[str],
-    model: str = "text-embedding-3-small",
+    model: str = "nvidia/nv-embedqa-e5-v5",
     batch_size: int = 100,
+    input_type: str | None = None,
 ) -> np.ndarray:
     """
-    Get embeddings for a list of texts using OpenAI's embedding API.
-    
+    Get embeddings for a list of texts using NVIDIA NIM's embedding API.
+
     Args:
         texts: List of strings to embed
-        model: OpenAI embedding model name
+        model: Embedding model name
         batch_size: Number of texts per API call
-        
+        input_type: "passage" for bank texts, "query" for query texts (NIM-specific)
+
     Returns:
         numpy array of shape (len(texts), embedding_dim)
     """
-    client = openai.OpenAI()
+    client = openai.OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=os.environ.get("NVIDIA_API_KEY", ""),
+    )
     all_embeddings = []
-    
+
+    extra = {"extra_body": {"input_type": input_type}} if input_type else {}
+
     for i in range(0, len(texts), batch_size):
         batch = texts[i : i + batch_size]
-        response = client.embeddings.create(model=model, input=batch)
+        response = client.embeddings.create(model=model, input=batch, **extra)
         batch_embeddings = [item.embedding for item in response.data]
         all_embeddings.extend(batch_embeddings)
-    
+
     return np.array(all_embeddings)
 
 
@@ -78,7 +86,7 @@ class ExemplarBank:
     def __init__(self):
         # Dict[attack_type -> {"texts": list[str], "embeddings": np.ndarray}]
         self.bank: dict[str, dict] = {}
-        self.embedding_model: str = "text-embedding-3-small"
+        self.embedding_model: str = "nvidia/nv-embedqa-e5-v5"
     
     @classmethod
     def build(
@@ -106,7 +114,7 @@ class ExemplarBank:
         # Get settings from config
         few_shot_cfg = cfg.get("llm", {}).get("few_shot", {})
         bank_size = few_shot_cfg.get("bank_size_per_type", 15)
-        bank.embedding_model = few_shot_cfg.get("embedding_model", "text-embedding-3-small")
+        bank.embedding_model = few_shot_cfg.get("embedding_model", "nvidia/nv-embedqa-e5-v5")
         
         # Combine unicode and nlp attack types
         all_types = cfg["labels"]["unicode_attacks"] + cfg["labels"]["nlp_attacks"]
@@ -123,7 +131,7 @@ class ExemplarBank:
             samples = pool.sample(n=n, random_state=42).tolist()
 
             # Compute embeddings
-            embeddings = get_embeddings(samples, model=bank.embedding_model)
+            embeddings = get_embeddings(samples, model=bank.embedding_model, input_type="passage")
 
             bank.bank[attack_type] = {
                 "texts": samples,
@@ -135,7 +143,7 @@ class ExemplarBank:
         n_benign = min(bank_size, len(benign_pool))
         if n_benign > 0:
             benign_samples = benign_pool.sample(n=n_benign, random_state=42).tolist()
-            benign_embeddings = get_embeddings(benign_samples, model=bank.embedding_model)
+            benign_embeddings = get_embeddings(benign_samples, model=bank.embedding_model, input_type="passage")
             bank.bank["benign"] = {
                 "texts": benign_samples,
                 "embeddings": benign_embeddings,
@@ -239,7 +247,7 @@ class ExemplarBank:
         
         bank = cls()
         bank.bank = data["bank"]
-        bank.embedding_model = data.get("embedding_model", "text-embedding-3-small")
+        bank.embedding_model = data.get("embedding_model", "nvidia/nv-embedqa-e5-v5")
         return bank
     
     def __repr__(self) -> str:

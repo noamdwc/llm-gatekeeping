@@ -9,6 +9,7 @@ Usage:
 
 import argparse
 import json
+import os
 import time
 import dotenv
 import random
@@ -58,7 +59,7 @@ class UsageStats:
 
 
 class HierarchicalLLMClassifier:
-    """Classifier + judge pattern using OpenAI chat completions."""
+    """Classifier + judge pattern using NVIDIA NIM chat completions."""
 
     def __init__(
         self,
@@ -68,7 +69,10 @@ class HierarchicalLLMClassifier:
         exemplar_bank: ExemplarBank | None = None,
     ):
         self.cfg = cfg
-        self.client = openai.OpenAI()
+        self.client = openai.OpenAI(
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key=os.environ["NVIDIA_API_KEY"],
+        )
         self.model = cfg["llm"]["model"]
         self.model_quality = cfg["llm"].get("model_quality", self.model)
         self.temperature = cfg["llm"]["temperature"]
@@ -119,7 +123,7 @@ class HierarchicalLLMClassifier:
     def _get_dynamic_few_shot(self, text: str) -> list[tuple[str, str, str]]:
         """Get dynamic few-shot examples using embedding similarity."""
         k = self.cfg["llm"]["few_shot"].get("dynamic_k", 2)
-        query_emb = get_embeddings([text], model=self.exemplar_bank.embedding_model)[0]
+        query_emb = get_embeddings([text], model=self.exemplar_bank.embedding_model, input_type="query")[0]
         pairs = self.exemplar_bank.select_pairs_by_benign(query_emb, k=k)
 
         return pairs

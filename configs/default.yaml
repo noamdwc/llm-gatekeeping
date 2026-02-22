@@ -51,13 +51,13 @@ benign:
   use_originals: true
   # Target count after augmentation (paraphrasing)
   target_count: 2000
-  paraphrase_model: "gpt-4o-mini"
+  paraphrase_model: "meta/llama-3.1-8b-instruct"
   paraphrases_per_prompt: 2
 
 # LLM classifier
 llm:
-  model: "gpt-4o-mini"
-  model_quality: "gpt-4o"
+  model: "meta/llama-3.1-8b-instruct"
+  model_quality: "meta/llama-3.1-70b-instruct"
   temperature: 0
   max_tokens_classifier: 60
   max_tokens_judge: 300
@@ -66,7 +66,7 @@ llm:
     unicode: 2
     nlp: 5
     # Dynamic few-shot settings
-    embedding_model: "text-embedding-3-small"
+    embedding_model: "nvidia/nv-embedqa-e5-v5"
     bank_size_per_type: 15
     dynamic_k: 2
 
