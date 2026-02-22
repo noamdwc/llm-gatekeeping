@@ -66,8 +66,10 @@ def compute_hybrid_routing(
             matched_ids = result.loc[override_idx, "sample_id"]
             llm_rows = llm_indexed.loc[matched_ids]
             result.loc[override_idx, "hybrid_pred_binary"] = llm_rows["llm_pred_binary"].values
-            result.loc[override_idx, "hybrid_pred_category"] = llm_rows["llm_pred_category"].values
-            result.loc[override_idx, "hybrid_pred_type"] = llm_rows["llm_pred_type"].values
+            # Override category if LLM provides it (llm_pred_category exists when LLM derives category)
+            if "llm_pred_category" in llm_indexed.columns:
+                result.loc[override_idx, "hybrid_pred_category"] = llm_rows["llm_pred_category"].values
+            # LLM does not provide type-level predictions; hybrid_pred_type stays as ML's prediction
 
         # Escalated rows without LLM fall back to ML (predictions already set);
         # correct routing label from "llm" → "ml"
@@ -107,9 +109,8 @@ def generate_ml_report(research_df: pd.DataFrame, output_path: str):
         research_df["label_binary"], research_df["ml_pred_binary"],
         research_df["ml_conf_binary"],
     )
-    report = generate_report(research_df, binary, cat, types, cal)
-    # Replace title
-    report = report.replace("# LLM Classifier Evaluation Report", "# ML Classifier Evaluation Report")
+    report = generate_report(research_df, binary, cat, types, cal,
+                             title="ML Classifier Evaluation Report")
     with open(output_path, "w") as f:
         f.write(report)
     print(f"  ML report saved → {output_path}")
@@ -132,8 +133,8 @@ def generate_hybrid_report(research_df: pd.DataFrame, output_path: str):
     routing = research_df["hybrid_routed_to"].value_counts().to_dict()
     usage = {f"routed_{k}": v for k, v in routing.items()}
 
-    report = generate_report(research_df, binary, cat, types, cal, usage)
-    report = report.replace("# LLM Classifier Evaluation Report", "# Hybrid Router Evaluation Report")
+    report = generate_report(research_df, binary, cat, types, cal, usage,
+                             title="Hybrid Router Evaluation Report")
     with open(output_path, "w") as f:
         f.write(report)
     print(f"  Hybrid report saved → {output_path}")
@@ -148,8 +149,14 @@ def generate_llm_report(research_df: pd.DataFrame, output_path: str):
         print(f"  Skipping LLM report — no LLM predictions available (0/{len(research_df)} samples)")
         return None
     binary = binary_metrics(df["label_binary"], df["llm_pred_binary"])
-    cat = category_metrics(df["label_category"], df["llm_pred_category"])
-    types = type_metrics(df["label_type"], df["llm_pred_type"])
+    # Category metrics only if LLM provides category predictions
+    if "llm_pred_category" in df.columns:
+        cat = category_metrics(df["label_category"], df["llm_pred_category"])
+        # LLM does not predict type-level labels; skip type metrics
+        types = {"type_accuracy": 0.0, "type_f1_macro": 0.0}
+    else:
+        cat = {"category_accuracy": 0.0, "category_f1_macro": 0.0}
+        types = {"type_accuracy": 0.0, "type_f1_macro": 0.0}
     cal = calibration_metrics(
         df["label_binary"], df["llm_pred_binary"],
         df["llm_conf_binary"],

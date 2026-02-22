@@ -1,18 +1,21 @@
 def decide_accept_or_override(judge_out: dict, cand_out: dict) -> str:
-    if judge_out["final_label"] != cand_out.get("label"):
+    independent_label = judge_out.get("independent_label", "")
+    cand_label = cand_out.get("label", "")
+
+    # Normalize both to binary for comparison
+    ind_binary = "benign" if independent_label == "benign" else ("adversarial" if independent_label else "")
+    cand_binary = "benign" if cand_label == "benign" else ("adversarial" if cand_label else "")
+
+    if not ind_binary or ind_binary != cand_binary:
         return "override_candidate"
 
-    if judge_out["final_label"] != "adversarial":
+    if ind_binary != "adversarial":
         return "accept_candidate"
 
-    # adversarial: require evidence and type match
-    if judge_out.get("nlp_attack_type") != cand_out.get("nlp_attack_type"):
-        return "override_candidate"
-
-    je = (judge_out.get("final_evidence") or "").strip()
+    # Both adversarial: require evidence match
+    je = (judge_out.get("independent_evidence") or "").strip()
     ce = (cand_out.get("evidence") or "").strip()
 
-    # allow minor differences: one contains the other
     if not je or not ce:
         return "override_candidate"
     if je in ce or ce in je:

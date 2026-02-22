@@ -97,18 +97,28 @@ class HybridRouter:
             }
 
         # Low-confidence ML → escalate to LLM
-        self.stats.llm_escalated += 1
         llm_result = self.llm.predict(text)
 
-        # Check LLM confidence for abstention
-        llm_conf = llm_result.get("confidence_binary", 0.5)
-        if llm_conf < self.llm_threshold:
+        # Check LLM confidence for abstention (new schema: "confidence")
+        llm_conf = llm_result.get("confidence", 0.5)
+        llm_binary = llm_result.get("label", "adversarial")
+        routed_to = "abstain" if llm_conf < self.llm_threshold else "llm"
+        if routed_to == "abstain":
             self.stats.abstained += 1
-            llm_result["routed_to"] = "abstain"
         else:
-            llm_result["routed_to"] = "llm"
+            self.stats.llm_escalated += 1
 
-        return llm_result
+        # Build unified return dict: LLM for binary+category (if available), ML for type
+        llm_category = llm_result.get("label_category")
+        return {
+            "label_binary": llm_binary,
+            "label_category": llm_category or ml_pred.get("pred_label_category", llm_binary),
+            "label_type": ml_pred.get("pred_label_type", llm_binary),
+            "confidence_binary": llm_conf,
+            "confidence_category": ml_pred.get("confidence_label_category"),
+            "confidence_type": ml_pred.get("confidence_label_type"),
+            "routed_to": routed_to,
+        }
 
     def predict_batch(
         self,

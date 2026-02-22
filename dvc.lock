@@ -16,7 +16,7 @@ stages:
         benign:
           use_originals: true
           target_count: 2000
-          paraphrase_model: gpt-4o-mini
+          paraphrase_model: meta/llama-3.1-8b-instruct
           paraphrases_per_prompt: 2
         dataset:
           name: Mindgard/evaded-prompt-injection-and-jailbreak-samples
@@ -118,8 +118,8 @@ stages:
       size: 585455
     - path: src/ml_classifier/
       hash: md5
-      md5: 3a940ca88ee9dcd3e14c3fd8fc270527.dir
-      size: 48254
+      md5: 9772c25e41b1bedd8ea01bf17af24a30.dir
+      size: 49554
       nfiles: 12
     - path: src/utils.py
       hash: md5
@@ -163,13 +163,13 @@ stages:
       size: 1845316
     - path: src/embeddings.py
       hash: md5
-      md5: 6f308b8b543bdf0931842b7dac551364
-      size: 6836
+      md5: 220e51bf413a21137e9c5243e1b5ff43
+      size: 8944
     - path: src/llm_classifier/
       hash: md5
-      md5: 2f7c24825b6d89c9557bc2a9952334fc.dir
-      size: 57765
-      nfiles: 10
+      md5: 0ad1566942af92874c8627214aab0290.dir
+      size: 107048
+      nfiles: 17
     - path: src/utils.py
       hash: md5
       md5: 82d7f957e271659a3b44e73381848f19
@@ -177,43 +177,43 @@ stages:
     params:
       configs/default.yaml:
         llm:
-          model: gpt-4o-mini
-          model_quality: gpt-4o
+          model: meta/llama-3.1-8b-instruct
+          model_quality: meta/llama-3.1-70b-instruct
           temperature: 0
-          max_tokens_binary: 30
-          max_tokens_category: 30
-          max_tokens_type: 50
+          max_tokens_classifier: 200
+          max_tokens_judge: 500
+          judge_confidence_threshold: 0.7
           few_shot:
             unicode: 2
             nlp: 5
-            embedding_model: text-embedding-3-small
+            embedding_model: nvidia/nv-embedqa-e5-v5
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
     - path: data/processed/predictions/llm_predictions_test.parquet
       hash: md5
-      md5: 4dd7373b1bad8d7310b4bfa3c53d42be
-      size: 57381
+      md5: 77f15828f5fc5555daf8163ba48562ea
+      size: 75813
   research:
     cmd: python -m src.research --split test
     deps:
     - path: data/processed/predictions/
       hash: md5
-      md5: e38460afe78e9c0214c7738696be8ebf.dir
-      size: 2491632
-      nfiles: 4
+      md5: 5ae7831239e8858894a3e8e803624ea9.dir
+      size: 6135376
+      nfiles: 6
     - path: data/processed/splits/test.parquet
       hash: md5
       md5: 2cf5701c17b93d03abbc7197b246f66c
       size: 422839
     - path: src/evaluate.py
       hash: md5
-      md5: 1fe85913563d4471133c8c518cc913df
-      size: 10270
+      md5: 231e2a0e8941712ef273f2f582f225c0
+      size: 10482
     - path: src/research.py
       hash: md5
-      md5: 676cba58288f9f5136136331d5a57ca6
-      size: 10030
+      md5: c73efd5ec275a06b1f6daa493203cbf3
+      size: 10653
     - path: src/utils.py
       hash: md5
       md5: 82d7f957e271659a3b44e73381848f19
@@ -224,15 +224,15 @@ stages:
     outs:
     - path: data/processed/research/research_test.parquet
       hash: md5
-      md5: b97eacef521ddd9a02a5187e42513651
-      size: 800124
+      md5: a5aa8eb6f5ccf21feedd8d31931b66ec
+      size: 804390
     - path: reports/research/eval_report_hybrid.md
       hash: md5
-      md5: 5ccd4dc3626351178b3af35788ca2a2d
-      size: 1678
+      md5: 4838119f921081f1c55f6fa64c3a4808
+      size: 1679
     - path: reports/research/eval_report_ml.md
       hash: md5
-      md5: d2fc9010260b6705ee278ccb02e1aa31
+      md5: 09f20954ddaed6f5545d84ceca12622d
       size: 1625
   research_external@deepset:
     cmd: python -m src.cli.research_external --dataset deepset
@@ -247,16 +247,16 @@ stages:
       size: 1845316
     - path: src/cli/research_external.py
       hash: md5
-      md5: dfa652259587008a43c42bc060e26760
-      size: 14551
+      md5: 00677d60d0c7539787889762c669ffeb
+      size: 15191
     - path: src/eval_external.py
       hash: md5
       md5: 0e306a2199f8e819a6453c1adc54cd93
       size: 10565
     - path: src/ml_classifier/
       hash: md5
-      md5: 3a940ca88ee9dcd3e14c3fd8fc270527.dir
-      size: 48254
+      md5: 9772c25e41b1bedd8ea01bf17af24a30.dir
+      size: 49554
       nfiles: 12
     - path: src/utils.py
       hash: md5
@@ -276,11 +276,11 @@ stages:
     outs:
     - path: data/processed/research_external/research_external_deepset.parquet
       hash: md5
-      md5: 1c9e40e726ff600291cb644d92684bab
-      size: 62124
+      md5: 312a73ca95c8a0847b1e22c689c616f1
+      size: 60278
     - path: reports/research_external/research_external_deepset.md
       hash: md5
-      md5: ac373057160ca70339530c1fed965b98
+      md5: 395846d11bed9395ef94d5146d360bc7
       size: 2367
   research_external@jackhhao:
     cmd: python -m src.cli.research_external --dataset jackhhao
@@ -295,16 +295,16 @@ stages:
       size: 1845316
     - path: src/cli/research_external.py
       hash: md5
-      md5: dfa652259587008a43c42bc060e26760
-      size: 14551
+      md5: 00677d60d0c7539787889762c669ffeb
+      size: 15191
     - path: src/eval_external.py
       hash: md5
       md5: 0e306a2199f8e819a6453c1adc54cd93
       size: 10565
     - path: src/ml_classifier/
       hash: md5
-      md5: 3a940ca88ee9dcd3e14c3fd8fc270527.dir
-      size: 48254
+      md5: 9772c25e41b1bedd8ea01bf17af24a30.dir
+      size: 49554
       nfiles: 12
     - path: src/utils.py
       hash: md5
@@ -324,11 +324,11 @@ stages:
     outs:
     - path: data/processed/research_external/research_external_jackhhao.parquet
       hash: md5
-      md5: ef51e553408ec388ca30f8521f9d151b
-      size: 285049
+      md5: bcb06f52d8ed70e12a70da775f9d6675
+      size: 283094
     - path: reports/research_external/research_external_jackhhao.md
       hash: md5
-      md5: 645d73ae77d712e7fc294f87c8bdd1fc
+      md5: 4661115202cba03480bd86a83ca2fa84
       size: 4101
   research_external@safeguard:
     cmd: python -m src.cli.research_external --dataset safeguard
@@ -343,16 +343,16 @@ stages:
       size: 1845316
     - path: src/cli/research_external.py
       hash: md5
-      md5: dfa652259587008a43c42bc060e26760
-      size: 14551
+      md5: 00677d60d0c7539787889762c669ffeb
+      size: 15191
     - path: src/eval_external.py
       hash: md5
       md5: 0e306a2199f8e819a6453c1adc54cd93
       size: 10565
     - path: src/ml_classifier/
       hash: md5
-      md5: 3a940ca88ee9dcd3e14c3fd8fc270527.dir
-      size: 48254
+      md5: 9772c25e41b1bedd8ea01bf17af24a30.dir
+      size: 49554
       nfiles: 12
     - path: src/utils.py
       hash: md5
@@ -372,12 +372,12 @@ stages:
     outs:
     - path: data/processed/research_external/research_external_safeguard.parquet
       hash: md5
-      md5: 7e7d695128aa662407cc7bc9382d97bd
-      size: 959533
+      md5: 76bfd1bab8f5c9220992409f72b8fb74
+      size: 951231
     - path: reports/research_external/research_external_safeguard.md
       hash: md5
-      md5: d36eedf65bed8a4b29cdf7fc53edd59c
-      size: 4282
+      md5: 10735a7478c558d499b3ff8ac880377a
+      size: 4235
   research_external@spml:
     cmd: python -m src.cli.research_external --dataset spml
     deps:
@@ -391,16 +391,16 @@ stages:
       size: 1845316
     - path: src/cli/research_external.py
       hash: md5
-      md5: dfa652259587008a43c42bc060e26760
-      size: 14551
+      md5: 00677d60d0c7539787889762c669ffeb
+      size: 15191
     - path: src/eval_external.py
       hash: md5
       md5: 0e306a2199f8e819a6453c1adc54cd93
       size: 10565
     - path: src/ml_classifier/
       hash: md5
-      md5: 3a940ca88ee9dcd3e14c3fd8fc270527.dir
-      size: 48254
+      md5: 9772c25e41b1bedd8ea01bf17af24a30.dir
+      size: 49554
       nfiles: 12
     - path: src/utils.py
       hash: md5
@@ -420,9 +420,9 @@ stages:
     outs:
     - path: data/processed/research_external/research_external_spml.parquet
       hash: md5
-      md5: 723139fbaa2faeda585dd5c4680078b5
-      size: 8949062
+      md5: 6cbd7e70bb1dd2f6b15ee2cab45df282
+      size: 8914693
     - path: reports/research_external/research_external_spml.md
       hash: md5
-      md5: 2660bfe37bd1de802e8fcb17242ad514
-      size: 4352
+      md5: 30e696ead988fe045e9e27a679ce5872
+      size: 4304

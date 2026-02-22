@@ -40,36 +40,34 @@ Level 2: Specific     → 12 unicode sub-types only    (88.5% accuracy)
 
 ---
 
-## Step 2 — LLM Classifier (Hierarchical, Few-Shot) ✅
+## Step 2 — LLM Classifier (Classifier + Judge, Few-Shot) ✅
 
 **Why**: Establish the core LLM-as-a-classifier with the revised label scheme. Build on the two-stage approach from EDA that already showed promise.
 
 **Approach**:
-- Stage 0: Binary gate — adversarial vs benign
-- Stage 1: Category — unicode vs nlp (94% baseline exists)
-- Stage 2: Specific type — only for unicode attacks (88.5% baseline)
-- Attack descriptions in system prompt
-- Few-shot: 2 examples for unicode types, 5 for NLP types
+- Stage 1: Classifier predicts binary label + confidence (+ `nlp_attack_type`)
+- Stage 2: Conditional judge call (higher-quality model) on low-confidence classifier outputs
+- Category is derived from binary label + `nlp_attack_type`
+- Attack descriptions and evidence constraints in system prompts
+- Few-shot: static pairs or dynamic retrieval from embedding exemplar bank
 - Structured JSON output with confidence scores
-- Model: gpt-4o-mini
+- Model: `gpt-4o-mini` (classifier), `gpt-4o` (judge)
 
-**Results** (100 test samples):
+**Results** (historical 100-sample benchmark):
 - Binary: 69% accuracy, 22% false-negative rate
 - Category: 89.4% accuracy (41/44 unicode, 18/22 NLP correct)
-- Unicode sub-types: 78% accuracy, 95% precision
 - 225 LLM calls, ~197s total, ~0.87s avg per call
 
 **Evaluation**:
 - Binary: precision, recall, F1 (especially false-negative rate — missed attacks)
 - Category: accuracy, confusion matrix
-- Per-type: macro F1, per-class breakdown (unicode types only)
 - Calibration: confidence vs accuracy buckets
 - Cost tracking: tokens in/out, latency per sample
 
 **Deliverables**:
-- `src/llm_classifier.py` — hierarchical classifier with configurable stages
+- `src/llm_classifier/llm_classifier.py` — classifier+judge LLM pipeline
 - `src/evaluate.py` — metrics computation + reporting
-- `reports/eval_report_llm.md`
+- `reports/research/eval_report_llm.md`
 
 ---
 
@@ -111,9 +109,9 @@ Level 2: Specific     → 12 unicode sub-types only    (88.5% accuracy)
 | 0.99 | 48% | 100% |
 
 **Deliverables**:
-- `src/ml_baseline.py` — feature extraction + model training
+- `src/ml_classifier/ml_baseline.py` — feature extraction + model training
 - `src/hybrid_router.py` — routing logic with configurable thresholds
-- `reports/eval_report_hybrid.md`
+- `reports/research/eval_report_hybrid.md`
 
 ---
 
@@ -134,7 +132,7 @@ Level 2: Specific     → 12 unicode sub-types only    (88.5% accuracy)
 - NLP attack samples that look most benign
 
 **Deliverables**:
-- Dynamic few-shot logic integrated into `src/llm_classifier.py`
+- Dynamic few-shot logic integrated into `src/llm_classifier/llm_classifier.py` + `src/embeddings.py`
 - `reports/error_analysis.md`
 
 ---
@@ -156,7 +154,7 @@ Level 2: Specific     → 12 unicode sub-types only    (88.5% accuracy)
 | Binary accuracy | **86%** | 69% | 79% |
 | False-negative rate | **5%** | 22% | 9.4% |
 | Category accuracy | 85% | 89% | **96.1%** |
-| Unicode type accuracy | 93-100% | 78% | **100%** |
+| Unicode type accuracy | 93-100% | N/A (LLM does not emit type labels) | **100%** |
 | LLM calls per 100 samples | 0 | 225 | **75** |
 | Latency (100 samples) | <1s | 197s | **73s** |
 
@@ -165,7 +163,7 @@ Level 2: Specific     → 12 unicode sub-types only    (88.5% accuracy)
 ## Verification Plan
 
 1. ✅ Run `src/preprocess.py` → verified processed parquet has correct schema, benign + adversarial labels, no leakage across splits
-2. ✅ Run `src/llm_classifier.py` on test split → verified hierarchical predictions with metrics
-3. ✅ Run `src/ml_baseline.py` → verified ML baseline trains and evaluates
+2. ✅ Run `python -m src.llm_classifier.llm_classifier` on test split → verified LLM predictions with metrics
+3. ✅ Run `python -m src.ml_classifier.ml_baseline` → verified ML baseline trains and evaluates
 4. ✅ Run `src/hybrid_router.py` → verified hybrid improves cost-efficiency vs LLM-only
 5. ✅ Run `src/predict.py` on sample input → verified end-to-end prediction pipeline
