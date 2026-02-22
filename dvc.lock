@@ -16,7 +16,7 @@ stages:
         benign:
           use_originals: true
           target_count: 2000
-          paraphrase_model: gpt-4o-mini
+          paraphrase_model: meta/llama-3.1-8b-instruct
           paraphrases_per_prompt: 2
         dataset:
           name: Mindgard/evaded-prompt-injection-and-jailbreak-samples
@@ -163,12 +163,12 @@ stages:
       size: 1845316
     - path: src/embeddings.py
       hash: md5
-      md5: 9fe0c9f2dc26c1372229b3d1922b5794
-      size: 8163
+      md5: 220e51bf413a21137e9c5243e1b5ff43
+      size: 8944
     - path: src/llm_classifier/
       hash: md5
-      md5: dc99c782a1dd09dcccd235a1607f5460.dir
-      size: 105615
+      md5: 0ad1566942af92874c8627214aab0290.dir
+      size: 107048
       nfiles: 17
     - path: src/utils.py
       hash: md5
@@ -177,31 +177,31 @@ stages:
     params:
       configs/default.yaml:
         llm:
-          model: gpt-4o-mini
-          model_quality: gpt-4o
+          model: meta/llama-3.1-8b-instruct
+          model_quality: meta/llama-3.1-70b-instruct
           temperature: 0
-          max_tokens_classifier: 60
-          max_tokens_judge: 300
+          max_tokens_classifier: 200
+          max_tokens_judge: 500
           judge_confidence_threshold: 0.7
           few_shot:
             unicode: 2
             nlp: 5
-            embedding_model: text-embedding-3-small
+            embedding_model: nvidia/nv-embedqa-e5-v5
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
     - path: data/processed/predictions/llm_predictions_test.parquet
       hash: md5
-      md5: 96585cbb952b1768b164e4ed63e16104
-      size: 67886
+      md5: 77f15828f5fc5555daf8163ba48562ea
+      size: 75813
   research:
     cmd: python -m src.research --split test
     deps:
     - path: data/processed/predictions/
       hash: md5
-      md5: c7a6e8f1d6558d0a9adb91e71161fa05.dir
-      size: 6116718
-      nfiles: 5
+      md5: 5ae7831239e8858894a3e8e803624ea9.dir
+      size: 6135376
+      nfiles: 6
     - path: data/processed/splits/test.parquet
       hash: md5
       md5: 2cf5701c17b93d03abbc7197b246f66c
@@ -224,12 +224,12 @@ stages:
     outs:
     - path: data/processed/research/research_test.parquet
       hash: md5
-      md5: 017f808eaebf8f22161bde889ed08b52
-      size: 800916
+      md5: a5aa8eb6f5ccf21feedd8d31931b66ec
+      size: 804390
     - path: reports/research/eval_report_hybrid.md
       hash: md5
-      md5: 86e5497b3de5817fbbae451a063acdc8
-      size: 1678
+      md5: 4838119f921081f1c55f6fa64c3a4808
+      size: 1679
     - path: reports/research/eval_report_ml.md
       hash: md5
       md5: 09f20954ddaed6f5545d84ceca12622d
@@ -343,16 +343,16 @@ stages:
       size: 1845316
     - path: src/cli/research_external.py
       hash: md5
-      md5: 84cd7fc7b6a7108155c21472027c9aae
-      size: 15452
+      md5: 00677d60d0c7539787889762c669ffeb
+      size: 15191
     - path: src/eval_external.py
       hash: md5
       md5: 0e306a2199f8e819a6453c1adc54cd93
       size: 10565
     - path: src/ml_classifier/
       hash: md5
-      md5: bdd4d8464da7ec5e2aaf3b01f2beaf32.dir
-      size: 48254
+      md5: 9772c25e41b1bedd8ea01bf17af24a30.dir
+      size: 49554
       nfiles: 12
     - path: src/utils.py
       hash: md5
@@ -391,16 +391,16 @@ stages:
       size: 1845316
     - path: src/cli/research_external.py
       hash: md5
-      md5: 84cd7fc7b6a7108155c21472027c9aae
-      size: 15452
+      md5: 00677d60d0c7539787889762c669ffeb
+      size: 15191
     - path: src/eval_external.py
       hash: md5
       md5: 0e306a2199f8e819a6453c1adc54cd93
       size: 10565
     - path: src/ml_classifier/
       hash: md5
-      md5: bdd4d8464da7ec5e2aaf3b01f2beaf32.dir
-      size: 48254
+      md5: 9772c25e41b1bedd8ea01bf17af24a30.dir
+      size: 49554
       nfiles: 12
     - path: src/utils.py
       hash: md5
