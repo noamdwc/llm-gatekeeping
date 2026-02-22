@@ -29,7 +29,7 @@ Derived from the repository’s intended use as a “gatekeeper” in front of a
 | **Preprocess** | Load HF dataset; add hierarchical labels; merge benign set; compute `prompt_hash` | `python -m src.preprocess` → `data/processed/full_dataset.parquet` |
 | **Splits** | Grouped split by `prompt_hash` + held-out attacks/topics → `test_unseen` | `python -m src.build_splits` |
 | **ML baseline** | Char n-gram TF-IDF + Unicode features → LogisticRegression per hierarchy level | `python -m src.ml_classifier.ml_baseline --research` → `data/processed/models/ml_baseline.pkl` |
-| **LLM classifier** | 3-stage sequential OpenAI classifier with JSON output; optional dynamic few-shot | `python -m src.llm_classifier.llm_classifier [--dynamic]` |
+| **LLM classifier** | Classifier + judge OpenAI pattern with JSON output; optional dynamic few-shot | `python -m src.llm_classifier.llm_classifier [--dynamic]` |
 | **Hybrid router** | ML-first; if ML conf < threshold → LLM cascade; if LLM conf < threshold → `abstain` | `python -m src.hybrid_router` |
 | **Evaluation** | Hierarchy-level metrics + calibration + usage stats | `python -m src.evaluate` + `reports/research/eval_report_*.md` |
 
@@ -43,7 +43,7 @@ Derived from the repository’s intended use as a “gatekeeper” in front of a
 - **FR-2**: Support **hybrid routing** with configurable thresholds:
   - `ml_confidence_threshold` (default `0.85`)
   - `llm_confidence_threshold` (default `0.7`)
-- **FR-3**: Provide **LLM-only** inference (3-stage cascade with early-exit).
+- **FR-3**: Provide **LLM-only** inference (classifier + conditional judge) returning binary + category outputs.
 - **FR-4**: Provide **ML-only** inference (no network calls, local model artifact).
 
 ### 5.2 Pipeline + reproducibility requirements
@@ -55,7 +55,7 @@ Derived from the repository’s intended use as a “gatekeeper” in front of a
   - `python -m src.cli.research_external --dataset <key> ...` (wide parquet + report)
 
 ### 5.3 Dynamic few-shot (optional, implemented)
-- **FR-9**: Build/load an exemplar bank and retrieve similar examples per Unicode type for LLM Stage 2 (`--dynamic`, `src/embeddings.py`).
+- **FR-9**: Build/load an exemplar bank and retrieve similar examples for dynamic few-shot prompting (`--dynamic`, `src/embeddings.py`).
 
 ## 6) Non-functional requirements (NFRs)
 Grounded in current code and measured reports.
@@ -74,14 +74,14 @@ Primary metric emphasis is consistent with the repo’s evaluation framework.
 
 | Metric | Why it matters | Where measured |
 |---|---|---|
-| **False-negative rate (binary)** | “Attack passes” = security failure | `src/evaluate.py`, `reports/eval_report_*.md` |
+| **False-negative rate (binary)** | “Attack passes” = security failure | `src/evaluate.py`, `reports/research/eval_report_*.md` |
 | **Adversarial recall (binary)** | Catch attacks | same |
 | **Benign recall / false-positive rate** | Usability friction | same |
 | **Category accuracy (unicode vs NLP)** | Guides mitigations + analysis | same |
 | **Unicode type accuracy** | Diagnoses attack technique | same |
-| **LLM calls per 100 prompts** | Cost proxy | `reports/eval_report_hybrid.md` |
-| **LLM avg latency** | UX/SLO proxy | `reports/eval_report_hybrid.md` |
-| **Cross-dataset performance** | Generalization | `reports/eval_external_*.md`, `reports/research_external_*.md` |
+| **LLM calls per 100 prompts** | Cost proxy | `reports/research/eval_report_hybrid.md` |
+| **LLM avg latency** | UX/SLO proxy | `reports/research/eval_report_hybrid.md` |
+| **Cross-dataset performance** | Generalization | `reports/research_external/research_external_*.md` |
 
 ## 8) Known risks (from current repo evidence)
 - **Domain shift / generalization**: External evaluations show large drops (e.g., very low benign F1 in some datasets).
@@ -96,4 +96,3 @@ The repo documents the research + prototype pipeline, but **deployment/product c
 3. **Your tolerance targets**: acceptable false-positive rate vs false-negative rate (and which is prioritized for v1).
 4. **Traffic + latency budget**: expected QPS / concurrency and target p95/p99.
 5. **Data handling constraints**: are prompts allowed to be sent to a 3rd-party LLM (OpenAI) and/or stored for analysis?
-

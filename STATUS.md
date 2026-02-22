@@ -1,6 +1,6 @@
 # Project Status — `llm-gatekeeping`
 
-Last updated: 2026-02-12
+Last updated: 2026-02-21
 
 ## Current state (what is functional today)
 Based on `dvc.yaml`, `src/`, and the existing `reports/` artifacts, the repo functions primarily as a **research + evaluation pipeline** for a hierarchical prompt-attack “gatekeeper”, with two supported run modes:
@@ -21,9 +21,9 @@ Based on `dvc.yaml`, `src/`, and the existing `reports/` artifacts, the repo fun
 | **Preprocess Mindgard dataset + labels** | `python -m src.preprocess` | `data/processed/full_dataset.parquet` |
 | **Grouped splits + held-out generalization set** | `python -m src.build_splits` | `data/processed/splits/{train,val,test,test_unseen}.parquet` |
 | **ML baseline training (+ research predictions)** | `python -m src.ml_classifier.ml_baseline --research` | `data/processed/models/ml_baseline.pkl`, `data/processed/predictions/ml_predictions_*.parquet` |
-| **LLM classifier (3-stage, frozen by default)** | `python -m src.llm_classifier.llm_classifier --split test --limit 100 --research` | `data/processed/predictions/llm_predictions_test.parquet` |
+| **LLM classifier (classifier+judge, frozen by default)** | `python -m src.llm_classifier.llm_classifier --split test --limit 100 --research` | `data/processed/predictions/llm_predictions_test.parquet` |
 | **Research merge + hybrid routing + reports** | `python -m src.research --split test` | `data/processed/research/research_test.parquet`, `reports/research/eval_report_*.md` |
-| **External dataset eval (binary-only)** | `python -m src.eval_external --dataset <key> --mode ml|hybrid` | `reports/eval_external_<key>.md` |
+| **External dataset eval (binary-only)** | `python -m src.eval_external --dataset <key> --mode ml|hybrid` | `reports/research_external/eval_external_<key>.md` |
 | **External dataset research (wide parquet + analysis)** | `python -m src.cli.research_external --dataset <key>` | `data/processed/research_external/research_external_<key>.parquet`, `reports/research_external/research_external_<key>.md` |
 
 ### External datasets are additive (DVC foreach + caching)
@@ -52,9 +52,9 @@ Based on `dvc.yaml`, `src/`, and the existing `reports/` artifacts, the repo fun
 
 ### Technical gaps impacting correctness/generalization
 - **Cross-dataset generalization is currently poor** (binary-only external evals):
-  - `reports/eval_external_deepset.md`: benign F1 **0.0** (massive false positives).
-  - `reports/eval_external_jackhhao.md`: false-negative rate **~0.50** (many attacks missed).
-  - `reports/eval_external_spml.md` / `reports/eval_external_safeguard.md`: low overall accuracy with severe calibration issues.
+  - `reports/research_external/eval_external_deepset.md`: benign F1 **0.0** (massive false positives).
+  - `reports/research_external/eval_external_jackhhao.md`: false-negative rate **~0.50** (many attacks missed).
+  - `reports/research_external/eval_external_spml.md` / `reports/research_external/eval_external_safeguard.md`: low overall accuracy with severe calibration issues.
 - **Confidence calibration instability** on external datasets (high-confidence bins with low accuracy).
 - **Benign distribution mismatch**: benign generation is topic-taxonomy based; external benign prompts don’t match training distribution, leading to false positives.
 
@@ -69,4 +69,3 @@ Based on `dvc.yaml`, `src/`, and the existing `reports/` artifacts, the repo fun
 | P1 | Add **calibration + threshold tuning** for routing and decisioning | More reliable `confidence_*` and better routing behavior |
 | P1 | Build an **error analysis report** artifact (per plan Step 4) | Consolidated failure modes + targeted fixes |
 | P2 | Investigate **domain adaptation** (train/fine-tune on external datasets, or multi-source training) | Better cross-dataset generalization |
-

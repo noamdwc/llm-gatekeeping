@@ -16,15 +16,13 @@ NLP-based attacks (TextFooler, BERT-Attack, BAE, etc.) all perform word-level su
 
 ## Results
 
-| Metric | ML-only | LLM-only | Hybrid |
-|--------|---------|----------|--------|
-| Binary accuracy | **86%** | 69% | 79% |
-| False-negative rate | **5%** | 22% | 9.4% |
-| Category accuracy | 85% | 89% | **96.1%** |
-| Unicode type accuracy | 93-100% | 78% | **100%** |
-| LLM calls / 100 samples | 0 | 225 | **75** |
+Metrics change based on split, sample limit, thresholds, and whether LLM stages were run.
+The canonical latest outputs are:
 
-The hybrid router gets the best of both worlds: ML handles 60% of traffic instantly and for free, while uncertain samples are escalated to the LLM for detailed classification.
+- `reports/research/eval_report_ml.md`
+- `reports/research/eval_report_hybrid.md`
+- `reports/research/eval_report_llm.md`
+- `reports/research_external/research_external_<dataset>.md`
 
 ## Setup
 
@@ -61,7 +59,7 @@ dvc repro
 
 - **Stage graph**:
   - `preprocess` → `build_splits` → `ml_model` → `research`
-  - `llm_classifier` is **frozen by default** (API cost); when unfrozen it produces `predictions/llm_predictions_{split}.parquet` and `research` will include LLM metrics/report.
+  - `llm_classifier` is **frozen by default** (API cost); when unfrozen it produces `data/processed/predictions/llm_predictions_{split}.parquet` and `research` will include LLM metrics/report.
   - `research_external@{dataset}` stages run via DVC `foreach` and are **independent** per dataset.
 
 - **Run a single stage**:
@@ -189,7 +187,7 @@ src/
   preprocess.py             # Dataset loading + benign set construction
   build_splits.py           # Grouped train/val/test splits
   ml_classifier/ml_baseline.py      # Character-level ML classifier
-  llm_classifier/llm_classifier.py  # 3-stage hierarchical LLM classifier
+  llm_classifier/llm_classifier.py  # Classifier + judge LLM classifier (binary + category)
   hybrid_router.py          # ML gate + LLM escalation
   evaluate.py               # Metrics at all hierarchy levels
   predict.py                # CLI prediction tool
