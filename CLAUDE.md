@@ -46,9 +46,11 @@ python -m src.preprocess                                    # Load dataset → d
 python -m src.build_splits                                  # Grouped splits → data/processed/splits/*.parquet
 python -m src.ml_classifier.ml_baseline --research          # Train ML + save research predictions
 python -m src.llm_classifier.llm_classifier --split test --research  # LLM classifier (API tokens)
+python -m src.llm_classifier.llm_classifier --split test --research --dynamic  # LLM with dynamic few-shot
 python -m src.research --split test                         # Merge predictions + hybrid routing + reports
 python -m src.cli.research_external --dataset deepset             # External dataset research (SKIP_LLM=1 by default)
 SKIP_LLM=0 python -m src.cli.research_external --dataset deepset  # Include LLM predictions
+python -m src.cli.generate_synthetic_benign --category all --limit 100  # Generate synthetic benign prompts
 ```
 
 Prediction CLI:
@@ -100,8 +102,9 @@ NLP attack sub-types are collapsed to a single "nlp_attack" label (sub-types are
 
 Three classifier backends share this hierarchy:
 - **ML** (`ml_classifier/ml_baseline.py`): Char n-gram TF-IDF + handcrafted Unicode features → LogisticRegression per level. `MLBaseline` class handles fit/predict/save/load.
-- **LLM** (`llm_classifier/llm_classifier.py`): Classifier + conditional judge NVIDIA NIM chat calls with JSON mode. `HierarchicalLLMClassifier` predicts binary + derived category and can invoke judge on low-confidence cases. Supports static and dynamic few-shot (via `embeddings.py` ExemplarBank).
+- **LLM** (`llm_classifier/llm_classifier.py`): Classifier + conditional judge NVIDIA NIM chat calls with JSON mode. `HierarchicalLLMClassifier` predicts binary + derived category and can invoke judge on low-confidence cases. Supports static and dynamic few-shot (via `embeddings.py` ExemplarBank). Hard benign examples controlled by `llm.few_shot.include_hard_benign` config flag (default: false).
 - **Hybrid** (`hybrid_router.py`): ML runs first on all samples; low-confidence ones (below `ml_confidence_threshold` in config) escalate to LLM. `HybridRouter` wraps both.
+- **Synthetic benign** (`synthetic_benign.py` + `validators.py`): `SyntheticBenignGenerator` produces diverse benign prompts across 6 categories (A–F) via LLM. Three-layer validation: `HeuristicBenignValidator` (regex), `JudgeBenignValidator` (LLM), `DeduplicateFilter` (embedding cosine similarity > 0.95). Enable in config with `benign.synthetic.enabled: true`; generate first with `python -m src.cli.generate_synthetic_benign`.
 
 ## Key Design Decisions
 

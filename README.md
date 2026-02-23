@@ -34,8 +34,8 @@ conda activate llm_gate
 # Install dependencies
 pip install -r requirements.txt
 
-# Set OpenAI API key (required for LLM and hybrid modes)
-echo "OPENAI_API_KEY=sk-..." > .env
+# Set NVIDIA API key (required for LLM and hybrid modes)
+echo "NVIDIA_API_KEY=nvapi-..." > .env
 
 # Authenticate with HuggingFace (dataset requires access approval)
 huggingface-cli login
@@ -114,7 +114,7 @@ python -m src.build_splits
 # 3. Train ML baseline + write research prediction parquets
 python -m src.ml_classifier.ml_baseline --research
 
-# 4. Run LLM classifier (requires OpenAI API key)
+# 4. Run LLM classifier (requires NVIDIA API key)
 python -m src.llm_classifier.llm_classifier --split test --limit 100 --research
 
 # 5. Merge predictions + hybrid routing + reports (research stage)
@@ -189,8 +189,15 @@ src/
   ml_classifier/ml_baseline.py      # Character-level ML classifier
   llm_classifier/llm_classifier.py  # Classifier + judge LLM classifier (binary + category)
   hybrid_router.py          # ML gate + LLM escalation
+  research.py               # Merge predictions + hybrid routing + produce eval reports
   evaluate.py               # Metrics at all hierarchy levels
-  predict.py                # CLI prediction tool
+  eval_external.py          # Binary-only evaluation for external datasets
+  embeddings.py             # ExemplarBank for dynamic few-shot retrieval
+  synthetic_benign.py       # Synthetic benign prompt generation (categories A-F)
+  validators.py             # HeuristicBenignValidator, JudgeBenignValidator, DeduplicateFilter
+  cli/predict.py            # Classify arbitrary text (stdin or file) → JSON
+  cli/research_external.py  # Research artifacts for one external dataset
+  cli/generate_synthetic_benign.py  # CLI for synthetic benign generation pipeline
 data/processed/
   full_dataset.parquet      # Combined adversarial + benign
   splits/                   # Splits (no prompt hash overlap)
