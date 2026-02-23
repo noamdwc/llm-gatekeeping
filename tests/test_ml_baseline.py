@@ -1,6 +1,7 @@
 """Tests for src.ml_baseline — feature extraction, entropy, MLBaseline."""
 
 import math
+import pickle
 
 import numpy as np
 import pandas as pd
@@ -148,6 +149,7 @@ class TestMLBaseline:
         preds = fitted_ml_model.predict(sample_dataframe, "modified_sample")
         expected = {
             "pred_label_binary", "confidence_label_binary",
+            "confidence_label_binary_cal",
             "pred_label_category", "confidence_label_category",
             "pred_label_type", "confidence_label_type",
         }
@@ -187,6 +189,29 @@ class TestMLBaseline:
         preds_loaded = loaded.predict(sample_dataframe, "modified_sample")
 
         pd.testing.assert_frame_equal(preds_orig, preds_loaded)
+
+    def test_load_legacy_artifact_without_calibrator(self, fitted_ml_model, sample_dataframe, tmp_path):
+        """Old model artifacts without binary_calibrator still load and predict."""
+        legacy_path = tmp_path / "legacy_model.pkl"
+        with open(legacy_path, "wb") as f:
+            pickle.dump(
+                {
+                    "tfidf": fitted_ml_model.tfidf,
+                    "models": fitted_ml_model.models,
+                    "le": fitted_ml_model.label_encoders,
+                },
+                f,
+            )
+
+        loaded = MLBaseline(fitted_ml_model.cfg)
+        loaded.load(str(legacy_path))
+        preds = loaded.predict(sample_dataframe, "modified_sample")
+        assert "confidence_label_binary_cal" in preds.columns
+        np.testing.assert_allclose(
+            preds["confidence_label_binary"].values,
+            preds["confidence_label_binary_cal"].values,
+            atol=1e-9,
+        )
 
     def test_predicted_labels_are_known(self, fitted_ml_model, sample_dataframe):
         """All predicted labels were seen during training."""

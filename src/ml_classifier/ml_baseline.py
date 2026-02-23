@@ -20,11 +20,23 @@ import numpy as np
 import pandas as pd
 import wandb
 from scipy.sparse import hstack
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import accuracy_score, classification_report, f1_score
-from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import GridSearchCV, StratifiedKFold, train_test_split
+from sklearn.preprocessing import LabelEncoder, MaxAbsScaler
 from sklearn.base import BaseEstimator, ClassifierMixin
+
+try:
+    # sklearn >= 1.8
+    from sklearn.frozen import FrozenEstimator
+except ImportError:
+    try:
+        # sklearn versions where FrozenEstimator still lived in sklearn.base
+        from sklearn.base import FrozenEstimator
+    except ImportError:
+        FrozenEstimator = None
 
 from src.utils import load_config, build_sample_id, SPLITS_DIR, MODELS_DIR, PREDICTIONS_DIR
 from src.llm_classifier.constants import NLP_TYPES
@@ -44,6 +56,9 @@ class MLBaseline(BaseEstimator, ClassifierMixin):
         )
         self.models = {}  # keyed by level name
         self.label_encoders = {}
+        self.binary_calibrator = None
+        self.best_params_ = {}
+        self.feature_scaler = None
 
     def _filter_char_attack_training_rows(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -86,8 +101,187 @@ class MLBaseline(BaseEstimator, ClassifierMixin):
 
         hand = extract_features_df(texts)
         hand_matrix = hand.values.astype(np.float64)
+        X = hstack([tfidf_matrix, hand_matrix]).tocsr()
 
-        return hstack([tfidf_matrix, hand_matrix])
+        if fit:
+            if bool(self.cfg["ml"].get("scale_features", True)):
+                self.feature_scaler = MaxAbsScaler(copy=False)
+                X = self.feature_scaler.fit_transform(X)
+            else:
+                self.feature_scaler = None
+        elif self.feature_scaler is not None:
+            X = self.feature_scaler.transform(X)
+
+        return X
+
+    def _build_prefit_calibrator(self, model):
+        """Create a prefit sigmoid calibrator with sklearn version compatibility."""
+        if FrozenEstimator is not None:
+            frozen_model = FrozenEstimator(model)
+            try:
+                # sklearn >= 1.8: pass FrozenEstimator + cv=None for prefit behavior
+                return CalibratedClassifierCV(estimator=frozen_model, method="sigmoid", cv=None)
+            except TypeError:
+                pass
+
+            for kwargs in (
+                {"estimator": frozen_model, "method": "sigmoid", "cv": "prefit"},
+                {"base_estimator": frozen_model, "method": "sigmoid", "cv": "prefit"},
+            ):
+                try:
+                    return CalibratedClassifierCV(**kwargs)
+                except TypeError:
+                    continue
+
+        # Very old sklearn fallback (no FrozenEstimator available)
+        for kwargs in (
+            {"estimator": model, "method": "sigmoid", "cv": "prefit"},
+            {"base_estimator": model, "method": "sigmoid", "cv": "prefit"},
+        ):
+            try:
+                return CalibratedClassifierCV(**kwargs)
+            except TypeError:
+                continue
+
+        raise RuntimeError("Unable to build CalibratedClassifierCV for prefit calibration")
+
+    def _build_logistic_model(self, C_value: float) -> LogisticRegression:
+        """Construct a LogisticRegression instance from config defaults."""
+        return LogisticRegression(
+            C=C_value,
+            max_iter=int(self.cfg["ml"].get("max_iter", 8000)),
+            solver=self.cfg["ml"].get("solver", "saga"),
+            tol=float(self.cfg["ml"].get("tol", 1e-3)),
+        )
+
+    def _fit_level_model(self, X, y_enc: np.ndarray, level: str):
+        """Fit one hierarchy level, optionally using CV hyperparameter search."""
+        ml_cfg = self.cfg["ml"]
+        base_c = float(ml_cfg.get("C", 1.0))
+        search_cfg = ml_cfg.get("hyperparam_search", {})
+        if not bool(search_cfg.get("enabled", False)):
+            model = self._build_logistic_model(base_c)
+            model.fit(X, y_enc)
+            self.best_params_[level] = {"C": float(model.C), "source": "fixed"}
+            return model
+
+        raw_c_values = search_cfg.get("C_values", [base_c])
+        if not isinstance(raw_c_values, list):
+            raw_c_values = [raw_c_values]
+
+        c_values = []
+        for value in raw_c_values:
+            try:
+                c_float = float(value)
+            except (TypeError, ValueError):
+                continue
+            if c_float > 0:
+                c_values.append(c_float)
+        c_values = sorted(set(c_values))
+        if not c_values:
+            c_values = [base_c]
+
+        min_class_count = int(np.bincount(y_enc).min())
+        cv_folds_requested = int(search_cfg.get("cv_folds", 5))
+        cv_folds = min(cv_folds_requested, min_class_count)
+
+        if cv_folds < 2 or len(c_values) == 1:
+            chosen_c = c_values[0]
+            model = self._build_logistic_model(chosen_c)
+            model.fit(X, y_enc)
+            fallback_reason = "single_candidate" if len(c_values) == 1 else "cv_infeasible"
+            self.best_params_[level] = {"C": float(chosen_c), "source": fallback_reason}
+            print(
+                f"  [hyperparam search] {level}: fallback | "
+                f"reason={fallback_reason} | C={chosen_c}"
+            )
+            return model
+
+        random_seed = self.cfg.get("splits", {}).get("random_seed", 42)
+        scoring = search_cfg.get("scoring", "f1_macro")
+        n_jobs = int(search_cfg.get("n_jobs", -1))
+        cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=random_seed)
+        grid = GridSearchCV(
+            estimator=self._build_logistic_model(base_c),
+            param_grid={"C": c_values},
+            scoring=scoring,
+            cv=cv,
+            n_jobs=n_jobs,
+            refit=True,
+        )
+        try:
+            grid.fit(X, y_enc)
+        except PermissionError:
+            if n_jobs == 1:
+                raise
+            print(
+                f"  [hyperparam search] {level}: n_jobs={n_jobs} failed; "
+                "retrying with n_jobs=1"
+            )
+            grid = GridSearchCV(
+                estimator=self._build_logistic_model(base_c),
+                param_grid={"C": c_values},
+                scoring=scoring,
+                cv=cv,
+                n_jobs=1,
+                refit=True,
+            )
+            grid.fit(X, y_enc)
+        model = grid.best_estimator_
+        self.best_params_[level] = {
+            "C": float(grid.best_params_["C"]),
+            "cv_score": float(grid.best_score_),
+            "cv_folds": int(cv_folds),
+            "scoring": scoring,
+            "source": "grid_search",
+        }
+        print(
+            f"  [hyperparam search] {level}: "
+            f"best_C={grid.best_params_['C']} | "
+            f"cv_{scoring}={grid.best_score_:.4f} | folds={cv_folds}"
+        )
+        return model
+
+    def _fit_binary_with_calibration(self, X, y_enc: np.ndarray):
+        """Fit binary model + optional held-out sigmoid calibration."""
+        calibration_fraction = float(self.cfg["ml"].get("binary_calibration_fraction", 0.2))
+        calibration_fraction = min(max(calibration_fraction, 0.05), 0.5)
+        random_seed = self.cfg.get("splits", {}).get("random_seed", 42)
+
+        n_rows = len(y_enc)
+        if n_rows < 10:
+            model = self._fit_level_model(X, y_enc, "label_binary")
+            print("  [binary calibration] skipped (train too small); using raw confidence")
+            return model, None
+
+        idx = np.arange(n_rows)
+        try:
+            train_idx, cal_idx = train_test_split(
+                idx,
+                test_size=calibration_fraction,
+                random_state=random_seed,
+                stratify=y_enc,
+            )
+        except ValueError:
+            model = self._fit_level_model(X, y_enc, "label_binary")
+            print("  [binary calibration] skipped (split infeasible); using raw confidence")
+            return model, None
+
+        y_train = y_enc[train_idx]
+        y_cal = y_enc[cal_idx]
+        if np.unique(y_train).size < 2 or np.unique(y_cal).size < 2:
+            model = self._fit_level_model(X, y_enc, "label_binary")
+            print("  [binary calibration] skipped (missing class in split); using raw confidence")
+            return model, None
+
+        model = self._fit_level_model(X[train_idx], y_train, "label_binary")
+        calibrator = self._build_prefit_calibrator(model)
+        calibrator.fit(X[cal_idx], y_cal)
+        print(
+            "  [binary calibration] enabled method=sigmoid | "
+            f"train_rows={len(train_idx)} | cal_rows={len(cal_idx)}"
+        )
+        return model, calibrator
 
     def fit(self, df_train: pd.DataFrame, text_col: str):
         """Train models for all three hierarchy levels."""
@@ -109,12 +303,11 @@ class MLBaseline(BaseEstimator, ClassifierMixin):
             y_enc = le.fit_transform(y)
             self.label_encoders[level] = le
 
-            model = LogisticRegression(
-                C=self.cfg["ml"]["C"],
-                max_iter=3000,
-                solver="lbfgs",
-            )
-            model.fit(X, y_enc)
+            if level == "label_binary":
+                model, self.binary_calibrator = self._fit_binary_with_calibration(X, y_enc)
+            else:
+                model = self._fit_level_model(X, y_enc, level)
+
             self.models[level] = model
             print(f"  Trained {level}: {len(le.classes_)} classes")
 
@@ -128,9 +321,17 @@ class MLBaseline(BaseEstimator, ClassifierMixin):
             le = self.label_encoders[level]
             y_pred_enc = model.predict(X)
             y_proba = model.predict_proba(X)
+            row_idx = np.arange(len(y_pred_enc))
 
             results[f"pred_{level}"] = le.inverse_transform(y_pred_enc)
-            results[f"confidence_{level}"] = y_proba.max(axis=1)
+            results[f"confidence_{level}"] = y_proba[row_idx, y_pred_enc]
+
+            if level == "label_binary":
+                if self.binary_calibrator is not None:
+                    y_proba_cal = self.binary_calibrator.predict_proba(X)
+                    results["confidence_label_binary_cal"] = y_proba_cal[row_idx, y_pred_enc]
+                else:
+                    results["confidence_label_binary_cal"] = y_proba[row_idx, y_pred_enc]
 
         return pd.DataFrame(results)
 
@@ -167,15 +368,30 @@ class MLBaseline(BaseEstimator, ClassifierMixin):
 
     def save(self, path: str):
         with open(path, "wb") as f:
-            pickle.dump({"tfidf": self.tfidf, "models": self.models, "le": self.label_encoders}, f)
+            pickle.dump(
+                {
+                    "tfidf": self.tfidf,
+                    "feature_scaler": self.feature_scaler,
+                    "models": self.models,
+                    "le": self.label_encoders,
+                    "binary_calibrator": self.binary_calibrator,
+                    "best_params": self.best_params_,
+                },
+                f,
+            )
         print(f"Model saved → {path}")
 
     def load(self, path: str):
         with open(path, "rb") as f:
             data = pickle.load(f)
         self.tfidf = data["tfidf"]
+        self.feature_scaler = data.get("feature_scaler")
         self.models = data["models"]
         self.label_encoders = data["le"]
+        self.binary_calibrator = data.get("binary_calibrator")
+        self.best_params_ = data.get("best_params", {})
+        calibration_state = "enabled" if self.binary_calibrator is not None else "disabled"
+        print(f"  [binary calibration] {calibration_state}")
         print(f"Model loaded ← {path}")
 
 
@@ -251,6 +467,7 @@ def main():
 
     cfg = load_config(args.config)
     text_col = cfg["dataset"]["text_col"]
+    search_cfg = cfg["ml"].get("hyperparam_search", {})
 
     # Init wandb
     if not args.no_wandb:
@@ -261,7 +478,15 @@ def main():
                 "model": "logistic_regression",
                 "char_ngram_range": cfg["ml"]["char_ngram_range"],
                 "max_features": cfg["ml"]["max_features"],
-                "C": cfg["ml"]["C"],
+                "C": cfg["ml"].get("C"),
+                "solver": cfg["ml"].get("solver", "saga"),
+                "max_iter": cfg["ml"].get("max_iter", 8000),
+                "tol": cfg["ml"].get("tol", 1e-3),
+                "scale_features": bool(cfg["ml"].get("scale_features", True)),
+                "hyperparam_search_enabled": bool(search_cfg.get("enabled", False)),
+                "hyperparam_search_C_values": search_cfg.get("C_values"),
+                "hyperparam_search_cv_folds": search_cfg.get("cv_folds"),
+                "hyperparam_search_scoring": search_cfg.get("scoring"),
             },
         )
 
@@ -274,11 +499,17 @@ def main():
     model.fit(df_train, text_col)
 
     if wandb.run is not None:
-        wandb.log({
+        metrics = {
             "train_samples": len(df_train),
             "val_samples": len(df_val),
             "test_samples": len(df_test),
-        })
+        }
+        for level, params in model.best_params_.items():
+            if "C" in params:
+                metrics[f"ml_best_C/{level}"] = params["C"]
+            if "cv_score" in params:
+                metrics[f"ml_cv_score/{level}"] = params["cv_score"]
+        wandb.log(metrics)
 
     # Save model
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
