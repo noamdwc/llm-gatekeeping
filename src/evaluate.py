@@ -29,8 +29,30 @@ from sklearn.metrics import (
 from src.utils import REPORTS_RESEARCH_DIR
 
 
-def binary_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
-    """Compute binary detection metrics (adversarial vs benign)."""
+def binary_metrics(
+    y_true: pd.Series,
+    y_pred: pd.Series,
+    uncertain_policy: str = "adversarial",
+) -> dict:
+    """Compute binary detection metrics (adversarial vs benign).
+
+    Args:
+        y_true: Ground truth binary labels.
+        y_pred: Predicted labels (may contain "uncertain" for LLM predictions).
+        uncertain_policy: How to handle "uncertain" predictions.
+            "adversarial" (default): treat uncertain as adversarial (conservative).
+            "exclude": exclude uncertain predictions from metric computation.
+    """
+    y_pred = y_pred.copy()
+    uncertain_rate = float((y_pred == "uncertain").mean()) if len(y_pred) > 0 else 0.0
+
+    if uncertain_policy == "adversarial":
+        y_pred[y_pred == "uncertain"] = "adversarial"
+    elif uncertain_policy == "exclude":
+        mask = y_pred != "uncertain"
+        y_true = y_true[mask]
+        y_pred = y_pred[mask]
+
     labels = ["adversarial", "benign"]
     p, r, f, _ = precision_recall_fscore_support(
         y_true, y_pred, labels=labels, average=None, zero_division=0
@@ -52,6 +74,7 @@ def binary_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
         "benign_recall": r[1],
         "benign_f1": f[1],
         "false_negative_rate": fn_rate,
+        "uncertain_rate": uncertain_rate,
         "support_adversarial": int(adv_mask.sum()),
         "support_benign": int((~adv_mask).sum()),
     }

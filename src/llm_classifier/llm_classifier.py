@@ -26,7 +26,7 @@ from src.llm_classifier.constants import NLP_TYPES
 from src.embeddings import ExemplarBank, get_embeddings
 from src.llm_classifier.utils import decide_accept_or_override
 from src.utils import load_config, build_sample_id, SPLITS_DIR, PREDICTIONS_DIR
-from src.llm_classifier.prompts import build_classifier_system_message, build_judge_system_message
+from src.llm_classifier.prompts import build_classifier_messages, build_judge_messages
 
 dotenv.load_dotenv()
 
@@ -149,28 +149,33 @@ class HierarchicalLLMClassifier:
             
             
         for (benign_text, attack_text, attack_type) in pairs:
-            # Add benign example
-            confidence = random.uniform(0.7, 0.9)
+            # Add benign example (fixed confidence for reproducibility)
             messages.append({"role": "user", "content": f"Text: {benign_text}"})
             messages.append({
                 "role": "assistant", "content": json.dumps({
                     "label": 'benign',
-                    "confidence": confidence,
+                    "confidence": 0.90,
                     "nlp_attack_type": 'none',
                     "evidence": "",
-                    "reason": f"This is an example of benign text.",
+                    "reason": "No active attempt to override instructions, exfiltrate data, or hijack tools.",
                 }
             )})
             # Add attack example
-            confidence = random.uniform(0.7, 0.9)
+            # For NLP attacks the text looks benign; no extractable substring shows adversarial intent
+            if attack_type in NLP_TYPES:
+                evidence = ""
+                adv_reason = f"Perturbed tokens characteristic of {attack_type} adversarial attack."
+            else:
+                evidence = attack_text[:80]
+                adv_reason = f"Contains {attack_type} obfuscation; active adversarial prompt detected."
             messages.append({"role": "user", "content": f"Text: {attack_text}"})
             messages.append({
                 "role": "assistant", "content": json.dumps({
                     "label": 'adversarial',
-                    "confidence": confidence,
+                    "confidence": 0.88,
                     "nlp_attack_type": attack_type if attack_type in NLP_TYPES else 'none',
-                    "evidence": attack_text[:200],
-                    "reason": f"This is an example of {attack_type} text.",
+                    "evidence": evidence,
+                    "reason": adv_reason,
                 }
             )})
         return messages
@@ -215,7 +220,7 @@ class HierarchicalLLMClassifier:
             {"label": str, "confidence": float} where label is one of:
             "benign", "adversarial", or "uncertain".
         """
-        messages = build_classifier_system_message(text, self._build_few_shot_messages(text))
+        messages = build_classifier_messages(text, self._build_few_shot_messages(text))
         result = self._call_llm(
             messages, self.cfg["llm"]["max_tokens_classifier"], "classifier"
         )
@@ -239,7 +244,7 @@ class HierarchicalLLMClassifier:
         Returns:
             {"label": str, "confidence": float, "reasoning": str}
         """
-        messages = build_judge_system_message(text, classifier_output)
+        messages = build_judge_messages(text, classifier_output)
         result = self._call_llm(
             messages, self.cfg["llm"]["max_tokens_judge"], "judge",
             model=self.model_quality,
@@ -273,11 +278,11 @@ class HierarchicalLLMClassifier:
             judge_result = self.judge(text, clf_result)
             stages_run = 2
             if judge_result.get("computed_decision") == "override_candidate":
-                # Use independent_label; normalize to binary in code
+                # Use independent_label from judge; preserve 3-way value
                 raw_label = judge_result.get("independent_label", clf_result["label"])
                 label = raw_label if raw_label in ("benign", "adversarial", "uncertain") else "adversarial"
                 confidence = self._normalize_confidence(
-                    judge_result.get("independent_confidence", clf_result["confidence"])
+                    judge_result.get("final_confidence", clf_result["confidence"] * 100)
                 )
                 evidence = judge_result.get("independent_evidence", "")
             else:
@@ -285,7 +290,7 @@ class HierarchicalLLMClassifier:
                 confidence = clf_result["confidence"]
                 evidence = clf_result.get("evidence", "")
 
-        # Derive binary: benign stays benign; everything else → adversarial
+        # Derive binary: benign stays benign; uncertain/adversarial → adversarial
         label_binary = "benign" if label == "benign" else "adversarial"
 
         # Derive categories from each stage's nlp_attack_type
@@ -306,8 +311,10 @@ class HierarchicalLLMClassifier:
             label_category = clf_category
 
         result = {
-            "label": label_binary,
+            "label": label,              # 3-way: benign|adversarial|uncertain
+            "label_binary": label_binary, # always binary: benign|adversarial
             "label_category": label_category,
+            "label_type": None,           # LLM does not predict type
             "confidence": confidence,
             "evidence": evidence,
             "llm_stages_run": stages_run,
@@ -320,7 +327,7 @@ class HierarchicalLLMClassifier:
         }
         # Judge stage (None if judge was not run)
         if judge_result is not None:
-            judge_conf = self._normalize_confidence(judge_result.get("independent_confidence"))
+            judge_conf = self._normalize_confidence(judge_result.get("final_confidence"))
             result["judge_independent_label"] = judge_result.get("independent_label")
             result["judge_category"] = judge_category
             result["judge_independent_confidence"] = judge_conf
@@ -452,7 +459,8 @@ def main():
         for r in results:
             research_rows.append({
                 # Final prediction
-                "llm_pred_binary": r["label"],
+                "llm_pred_binary": r["label_binary"],
+                "llm_pred_raw": r["label"],
                 "llm_pred_category": r["label_category"],
                 "llm_conf_binary": r["confidence"],
                 "llm_evidence": r.get("evidence", ""),

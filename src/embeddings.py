@@ -227,16 +227,23 @@ class ExemplarBank:
         """
         Select k pairs of (benign_text, attack_text, attack_type) for few-shot prompting.
 
-        Retrieves the single most similar benign example and the k most similar attack
-        examples across all attack types (one per type), then returns k pairs total.
+        Retrieves the k most similar benign examples and the k most similar attack
+        examples across all attack types (one per type), pairing a distinct benign
+        example with each attack example.
         """
-        benign_examples = self.select(query_embedding, "benign", k=1)
-        benign_text = benign_examples[0]["text"] if benign_examples else ""
+        benign_examples = self.select(query_embedding, "benign", k=k)
         attack_examples = self.select_multi_type(query_embedding, ATTACK_TYPES, k_per_type=1)
-        return [
-            (benign_text, a["text"], a["label"])
-            for a in attack_examples[:k]
-        ]
+        attack_examples = attack_examples[:k]
+        pairs = []
+        for i, a in enumerate(attack_examples):
+            if i < len(benign_examples):
+                benign_text = benign_examples[i]["text"]
+            elif benign_examples:
+                benign_text = benign_examples[0]["text"]
+            else:
+                benign_text = ""
+            pairs.append((benign_text, a["text"], a["label"]))
+        return pairs
 
 
     def save(self, path: str) -> None:

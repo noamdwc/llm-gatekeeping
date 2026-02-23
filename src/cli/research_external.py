@@ -73,7 +73,8 @@ def run_llm_full(
     rows = []
     for r in results:
         rows.append({
-            "llm_pred_binary": r["label"],
+            "llm_pred_binary": r["label_binary"],
+            "llm_pred_raw": r["label"],
             "llm_pred_category": r["label_category"],
             "llm_conf_binary": r["confidence"],
             "llm_stages_run": r.get("llm_stages_run"),
@@ -188,6 +189,20 @@ def generate_research_report(
         )
     lines.append("")
 
+    # --- LLM uncertain rate (when LLM results are present) ---
+    if "llm_pred_raw" in research_df.columns:
+        uncertain_mask = research_df["llm_pred_raw"] == "uncertain"
+        uncertain_rate = uncertain_mask.mean()
+        n_uncertain = uncertain_mask.sum()
+        lines.append("## LLM Uncertain Rate\n")
+        lines.append(f"- **Uncertain predictions**: {n_uncertain} / {n} ({uncertain_rate * 100:.1f}%)")
+        if n_uncertain > 0:
+            adv_uncertain = (research_df.loc[uncertain_mask, "label_binary"] == "adversarial").sum()
+            ben_uncertain = (research_df.loc[uncertain_mask, "label_binary"] == "benign").sum()
+            lines.append(f"  - True adversarial marked uncertain: {adv_uncertain}")
+            lines.append(f"  - True benign marked uncertain: {ben_uncertain}")
+        lines.append("")
+
     # --- Hybrid routing ---
     lines.append("## Hybrid Routing Analysis\n")
     routing = research_df["hybrid_routed_to"].value_counts()
@@ -268,6 +283,7 @@ def build_predictions_df(
     if has_llm:
         cols.extend([
             "llm_pred_binary",
+            "llm_pred_raw",
             "llm_pred_category",
             "llm_conf_binary",
         ])

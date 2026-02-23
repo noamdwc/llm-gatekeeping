@@ -38,7 +38,7 @@ Constraints:
 - If label=="adversarial": evidence must be non-empty and copied exactly from INPUT_PROMPT.
 """
 
-def build_classifier_system_message(text: str, few_shot_examples: list[dict]) -> list[dict]:
+def build_classifier_messages(text: str, few_shot_examples: list[dict]) -> list[dict]:
     return [
         {'role': 'system', 'content': _CLASSIFIER_SYSTEM_PROMPT},
         *few_shot_examples,
@@ -77,6 +77,7 @@ NLP attack types:
 Return ONLY this JSON:
 {{
   "independent_label": "benign|adversarial|uncertain",
+  "independent_confidence": 0-100,
   "independent_evidence": "",
   "final_label": "benign|adversarial|uncertain",
   "final_confidence": 0-100,
@@ -98,7 +99,7 @@ CANDIDATE_JSON:
 {classifier_output}
 """
 
-def build_judge_system_message(text: str, classifier_output: dict) -> list[dict]:
+def build_judge_messages(text: str, classifier_output: dict) -> list[dict]:
     return [
         {'role': 'system', 'content': _JUDGE_SYSTEM_PROMPT},
         {'role': 'user', 'content': _JUDGE_USER_PROMPT.format(text=text, classifier_output=json.dumps(classifier_output, ensure_ascii=False))},

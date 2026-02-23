@@ -13,6 +13,8 @@ from src.llm_classifier.llm_classifier import (
     build_few_shot_examples,
 )
 from src.llm_classifier.constants import UNICODE_TYPES, NLP_TYPES
+from src.llm_classifier.utils import decide_accept_or_override
+from src.llm_classifier.prompts import build_classifier_messages, build_judge_messages
 
 
 # ---------------------------------------------------------------------------
@@ -117,11 +119,17 @@ def _mock_clf_response(label, confidence=0.95, nlp_attack_type="none", evidence=
 def _mock_judge_response(independent_label, independent_confidence=0.9,
                          independent_evidence="", nlp_attack_type="none",
                          computed_decision="override_candidate"):
-    """Return a dict as if returned by judge() (raw LLM + computed_decision added)."""
+    """Return a dict as if returned by judge() (raw LLM + computed_decision added).
+
+    independent_confidence is in 0-1 scale (for test readability).
+    The dict includes final_confidence in 0-100 scale (as the LLM schema specifies),
+    since predict() now reads final_confidence for the override path.
+    """
     return {
         "independent_label": independent_label,
-        "independent_confidence": independent_confidence,
+        "independent_confidence": independent_confidence * 100,
         "independent_evidence": independent_evidence,
+        "final_confidence": independent_confidence * 100,
         "nlp_attack_type": nlp_attack_type,
         "computed_decision": computed_decision,
     }
@@ -324,6 +332,7 @@ class TestPredict:
         clf.judge.assert_called_once()
         assert result["llm_stages_run"] == 2
         assert result["label"] == "adversarial"
+        assert result["label_binary"] == "adversarial"
 
     def test_force_all_stages(self, sample_config):
         """force_all_stages=True always runs judge even with high confidence."""
@@ -351,7 +360,8 @@ class TestPredict:
         result = clf.predict("text")
 
         required_keys = {
-            "label", "label_category", "confidence", "evidence", "llm_stages_run",
+            "label", "label_binary", "label_category", "label_type",
+            "confidence", "evidence", "llm_stages_run",
             "clf_label", "clf_category", "clf_confidence", "clf_evidence", "clf_nlp_attack_type",
             "judge_independent_label", "judge_category", "judge_independent_confidence",
             "judge_independent_evidence", "judge_computed_decision",
@@ -368,7 +378,9 @@ class TestPredict:
         result = clf.predict("hello world")
 
         assert result["label"] == "benign"
+        assert result["label_binary"] == "benign"
         assert result["label_category"] == "benign"
+        assert result["label_type"] is None
         assert result["confidence"] == 0.95
 
     def test_adversarial_no_nlp_type_is_unicode(self, sample_config):
@@ -381,6 +393,7 @@ class TestPredict:
         result = clf.predict("text")
 
         assert result["label"] == "adversarial"
+        assert result["label_binary"] == "adversarial"
         assert result["label_category"] == "unicode_attack"
 
     def test_adversarial_with_nlp_type_is_nlp(self, sample_config):
@@ -393,6 +406,7 @@ class TestPredict:
         result = clf.predict("greetings earth")
 
         assert result["label"] == "adversarial"
+        assert result["label_binary"] == "adversarial"
         assert result["label_category"] == "nlp_attack"
 
     def test_judge_result_used_when_triggered(self, sample_config):
@@ -409,8 +423,9 @@ class TestPredict:
         result = clf.predict("text")
 
         assert result["label"] == "benign"
+        assert result["label_binary"] == "benign"
         assert result["label_category"] == "benign"
-        assert result["confidence"] == 0.92
+        assert result["confidence"] == pytest.approx(0.92, abs=1e-6)
 
     def test_judge_internals_none_when_not_run(self, sample_config):
         """Judge internals are None when judge was not triggered."""
@@ -545,3 +560,336 @@ class TestDynamicFewShot:
                 HierarchicalLLMClassifier(
                     sample_config, dynamic=True, exemplar_bank=None
                 )
+
+
+# ---------------------------------------------------------------------------
+# TestNormalizeConfidence (Patch 1)
+# ---------------------------------------------------------------------------
+class TestNormalizeConfidence:
+    """Tests for _normalize_confidence() — handles 0-1 and 0-100 scale inputs."""
+
+    def test_zero_to_one_input(self):
+        assert HierarchicalLLMClassifier._normalize_confidence(0.75) == pytest.approx(0.75)
+
+    def test_zero_to_hundred_input(self):
+        assert HierarchicalLLMClassifier._normalize_confidence(75) == pytest.approx(0.75)
+
+    def test_none_returns_default(self):
+        assert HierarchicalLLMClassifier._normalize_confidence(None) == 0.5
+
+    def test_string_returns_default(self):
+        assert HierarchicalLLMClassifier._normalize_confidence("bad") == 0.5
+
+    def test_over_100_clamped(self):
+        assert HierarchicalLLMClassifier._normalize_confidence(150) == 1.0
+
+    def test_negative_clamped(self):
+        assert HierarchicalLLMClassifier._normalize_confidence(-10) == 0.0
+
+    def test_boundary_exactly_one(self):
+        assert HierarchicalLLMClassifier._normalize_confidence(1.0) == pytest.approx(1.0)
+
+    def test_boundary_exactly_100(self):
+        assert HierarchicalLLMClassifier._normalize_confidence(100) == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# TestDecideAcceptOrOverride (Patch 3)
+# ---------------------------------------------------------------------------
+class TestDecideAcceptOrOverride:
+    """Tests for decide_accept_or_override() — uncertain handling."""
+
+    def test_uncertain_judge_always_overrides(self):
+        """Judge uncertain + candidate adversarial → override (Patch 3 key fix)."""
+        judge_out = {"independent_label": "uncertain", "independent_evidence": ""}
+        cand_out = {"label": "adversarial", "evidence": "ignore prev instructions"}
+        assert decide_accept_or_override(judge_out, cand_out) == "override_candidate"
+
+    def test_uncertain_judge_vs_benign_overrides(self):
+        """Judge uncertain + candidate benign → override."""
+        judge_out = {"independent_label": "uncertain", "independent_evidence": ""}
+        cand_out = {"label": "benign", "evidence": ""}
+        assert decide_accept_or_override(judge_out, cand_out) == "override_candidate"
+
+    def test_judge_benign_vs_candidate_adversarial_overrides(self):
+        judge_out = {"independent_label": "benign", "independent_evidence": ""}
+        cand_out = {"label": "adversarial", "evidence": "ignore all"}
+        assert decide_accept_or_override(judge_out, cand_out) == "override_candidate"
+
+    def test_both_adversarial_matching_evidence_accepts(self):
+        judge_out = {"independent_label": "adversarial", "independent_evidence": "ignore all"}
+        cand_out = {"label": "adversarial", "evidence": "ignore all instructions"}
+        assert decide_accept_or_override(judge_out, cand_out) == "accept_candidate"
+
+    def test_both_adversarial_different_evidence_overrides(self):
+        judge_out = {"independent_label": "adversarial", "independent_evidence": "reveal secrets"}
+        cand_out = {"label": "adversarial", "evidence": "ignore all instructions"}
+        assert decide_accept_or_override(judge_out, cand_out) == "override_candidate"
+
+    def test_both_benign_accepts(self):
+        judge_out = {"independent_label": "benign", "independent_evidence": ""}
+        cand_out = {"label": "benign", "evidence": ""}
+        assert decide_accept_or_override(judge_out, cand_out) == "accept_candidate"
+
+    def test_empty_independent_label_overrides(self):
+        judge_out = {"independent_label": "", "independent_evidence": ""}
+        cand_out = {"label": "adversarial", "evidence": ""}
+        assert decide_accept_or_override(judge_out, cand_out) == "override_candidate"
+
+    def test_missing_independent_label_overrides(self):
+        judge_out = {"independent_evidence": ""}
+        cand_out = {"label": "adversarial", "evidence": ""}
+        assert decide_accept_or_override(judge_out, cand_out) == "override_candidate"
+
+
+# ---------------------------------------------------------------------------
+# TestPredictPreservesUncertain (Patch 2)
+# ---------------------------------------------------------------------------
+class TestPredictPreservesUncertain:
+    """Tests that predict() preserves uncertain as 3-way label and adds label_binary."""
+
+    def test_uncertain_clf_below_threshold_calls_judge(self, sample_config):
+        """Uncertain from classifier (confidence < threshold) triggers judge."""
+        clf = _make_classifier(sample_config)
+        clf.classify = MagicMock(
+            return_value=_mock_clf_response("uncertain", 0.55)
+        )
+        clf.judge = MagicMock(
+            return_value=_mock_judge_response("uncertain", 0.55, computed_decision="override_candidate")
+        )
+
+        result = clf.predict("ambiguous text")
+
+        clf.judge.assert_called_once()
+        assert result["llm_stages_run"] == 2
+
+    def test_uncertain_preserved_in_label(self, sample_config):
+        """When judge overrides to uncertain, label is 'uncertain' and label_binary is 'adversarial'."""
+        clf = _make_classifier(sample_config)
+        clf.classify = MagicMock(
+            return_value=_mock_clf_response("adversarial", 0.5)
+        )
+        clf.judge = MagicMock(
+            return_value=_mock_judge_response("uncertain", 0.55, computed_decision="override_candidate")
+        )
+
+        result = clf.predict("text")
+
+        assert result["label"] == "uncertain"
+        assert result["label_binary"] == "adversarial"
+
+    def test_label_binary_always_binary(self, sample_config):
+        """label_binary is always 'benign' or 'adversarial', never 'uncertain'."""
+        clf = _make_classifier(sample_config)
+        for label in ["benign", "adversarial", "uncertain"]:
+            clf.classify = MagicMock(
+                return_value=_mock_clf_response(label, 0.95)
+            )
+            result = clf.predict("text")
+            assert result["label_binary"] in ("benign", "adversarial")
+
+    def test_label_type_is_none(self, sample_config):
+        """LLM predict always returns label_type=None (LLM doesn't predict type)."""
+        clf = _make_classifier(sample_config)
+        clf.classify = MagicMock(
+            return_value=_mock_clf_response("adversarial", 0.95)
+        )
+        result = clf.predict("text")
+        assert result["label_type"] is None
+
+
+# ---------------------------------------------------------------------------
+# TestJudgeSchemaConfidence (Patch 1)
+# ---------------------------------------------------------------------------
+class TestJudgeSchemaConfidence:
+    """Tests that judge() reads final_confidence correctly (not independent_confidence)."""
+
+    def test_final_confidence_used_for_judge_independent_confidence(self, sample_config):
+        """When judge returns final_confidence:85, judge_independent_confidence≈0.85."""
+        clf = _make_classifier(sample_config)
+        clf.classify = MagicMock(
+            return_value=_mock_clf_response("adversarial", 0.5)
+        )
+        clf.judge = MagicMock(
+            return_value={
+                "independent_label": "adversarial",
+                "independent_confidence": 60,
+                "independent_evidence": "some evidence",
+                "final_confidence": 85,
+                "nlp_attack_type": "none",
+                "computed_decision": "override_candidate",
+            }
+        )
+
+        result = clf.predict("text")
+
+        assert result["judge_independent_confidence"] == pytest.approx(0.85, abs=1e-6)
+
+    def test_missing_final_confidence_returns_half(self, sample_config):
+        """When final_confidence is missing from judge output, returns 0.5 default."""
+        clf = _make_classifier(sample_config)
+        clf.classify = MagicMock(
+            return_value=_mock_clf_response("adversarial", 0.5)
+        )
+        clf.judge = MagicMock(
+            return_value={
+                "independent_label": "adversarial",
+                "independent_evidence": "",
+                "nlp_attack_type": "none",
+                "computed_decision": "accept_candidate",
+                # no final_confidence
+            }
+        )
+
+        result = clf.predict("text")
+
+        assert result["judge_independent_confidence"] == 0.5
+
+
+# ---------------------------------------------------------------------------
+# TestFewShotMessages (Patches 4, 5)
+# ---------------------------------------------------------------------------
+class TestFewShotMessages:
+    """Tests for _build_few_shot_messages() — evidence and reason quality."""
+
+    def test_benign_message_has_empty_evidence(self, sample_config):
+        """Benign few-shot examples always have evidence=''."""
+        clf = _make_classifier(sample_config, few_shot=[
+            ("hello world", "héllo wörld", "Diacritcs"),
+        ])
+        messages = clf._build_few_shot_messages("some text")
+        benign_assistant_msgs = [
+            json.loads(m["content"])
+            for m in messages
+            if m["role"] == "assistant"
+            and json.loads(m["content"])["label"] == "benign"
+        ]
+        assert len(benign_assistant_msgs) >= 1
+        for msg in benign_assistant_msgs:
+            assert msg["evidence"] == ""
+
+    def test_nlp_attack_has_empty_evidence(self, sample_config):
+        """NLP attack few-shot examples use evidence='' (no extractable adversarial span)."""
+        clf = _make_classifier(sample_config, few_shot=[
+            ("normal text", "greetings earth", "BAE"),
+        ])
+        messages = clf._build_few_shot_messages("some text")
+        adv_msgs = [
+            json.loads(m["content"])
+            for m in messages
+            if m["role"] == "assistant"
+            and json.loads(m["content"])["label"] == "adversarial"
+        ]
+        assert len(adv_msgs) == 1
+        assert adv_msgs[0]["evidence"] == ""
+        assert adv_msgs[0]["nlp_attack_type"] == "BAE"
+
+    def test_unicode_attack_has_nonempty_evidence(self, sample_config):
+        """Unicode attack few-shot examples use attack_text[:80] as evidence."""
+        attack_text = "héllo wörld"
+        clf = _make_classifier(sample_config, few_shot=[
+            ("hello world", attack_text, "Diacritcs"),
+        ])
+        messages = clf._build_few_shot_messages("some text")
+        adv_msgs = [
+            json.loads(m["content"])
+            for m in messages
+            if m["role"] == "assistant"
+            and json.loads(m["content"])["label"] == "adversarial"
+        ]
+        assert len(adv_msgs) == 1
+        assert adv_msgs[0]["evidence"] == attack_text[:80]
+        assert adv_msgs[0]["evidence"] != ""
+
+    def test_fixed_confidence_values(self, sample_config):
+        """Few-shot messages use fixed confidence values (0.90 benign, 0.88 adversarial)."""
+        clf = _make_classifier(sample_config, few_shot=[
+            ("hello world", "héllo wörld", "Diacritcs"),
+        ])
+        messages = clf._build_few_shot_messages("text")
+        parsed = [json.loads(m["content"]) for m in messages if m["role"] == "assistant"]
+        benign_conf = [p["confidence"] for p in parsed if p["label"] == "benign"]
+        adv_conf = [p["confidence"] for p in parsed if p["label"] == "adversarial"]
+        assert all(c == 0.90 for c in benign_conf)
+        assert all(c == 0.88 for c in adv_conf)
+
+    def test_improved_reason_strings(self, sample_config):
+        """Few-shot reason strings are not the old generic placeholders."""
+        clf = _make_classifier(sample_config, few_shot=[
+            ("hello world", "héllo wörld", "Diacritcs"),
+            ("normal", "greetings earth", "BAE"),
+        ])
+        messages = clf._build_few_shot_messages("text")
+        parsed = [json.loads(m["content"]) for m in messages if m["role"] == "assistant"]
+        for p in parsed:
+            assert "This is an example of" not in p["reason"]
+
+    def test_output_is_list_of_role_content_dicts(self, sample_config):
+        """_build_few_shot_messages returns list of {'role': ..., 'content': ...} dicts."""
+        clf = _make_classifier(sample_config, few_shot=[
+            ("hello world", "héllo wörld", "Diacritcs"),
+        ])
+        messages = clf._build_few_shot_messages("text")
+        assert isinstance(messages, list)
+        for m in messages:
+            assert "role" in m
+            assert "content" in m
+            assert m["role"] in ("user", "assistant")
+
+
+# ---------------------------------------------------------------------------
+# TestBuildClassifierMessages (Patch 8)
+# ---------------------------------------------------------------------------
+class TestBuildClassifierMessages:
+    """Tests for the renamed build_classifier_messages() function."""
+
+    def test_returns_list_with_system_and_user(self):
+        messages = build_classifier_messages("hello", [])
+        assert isinstance(messages, list)
+        assert len(messages) == 2
+        assert messages[0]["role"] == "system"
+        assert messages[-1]["role"] == "user"
+
+    def test_user_message_contains_input(self):
+        messages = build_classifier_messages("test input text", [])
+        assert "test input text" in messages[-1]["content"]
+
+    def test_few_shot_messages_inserted(self):
+        few_shot = [
+            {"role": "user", "content": "Text: example"},
+            {"role": "assistant", "content": '{"label": "benign"}'},
+        ]
+        messages = build_classifier_messages("test", few_shot)
+        assert len(messages) == 4  # system + 2 few_shot + user
+        assert messages[1]["role"] == "user"
+        assert messages[2]["role"] == "assistant"
+
+
+# ---------------------------------------------------------------------------
+# TestBuildJudgeMessages (Patch 8)
+# ---------------------------------------------------------------------------
+class TestBuildJudgeMessages:
+    """Tests for the renamed build_judge_messages() function."""
+
+    def test_returns_list_with_system_and_user(self):
+        messages = build_judge_messages("text", {"label": "adversarial", "evidence": "span"})
+        assert isinstance(messages, list)
+        assert len(messages) == 2
+        assert messages[0]["role"] == "system"
+        assert messages[1]["role"] == "user"
+
+    def test_user_message_contains_input_prompt(self):
+        messages = build_judge_messages("secret text here", {"label": "adversarial"})
+        assert "secret text here" in messages[1]["content"]
+
+    def test_user_message_contains_candidate_json(self):
+        clf_out = {"label": "adversarial", "evidence": "ignore instructions"}
+        messages = build_judge_messages("text", clf_out)
+        assert "CANDIDATE_JSON" in messages[1]["content"]
+        assert "ignore instructions" in messages[1]["content"]
+
+    def test_independent_confidence_in_system_prompt(self):
+        """Judge system prompt includes independent_confidence field (Patch 1)."""
+        messages = build_judge_messages("text", {"label": "adversarial"})
+        system_content = messages[0]["content"]
+        assert "independent_confidence" in system_content

@@ -101,7 +101,7 @@ class HybridRouter:
 
         # Check LLM confidence for abstention (new schema: "confidence")
         llm_conf = llm_result.get("confidence", 0.5)
-        llm_binary = llm_result.get("label", "adversarial")
+        llm_binary = llm_result.get("label_binary", "adversarial")
         routed_to = "abstain" if llm_conf < self.llm_threshold else "llm"
         if routed_to == "abstain":
             self.stats.abstained += 1
