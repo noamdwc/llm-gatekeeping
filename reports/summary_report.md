@@ -7,25 +7,25 @@ LLM backend: **NVIDIA NIM** (`meta/llama-3.1-8b-instruct` classifier, `meta/llam
 
 ---
 
-## 1. In-Distribution Performance (Mindgard test set, n=1,690)
+## 1. In-Distribution Performance (Mindgard test set)
 
-| Mode | Accuracy | Adv Recall | Benign Recall | Adv F1 | FNR |
-|------|----------|-----------|---------------|--------|-----|
-| ML | 94.85% | **99.94%** | 8.51% | 97.35% | 0.06% |
-| Hybrid | 94.67% | 99.75% | 8.51% | 97.25% | 0.25% |
-| LLM *(100 samples)* | 79.00% | 87.64% | 9.09% | 88.14% | 12.36% |
+| Mode | n | Accuracy | Adv Recall | Benign Recall | Adv F1 | FNR |
+|------|---|----------|-----------|---------------|--------|-----|
+| ML | 1,690 | 94.85% | **99.94%** | 8.51% | 97.35% | 0.06% |
+| Hybrid | 1,690 | 94.91% | 99.56% | **15.96%** | 97.37% | 0.44% |
+| LLM *(100 samples)* | 100 | 75.00% | 74.16% | **81.82%** | 84.08% | 25.84% |
 
 **Category classification** (adversarial samples only):
 
 | Mode | Accuracy | Macro F1 |
 |------|----------|----------|
 | ML | 99.62% | 99.78% |
-| Hybrid | 98.81% | 99.00% |
-| LLM | 53.93% | 46.36% |
+| Hybrid | 99.31% | 99.60% |
+| LLM | 32.58% | 36.92% |
 
 **Unicode sub-type classification**: ML and Hybrid both achieve 100% accuracy. LLM achieves 0% — it does not attempt type classification.
 
-**Hybrid routing**: 1,664/1,690 samples (98.5%) resolved by ML; only 26 escalated to LLM, keeping API cost near zero.
+**Hybrid routing**: 1,664/1,690 samples (98.5%) resolved by ML; 26 escalated to LLM. The LLM's improved benign recall (81.82%) lifts hybrid benign recall from 8.51% (pure ML) to 15.96% — a meaningful gain from just 1.5% LLM traffic.
 
 ---
 
@@ -61,13 +61,19 @@ The same pattern holds across all external datasets. In the 0.9–1.0 confidence
 - deepset: 49.5% accuracy
 - jackhhao: 12.5% accuracy
 - safeguard: **4.3% accuracy**
-- SPML: 43.9% accuracy (benign base rate only 21%, so accuracy here is dominated by correct adversarial predictions)
+- SPML: 59.0% accuracy (benign base rate only 21%, so accuracy here is dominated by correct adversarial predictions)
 
-### LLM vs ML tradeoff
-On the small in-distribution sample the LLM shows slightly better benign recall (9% vs 8.5%) but worse adversarial recall (88% vs 100%) and much slower throughput (~5s/sample vs instant). Category classification is significantly worse (54% vs 100%). The LLM's main value is as a judge for borderline cases in the hybrid router, not as a standalone classifier.
+### LLM behavior has shifted: benign-favoring
+Compared to the previous run, the LLM now strongly favors benign recall (**81.82%**, up from 18.18%) at the cost of adversarial recall (**74.16%**, down from 93.26%). FNR has increased from 6.74% to **25.84%** — meaning the LLM misses one in four attacks. This makes the LLM unsuitable as a standalone classifier for a security gatekeeper but highly effective as a false-positive reducer for borderline ML cases.
+
+Category classification has also degraded (32.58% vs prior 44.94%); the LLM is not reliably distinguishing unicode from NLP attacks.
 
 ### Hybrid is the right default
-The hybrid router gets adversarial recall (99.75%) close to pure ML while routing only 1.6% of traffic to the LLM. This keeps API cost low while adding a safety net for low-confidence ML predictions.
+The hybrid router balances both failure modes:
+- **99.56% adversarial recall** (only 0.44% FNR)
+- **15.96% benign recall** — nearly double pure ML (8.51%), at the cost of routing 26 samples (1.5%) to the LLM
+
+The benign recall improvement in hybrid is now more pronounced than before, reflecting the LLM's shift toward benign-favoring behavior. The tradeoff: FNR increases from 0.06% (ML) to 0.44% (Hybrid). For a strict security gatekeeper, the additional 6 missed attacks per 1,690 samples may be unacceptable — pure ML is safer on FNR.
 
 ### Root cause of out-of-distribution failure
 All external datasets share benign samples that look superficially similar to adversarial inputs: task instructions, structured prompts, role-play setups. The ML model trained exclusively on Mindgard benigns (paraphrases of attack prompts) has learned that "instruction-like text = adversarial". Fixing this requires fundamentally diversifying the training benign set.
@@ -78,10 +84,12 @@ All external datasets share benign samples that look superficially similar to ad
 
 | Priority | Issue | Fix |
 |----------|-------|-----|
-| High | Benign recall = 0% on all external datasets | Augment training benign set with diverse real-world prompts (general QA, task instructions, chatbot queries, NLP benchmarks) |
-| High | ML over-confident on out-of-distribution benign | Apply temperature scaling or isotonic regression calibration; add OOD detection |
-| Medium | LLM category classification poor | Improve few-shot examples; Llama 3.1-8B struggles with the unicode/NLP taxonomy |
-| Low | LLM sample size too small (n=100) | Run full test set for a proper LLM standalone evaluation |
+| **High** | Benign recall = 0% on all external datasets | Augment training benign set with diverse real-world prompts (general QA, task instructions, chatbot queries, NLP benchmarks) — synthetic benign pipeline is in place for this |
+| **High** | ML over-confident on out-of-distribution benign | Apply temperature scaling or isotonic regression calibration; add OOD detection |
+| **High** | LLM FNR = 25.84% (misses 1 in 4 attacks) | Do not use LLM standalone; use hybrid only; investigate LLM prompt/config causing benign-favoring shift |
+| **Medium** | LLM category classification very poor (32.58%) | Improve few-shot examples; Llama 3.1-8B struggles with the unicode/NLP taxonomy |
+| **Medium** | Hybrid FNR (0.44%) vs ML FNR (0.06%) | Evaluate whether benign recall gain (15.96% vs 8.51%) justifies 7x increase in FNR for the target use case |
+| **Low** | LLM sample size too small (n=100) | Run full test set for a proper LLM standalone evaluation |
 
 ---
 

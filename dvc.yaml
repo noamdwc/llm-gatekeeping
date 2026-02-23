@@ -96,6 +96,8 @@ stages:
       - src/cli/research_external.py
       - src/eval_external.py
       - src/ml_classifier/
+      - src/embeddings.py
+      - src/llm_classifier/
       - src/utils.py
       - data/processed/models/ml_baseline.pkl
       - data/processed/splits/train.parquet

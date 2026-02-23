@@ -107,6 +107,8 @@ class HierarchicalLLMClassifier:
         max_retries: int = 5,
     ) -> dict:
         """Make one LLM call, track usage, return parsed JSON."""
+        response = None
+        latency = 0.0
         for attempt in range(max_retries):
             try:
                 t0 = time.time()
@@ -125,14 +127,22 @@ class HierarchicalLLMClassifier:
                 wait = min(2 ** attempt * 5, 60)
                 print(f"\nRate limit hit, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
                 time.sleep(wait)
+            except (openai.APIConnectionError, openai.APIError) as exc:
+                if attempt == max_retries - 1:
+                    raise
+                wait = min(2 ** attempt * 5, 60)
+                print(f"\nAPI error ({type(exc).__name__}), retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                time.sleep(wait)
 
         self.usage.total_calls += 1
         self.usage.calls_by_stage[stage] += 1
         self.usage.total_latency_s += latency
-        if response.usage:
+        if response is not None and response.usage:
             self.usage.prompt_tokens += response.usage.prompt_tokens
             self.usage.completion_tokens += response.usage.completion_tokens
 
+        if response is None:
+            return {}
         try:
             return json.loads(response.choices[0].message.content)
         except (json.JSONDecodeError, IndexError):
@@ -164,7 +174,7 @@ class HierarchicalLLMClassifier:
             
         for (benign_text, attack_text, attack_type) in pairs:
             # Add benign example (fixed confidence for reproducibility)
-            messages.append({"role": "user", "content": f"Text: {benign_text}"})
+            messages.append({"role": "user", "content": f"INPUT_PROMPT:\n{benign_text}"})
             messages.append({
                 "role": "assistant", "content": json.dumps({
                     "label": 'benign',
@@ -182,7 +192,7 @@ class HierarchicalLLMClassifier:
             else:
                 evidence = attack_text[:80]
                 adv_reason = f"Contains {attack_type} obfuscation; active adversarial prompt detected."
-            messages.append({"role": "user", "content": f"Text: {attack_text}"})
+            messages.append({"role": "user", "content": f"INPUT_PROMPT:\n{attack_text}"})
             messages.append({
                 "role": "assistant", "content": json.dumps({
                     "label": 'adversarial',
@@ -246,6 +256,12 @@ class HierarchicalLLMClassifier:
         # Normalize confidence: prompts use 0-100 scale; clamp to [0, 1]
         raw_conf = result.get("confidence", 50)
         result["confidence"] = self._normalize_confidence(raw_conf)
+        # Validate nlp_attack_type: coerce unknown values to "none" to prevent
+        # _derive_category() from misclassifying garbage strings as nlp_attack.
+        valid_nlp_types = set(NLP_TYPES) | {"none"}
+        nlp_type = result.get("nlp_attack_type", "none")
+        if nlp_type not in valid_nlp_types:
+            result["nlp_attack_type"] = "none"
         return result
 
     def judge(self, text: str, classifier_output: dict) -> dict:

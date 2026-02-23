@@ -18,6 +18,8 @@
 | benign_recall | 0.0000 |
 | benign_f1 | 0.0000 |
 | false_negative_rate | 0.0000 |
+| uncertain_rate | 0.0000 |
+| judge_override_rate | nan |
 | support_adversarial | 60 |
 | support_benign | 56 |
 
@@ -42,8 +44,7 @@
 
 ## Hybrid Routing Analysis
 
-- **ml**: 115 samples (99.1%), accuracy=0.5130
-- **llm**: 1 samples (0.9%), accuracy=0.0000
+- **ml**: 116 samples (100.0%), accuracy=0.5172
 
 ## Error Analysis
 

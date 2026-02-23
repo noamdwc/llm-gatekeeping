@@ -24,6 +24,13 @@ def decide_accept_or_override(judge_out: dict, cand_out: dict) -> str:
     je = (judge_out.get("independent_evidence") or "").strip()
     ce = (cand_out.get("evidence") or "").strip()
 
+    if not je and not ce:
+        # Both evidence empty — valid for NLP attacks which have no extractable span.
+        # Accept if either side identifies an NLP attack type; otherwise override.
+        j_nlp = judge_out.get("nlp_attack_type", "none") not in ("none", "", None)
+        c_nlp = cand_out.get("nlp_attack_type", "none") not in ("none", "", None)
+        return "accept_candidate" if (j_nlp or c_nlp) else "override_candidate"
+
     if not je or not ce:
         return "override_candidate"
     if je in ce or ce in je:

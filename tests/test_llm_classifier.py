@@ -4,6 +4,7 @@ import json
 from collections import defaultdict
 from unittest.mock import MagicMock, patch, call
 
+import openai
 import pandas as pd
 import pytest
 
@@ -930,3 +931,179 @@ class TestBuildJudgeMessages:
         messages = build_judge_messages("text", {"label": "adversarial"})
         system_content = messages[0]["content"]
         assert "independent_confidence" in system_content
+
+    def test_user_message_prefix_is_input_prompt(self, sample_config):
+        """Each user-role message in _build_few_shot_messages() starts with INPUT_PROMPT:\\n."""
+        clf = _make_classifier(sample_config, few_shot=[
+            ("hello world", "héllo wörld", "Diacritcs"),
+            ("normal text", "greetings earth", "BAE"),
+        ])
+        messages = clf._build_few_shot_messages("some text")
+        user_msgs = [m for m in messages if m["role"] == "user"]
+        assert len(user_msgs) >= 2, "Expected at least 2 user messages"
+        for msg in user_msgs:
+            assert msg["content"].startswith("INPUT_PROMPT:\n"), (
+                f"User message should start with 'INPUT_PROMPT:\\n', got: {msg['content'][:40]!r}"
+            )
+            assert not msg["content"].startswith("Text:"), (
+                f"User message should not use old 'Text:' prefix, got: {msg['content'][:40]!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# TestClassifyNlpTypeValidation (Fix 4)
+# ---------------------------------------------------------------------------
+class TestClassifyNlpTypeValidation:
+    """Tests for nlp_attack_type validation in classify()."""
+
+    def test_invalid_nlp_attack_type_coerced_to_none(self, sample_config):
+        """LLM returning garbage nlp_attack_type is coerced to 'none'."""
+        clf = _make_classifier(sample_config)
+        clf._call_llm = MagicMock(return_value={
+            "label": "adversarial",
+            "confidence": 90,
+            "nlp_attack_type": "RandomGarbage",
+            "evidence": "",
+        })
+        result = clf.classify("some text")
+        assert result["nlp_attack_type"] == "none"
+
+    def test_valid_nlp_attack_type_preserved(self, sample_config):
+        """Valid NLP attack type passes through unmodified."""
+        clf = _make_classifier(sample_config)
+        clf._call_llm = MagicMock(return_value={
+            "label": "adversarial",
+            "confidence": 88,
+            "nlp_attack_type": "BAE",
+            "evidence": "",
+        })
+        result = clf.classify("some text")
+        assert result["nlp_attack_type"] == "BAE"
+
+    def test_none_nlp_attack_type_preserved(self, sample_config):
+        """'none' passes through unmodified."""
+        clf = _make_classifier(sample_config)
+        clf._call_llm = MagicMock(return_value={
+            "label": "benign",
+            "confidence": 90,
+            "nlp_attack_type": "none",
+            "evidence": "",
+        })
+        result = clf.classify("hello world")
+        assert result["nlp_attack_type"] == "none"
+
+    def test_missing_nlp_attack_type_stays_none(self, sample_config):
+        """Missing nlp_attack_type key defaults to 'none' and passes validation."""
+        clf = _make_classifier(sample_config)
+        clf._call_llm = MagicMock(return_value={
+            "label": "benign",
+            "confidence": 90,
+        })
+        result = clf.classify("hello world")
+        assert result.get("nlp_attack_type", "none") == "none"
+
+
+# ---------------------------------------------------------------------------
+# TestDecideAcceptOrOverrideNlpEvidence (Fix 3)
+# ---------------------------------------------------------------------------
+class TestDecideAcceptOrOverrideNlpEvidence:
+    """Tests for the double-empty evidence NLP path in decide_accept_or_override()."""
+
+    def test_both_adversarial_nlp_empty_evidence_accepts(self):
+        """Both adversarial, both evidence '', both nlp_attack_type set → accept_candidate."""
+        judge_out = {
+            "independent_label": "adversarial",
+            "independent_evidence": "",
+            "nlp_attack_type": "BAE",
+        }
+        cand_out = {
+            "label": "adversarial",
+            "evidence": "",
+            "nlp_attack_type": "BAE",
+        }
+        assert decide_accept_or_override(judge_out, cand_out) == "accept_candidate"
+
+    def test_both_adversarial_missing_nlp_type_overrides(self):
+        """Both adversarial, both evidence '', nlp_attack_type='none' on both → override_candidate."""
+        judge_out = {
+            "independent_label": "adversarial",
+            "independent_evidence": "",
+            "nlp_attack_type": "none",
+        }
+        cand_out = {
+            "label": "adversarial",
+            "evidence": "",
+            "nlp_attack_type": "none",
+        }
+        assert decide_accept_or_override(judge_out, cand_out) == "override_candidate"
+
+    def test_judge_has_nlp_type_cand_missing_accepts(self):
+        """Only judge has nlp_attack_type, cand doesn't → accept (j_nlp=True)."""
+        judge_out = {
+            "independent_label": "adversarial",
+            "independent_evidence": "",
+            "nlp_attack_type": "TextFooler",
+        }
+        cand_out = {
+            "label": "adversarial",
+            "evidence": "",
+            "nlp_attack_type": "none",
+        }
+        assert decide_accept_or_override(judge_out, cand_out) == "accept_candidate"
+
+
+# ---------------------------------------------------------------------------
+# TestCallLlmRetry (Fix 2)
+# ---------------------------------------------------------------------------
+class TestCallLlmRetry:
+    """Tests for expanded retry logic in _call_llm()."""
+
+    def _make_response(self, content: str):
+        """Build a minimal mock ChatCompletion response."""
+        msg = MagicMock()
+        msg.content = content
+        choice = MagicMock()
+        choice.message = msg
+        resp = MagicMock()
+        resp.choices = [choice]
+        resp.usage = None
+        return resp
+
+    def test_retries_on_api_connection_error(self, sample_config):
+        """APIConnectionError on first 2 attempts, success on 3rd → returns parsed result."""
+        clf = _make_classifier(sample_config)
+        good_response = self._make_response('{"label": "benign", "confidence": 90}')
+        clf.client.chat.completions.create = MagicMock(
+            side_effect=[
+                openai.APIConnectionError(request=MagicMock()),
+                openai.APIConnectionError(request=MagicMock()),
+                good_response,
+            ]
+        )
+        with patch("src.llm_classifier.llm_classifier.time.sleep"):
+            result = clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
+        assert result.get("label") == "benign"
+
+    def test_retries_exhaust_api_connection_error_raises(self, sample_config):
+        """All 5 attempts fail with APIConnectionError → re-raises."""
+        clf = _make_classifier(sample_config)
+        clf.client.chat.completions.create = MagicMock(
+            side_effect=openai.APIConnectionError(request=MagicMock())
+        )
+        with patch("src.llm_classifier.llm_classifier.time.sleep"):
+            with pytest.raises(openai.APIConnectionError):
+                clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier", max_retries=5)
+
+    def test_retries_on_api_error(self, sample_config):
+        """APIError (5xx) on first attempt, success on 2nd → returns parsed result."""
+        clf = _make_classifier(sample_config)
+        good_response = self._make_response('{"label": "adversarial", "confidence": 88}')
+        clf.client.chat.completions.create = MagicMock(
+            side_effect=[
+                openai.APIError(message="server error", request=MagicMock(), body=None),
+                good_response,
+            ]
+        )
+        with patch("src.llm_classifier.llm_classifier.time.sleep"):
+            result = clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
+        assert result.get("label") == "adversarial"

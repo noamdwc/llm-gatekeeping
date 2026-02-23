@@ -4,26 +4,28 @@
 
 | Metric | Value |
 |--------|-------|
-| accuracy | 0.9462 |
-| adversarial_precision | 0.9520 |
-| adversarial_recall | 0.9931 |
-| adversarial_f1 | 0.9721 |
-| benign_precision | 0.5600 |
-| benign_recall | 0.1489 |
-| benign_f1 | 0.2353 |
-| false_negative_rate | 0.0069 |
+| accuracy | 0.9491 |
+| adversarial_precision | 0.9526 |
+| adversarial_recall | 0.9956 |
+| adversarial_f1 | 0.9737 |
+| benign_precision | 0.6818 |
+| benign_recall | 0.1596 |
+| benign_f1 | 0.2586 |
+| false_negative_rate | 0.0044 |
+| uncertain_rate | 0.0000 |
+| judge_override_rate | N/A |
 | support_adversarial | 1596 |
 | support_benign | 94 |
 
 ## Category Classification (Unicode vs NLP)
 
-- Accuracy: 0.9868
-- Macro F1: 0.9907
+- Accuracy: 0.9931
+- Macro F1: 0.9960
 
 Confusion matrix (rows=true, cols=pred):
 Labels: ['unicode_attack', 'nlp_attack']
   [902, 0]
-  [6, 673]
+  [0, 683]
 
 ## Per-Type Classification (Unicode Sub-Types)
 
@@ -52,8 +54,8 @@ Labels: ['unicode_attack', 'nlp_attack']
 |-----|-------|----------------|----------|
 | 0.5-0.6 | 28 | 0.560 | 0.607 |
 | 0.6-0.7 | 29 | 0.657 | 0.655 |
-| 0.7-0.8 | 148 | 0.757 | 0.791 |
-| 0.8-0.9 | 278 | 0.860 | 0.888 |
+| 0.7-0.8 | 148 | 0.757 | 0.811 |
+| 0.8-0.9 | 278 | 0.860 | 0.896 |
 | 0.9-1.0 | 1207 | 0.982 | 0.993 |
 
 ## Cost / Usage

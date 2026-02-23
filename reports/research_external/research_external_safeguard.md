@@ -19,6 +19,7 @@
 | benign_f1 | 0.0000 |
 | false_negative_rate | 0.0818 |
 | uncertain_rate | 0.0000 |
+| judge_override_rate | nan |
 | support_adversarial | 648 |
 | support_benign | 1401 |
 

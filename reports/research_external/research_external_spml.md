@@ -18,6 +18,8 @@
 | benign_recall | 0.0000 |
 | benign_f1 | 0.0000 |
 | false_negative_rate | 0.0025 |
+| uncertain_rate | 0.0000 |
+| judge_override_rate | nan |
 | support_adversarial | 12541 |
 | support_benign | 3376 |
 
