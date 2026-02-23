@@ -28,20 +28,52 @@ from src.evaluate import (
 )
 
 
+ADVERSARIAL_LABEL_ALIASES = {
+    "adversarial",
+    "adversary",
+    "adv",
+    "attack",
+    "attacker",
+    "malicious",
+    "jailbreak",
+    "prompt_injection",
+    "prompt injection",
+    "injection",
+}
+
+
+def _normalize_binary_label(label) -> str:
+    return str(label).strip().lower().replace("-", "_")
+
+
+def _is_adversarial_label(label) -> bool:
+    norm = _normalize_binary_label(label)
+    return norm in ADVERSARIAL_LABEL_ALIASES or norm.startswith("adv")
+
+
 def compute_hybrid_routing(
     ml_df: pd.DataFrame,
     llm_df: pd.DataFrame | None,
     threshold: float,
 ) -> pd.DataFrame:
-    """Compute hybrid routing decisions from ML confidence + threshold.
+    """Compute hybrid routing decisions from ML prediction + confidence threshold.
 
     If LLM results are available, escalated samples use LLM predictions.
     Otherwise, escalated samples fall back to ML predictions.
     Rows are matched between ml_df and llm_df via the ``sample_id`` column.
 
+    Specialist policy:
+      - ML benign (or non-adversarial) predictions always escalate to LLM.
+      - ML adversarial predictions route to ML only when confidence >= threshold.
+
     Returns DataFrame with: sample_id, hybrid_routed_to, hybrid_pred_{binary,category,type}
     """
-    confident = ml_df["ml_conf_binary"] >= threshold
+    conf_col = "ml_conf_binary_cal" if "ml_conf_binary_cal" in ml_df.columns else "ml_conf_binary"
+    ml_conf = ml_df[conf_col].values
+    ml_pred_binary = ml_df["ml_pred_binary"].values
+
+    ml_adv_mask = np.array([_is_adversarial_label(v) for v in ml_pred_binary], dtype=bool)
+    confident = ml_adv_mask & (ml_conf >= threshold)
 
     # Start with ML predictions for every row (default / fallback)
     result = pd.DataFrame({

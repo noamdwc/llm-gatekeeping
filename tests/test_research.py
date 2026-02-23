@@ -264,6 +264,14 @@ class TestComputeHybridRouting:
         expected = {"sample_id", "hybrid_routed_to", "hybrid_pred_binary", "hybrid_pred_category", "hybrid_pred_type"}
         assert set(result.columns) == expected
 
+    def test_benign_predictions_always_escalate_when_llm_available(self):
+        """High-confidence benign ML predictions should route to LLM."""
+        ml_df = self._make_ml_df([0.99, 0.95], preds_binary=["benign", "benign"])
+        llm_df = self._make_llm_df(2)
+        result = compute_hybrid_routing(ml_df, llm_df, threshold=0.85)
+        assert (result["hybrid_routed_to"] == "llm").all()
+        assert list(result["hybrid_pred_binary"]) == ["adversarial", "adversarial"]
+
 
 # ---------------------------------------------------------------------------
 # build_research_dataframe

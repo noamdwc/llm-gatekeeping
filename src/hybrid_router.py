@@ -3,9 +3,10 @@ Hybrid ML+LLM router.
 
 Routing logic:
   1. ML binary gate runs first (cheap, fast)
-  2. If ML confidence >= threshold → use ML prediction
-  3. If ML confidence < threshold → escalate to LLM for full hierarchical classification
-  4. If LLM confidence < threshold → abstain ("needs_review")
+  2. If ML predicts benign → always escalate to LLM
+  3. If ML predicts adversarial and confidence >= threshold → use ML prediction
+  4. Otherwise → escalate to LLM for full hierarchical classification
+  5. If LLM confidence < threshold → abstain ("needs_review")
 
 Evaluation compares: ML-only vs LLM-only vs hybrid at various thresholds.
 
@@ -15,14 +16,12 @@ Usage:
 
 import argparse
 import json
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 
 import wandb
 import dotenv
 import numpy as np
 import pandas as pd
-import yaml
 from tqdm import tqdm
 
 from src.utils import load_config, SPLITS_DIR, MODELS_DIR, REPORTS_RESEARCH_DIR
@@ -30,6 +29,30 @@ from src.ml_classifier.ml_baseline import MLBaseline
 from src.llm_classifier.llm_classifier import HierarchicalLLMClassifier, build_few_shot_examples
 from src.evaluate import evaluate_dataframe
 dotenv.load_dotenv()
+
+
+ADVERSARIAL_LABEL_ALIASES = {
+    "adversarial",
+    "adversary",
+    "adv",
+    "attack",
+    "attacker",
+    "malicious",
+    "jailbreak",
+    "prompt_injection",
+    "prompt injection",
+    "injection",
+}
+
+
+def _normalize_binary_label(label) -> str:
+    return str(label).strip().lower().replace("-", "_")
+
+
+def _is_adversarial_label(label) -> bool:
+    norm = _normalize_binary_label(label)
+    return norm in ADVERSARIAL_LABEL_ALIASES or norm.startswith("adv")
+
 
 @dataclass
 class RouterStats:
@@ -71,44 +94,45 @@ class HybridRouter:
         self.ml_threshold = cfg["hybrid"]["ml_confidence_threshold"]
         self.llm_threshold = cfg["hybrid"]["llm_confidence_threshold"]
         self.stats = RouterStats()
+        self._ml_conf_source_logged = False
+        self._benign_escalations = 0
+        self._adv_high_conf_finalizations = 0
+        self._adv_low_conf_escalations = 0
 
-    def predict_single(self, text: str, ml_pred: dict) -> dict:
-        """
-        Route a single sample.
+    def _get_ml_binary_confidence(self, ml_pred: dict) -> float:
+        """Prefer calibrated binary confidence, fallback to raw for old artifacts."""
+        has_cal = (
+            "confidence_label_binary_cal" in ml_pred
+            and pd.notna(ml_pred["confidence_label_binary_cal"])
+        )
+        if has_cal:
+            conf = float(ml_pred["confidence_label_binary_cal"])
+            source = "calibrated"
+        elif "confidence_label_binary" in ml_pred and pd.notna(ml_pred["confidence_label_binary"]):
+            conf = float(ml_pred["confidence_label_binary"])
+            source = "raw_fallback"
+        else:
+            conf = 0.5
+            source = "default_0.5"
 
-        ml_pred should contain: pred_label_binary, confidence_label_binary, etc.
-        """
-        self.stats.total += 1
+        if not self._ml_conf_source_logged:
+            print(f"  [HybridRouter] binary confidence source={source}")
+            self._ml_conf_source_logged = True
 
-        ml_conf = ml_pred["confidence_label_binary"]
-        ml_binary = ml_pred["pred_label_binary"]
+        return conf
 
-        # High-confidence ML → use ML results
-        if ml_conf >= self.ml_threshold:
-            self.stats.ml_handled += 1
-            return {
-                "label_binary": ml_binary,
-                "label_category": ml_pred.get("pred_label_category", ml_binary),
-                "label_type": ml_pred.get("pred_label_type", ml_binary),
-                "confidence_binary": ml_conf,
-                "confidence_category": ml_pred.get("confidence_label_category"),
-                "confidence_type": ml_pred.get("confidence_label_type"),
-                "routed_to": "ml",
-            }
-
-        # Low-confidence ML → escalate to LLM
+    def _route_via_llm(self, text: str, ml_pred: dict, route_reason: str) -> dict:
+        """Escalate a sample to LLM and standardize output schema."""
         llm_result = self.llm.predict(text)
 
-        # Check LLM confidence for abstention (new schema: "confidence")
         llm_conf = llm_result.get("confidence", 0.5)
-        llm_binary = llm_result.get("label_binary", "adversarial")
+        llm_binary = llm_result.get("label_binary") or llm_result.get("label", "adversarial")
         routed_to = "abstain" if llm_conf < self.llm_threshold else "llm"
         if routed_to == "abstain":
             self.stats.abstained += 1
         else:
             self.stats.llm_escalated += 1
 
-        # Build unified return dict: LLM for binary+category (if available), ML for type
         llm_category = llm_result.get("label_category")
         return {
             "label_binary": llm_binary,
@@ -118,7 +142,43 @@ class HybridRouter:
             "confidence_category": ml_pred.get("confidence_label_category"),
             "confidence_type": ml_pred.get("confidence_label_type"),
             "routed_to": routed_to,
+            "route_reason": route_reason,
         }
+
+    def predict_single(self, text: str, ml_pred: dict) -> dict:
+        """
+        Route a single sample.
+
+        ml_pred should contain: pred_label_binary, confidence_label_binary, etc.
+        """
+        self.stats.total += 1
+
+        ml_conf = self._get_ml_binary_confidence(ml_pred)
+        ml_binary = ml_pred.get("pred_label_binary", "benign")
+        ml_binary_is_adv = _is_adversarial_label(ml_binary)
+
+        # ML benign is never trusted in fast path.
+        if not ml_binary_is_adv:
+            self._benign_escalations += 1
+            return self._route_via_llm(text, ml_pred, route_reason="ml_benign_escalate")
+
+        # Only high-confidence ML adversarial can be finalized by ML.
+        if ml_conf >= self.ml_threshold:
+            self._adv_high_conf_finalizations += 1
+            self.stats.ml_handled += 1
+            return {
+                "label_binary": ml_binary,
+                "label_category": ml_pred.get("pred_label_category", ml_binary),
+                "label_type": ml_pred.get("pred_label_type", ml_binary),
+                "confidence_binary": ml_conf,
+                "confidence_category": ml_pred.get("confidence_label_category"),
+                "confidence_type": ml_pred.get("confidence_label_type"),
+                "routed_to": "ml",
+                "route_reason": "ml_adv_high_conf_finalize",
+            }
+
+        self._adv_low_conf_escalations += 1
+        return self._route_via_llm(text, ml_pred, route_reason="ml_adv_low_conf_escalate")
 
     def predict_batch(
         self,
@@ -136,6 +196,14 @@ class HybridRouter:
             result = self.predict_single(row[text_col], ml_pred)
             results.append(result)
 
+        if self.stats.total > 0:
+            print(
+                "  [HybridRouter] route summary | "
+                f"ml_benign_escalate={self._benign_escalations} | "
+                f"ml_adv_high_conf_finalize={self._adv_high_conf_finalizations} | "
+                f"ml_adv_low_conf_escalate={self._adv_low_conf_escalations}"
+            )
+
         return results
 
 
@@ -152,17 +220,23 @@ def threshold_sweep(
     rows = []
 
     for thresh in thresholds:
-        ml_conf = ml_preds["confidence_label_binary"].values
+        conf_col = (
+            "confidence_label_binary_cal"
+            if "confidence_label_binary_cal" in ml_preds.columns
+            else "confidence_label_binary"
+        )
+        ml_conf = ml_preds[conf_col].values
         ml_pred_binary = ml_preds["pred_label_binary"].values
         y_true = df[text_col_binary].values
 
-        high_conf_mask = ml_conf >= thresh
-        n_ml = high_conf_mask.sum()
+        adv_pred_mask = np.array([_is_adversarial_label(v) for v in ml_pred_binary], dtype=bool)
+        ml_fastpath_mask = adv_pred_mask & (ml_conf >= thresh)
+        n_ml = ml_fastpath_mask.sum()
         n_llm = len(df) - n_ml
 
-        # ML accuracy on high-confidence subset
+        # ML accuracy on ML-fastpath subset
         if n_ml > 0:
-            ml_acc = (ml_pred_binary[high_conf_mask] == y_true[high_conf_mask]).mean()
+            ml_acc = (ml_pred_binary[ml_fastpath_mask] == y_true[ml_fastpath_mask]).mean()
         else:
             ml_acc = 0.0
 

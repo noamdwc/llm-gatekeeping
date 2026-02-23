@@ -57,10 +57,11 @@ class TestPredictSingle:
         return HybridRouter(ml_mock, llm_mock, sample_config)
 
     def test_high_ml_confidence_uses_ml(self, router):
-        """ML confidence >= threshold → ML result, routed_to='ml'."""
+        """High-confidence ML adversarial prediction uses ML fast path."""
         ml_pred = {
             "pred_label_binary": "adversarial",
             "confidence_label_binary": 0.95,
+            "confidence_label_binary_cal": 0.95,
             "pred_label_category": "unicode_attack",
             "confidence_label_category": 0.90,
             "pred_label_type": "Diacritcs",
@@ -69,13 +70,24 @@ class TestPredictSingle:
         result = router.predict_single("text", ml_pred)
 
         assert result["routed_to"] == "ml"
+        assert result["route_reason"] == "ml_adv_high_conf_finalize"
         assert result["label_binary"] == "adversarial"
         assert result["label_category"] == "unicode_attack"
         assert result["label_type"] == "Diacritcs"
         router.llm.predict.assert_not_called()
 
+    def test_adversarial_label_matching_is_case_insensitive(self, router):
+        """Adversarial label variants should still be treated as adversarial."""
+        ml_pred = {
+            "pred_label_binary": "AdVerSarial",
+            "confidence_label_binary": 0.95,
+        }
+        result = router.predict_single("text", ml_pred)
+        assert result["routed_to"] == "ml"
+        assert result["route_reason"] == "ml_adv_high_conf_finalize"
+
     def test_low_ml_confidence_escalates_to_llm(self, router):
-        """ML confidence < threshold → LLM called, routed_to='llm'."""
+        """Low-confidence ML adversarial prediction escalates to LLM."""
         ml_pred = {
             "pred_label_binary": "adversarial",
             "confidence_label_binary": 0.5,  # below 0.85 threshold
@@ -89,6 +101,7 @@ class TestPredictSingle:
         result = router.predict_single("text", ml_pred)
 
         assert result["routed_to"] == "llm"
+        assert result["route_reason"] == "ml_adv_low_conf_escalate"
         assert result["label_binary"] == "adversarial"
         assert result["label_category"] == "nlp_attack"  # LLM category preferred over ML's
         router.llm.predict.assert_called_once_with("text")
@@ -106,14 +119,38 @@ class TestPredictSingle:
 
         result = router.predict_single("text", ml_pred)
         assert result["routed_to"] == "abstain"
+        assert result["route_reason"] == "ml_adv_low_conf_escalate"
+
+    def test_benign_high_confidence_always_escalates(self, router):
+        """Benign predictions are never finalized by ML."""
+        ml_pred = {
+            "pred_label_binary": "benign",
+            "confidence_label_binary": 0.99,
+            "confidence_label_binary_cal": 0.99,
+        }
+        router.llm.predict.return_value = {
+            "label_binary": "benign",
+            "confidence": 0.92,
+        }
+
+        result = router.predict_single("text", ml_pred)
+
+        assert result["routed_to"] == "llm"
+        assert result["route_reason"] == "ml_benign_escalate"
+        router.llm.predict.assert_called_once_with("text")
 
     def test_stats_tracking(self, router):
         """Stats are incremented correctly for each routing path."""
-        # Route via ML
+        router.llm.predict.return_value = {
+            "label": "benign",
+            "confidence": 0.9,
+        }
+        # Benign prediction escalates to LLM
         router.predict_single("t1", {
             "pred_label_binary": "benign",
             "confidence_label_binary": 0.99,
         })
+
         # Route via LLM
         router.llm.predict.return_value = {
             "label": "adversarial",
@@ -125,17 +162,32 @@ class TestPredictSingle:
         })
 
         assert router.stats.total == 2
-        assert router.stats.ml_handled == 1
-        assert router.stats.llm_escalated == 1
+        assert router.stats.ml_handled == 0
+        assert router.stats.llm_escalated == 2
 
     def test_ml_confidence_at_threshold_uses_ml(self, router):
-        """ML confidence == threshold → uses ML (>= comparison)."""
+        """Adversarial confidence == threshold uses ML (>= comparison)."""
         ml_pred = {
-            "pred_label_binary": "benign",
+            "pred_label_binary": "adversarial",
             "confidence_label_binary": 0.85,  # exactly at threshold
         }
         result = router.predict_single("text", ml_pred)
         assert result["routed_to"] == "ml"
+
+    def test_router_prefers_calibrated_binary_confidence(self, router):
+        """Calibrated binary confidence should override raw confidence for routing."""
+        ml_pred = {
+            "pred_label_binary": "adversarial",
+            "confidence_label_binary": 0.99,
+            "confidence_label_binary_cal": 0.20,  # force escalation
+        }
+        router.llm.predict.return_value = {
+            "label_binary": "adversarial",
+            "confidence": 0.9,
+        }
+        result = router.predict_single("text", ml_pred)
+        assert result["routed_to"] == "llm"
+        assert result["route_reason"] == "ml_adv_low_conf_escalate"
 
 
 # ---------------------------------------------------------------------------
@@ -168,11 +220,11 @@ class TestThresholdSweep:
         assert expected == set(result.columns)
 
     def test_threshold_zero_all_ml(self, sweep_data):
-        """threshold=0.0 means all samples handled by ML."""
+        """threshold=0.0 still escalates benign predictions."""
         df, ml_preds = sweep_data
         result = threshold_sweep(df, ml_preds, [0.0])
-        assert result.iloc[0]["ml_handled"] == len(df)
-        assert result.iloc[0]["llm_escalated"] == 0
+        assert result.iloc[0]["ml_handled"] == 2
+        assert result.iloc[0]["llm_escalated"] == 2
 
     def test_threshold_one_all_llm(self, sweep_data):
         """threshold=1.0 (above all confidences) → all escalated to LLM."""
@@ -186,6 +238,16 @@ class TestThresholdSweep:
         df, ml_preds = sweep_data
         result = threshold_sweep(df, ml_preds, [0.90])
         row = result.iloc[0]
-        # Only 0.99 and 0.95 are >= 0.90
-        assert row["ml_handled"] == 2
-        assert row["llm_escalated"] == 2
+        # Only adversarial prediction 0.99 is eligible for ML fast path.
+        assert row["ml_handled"] == 1
+        assert row["llm_escalated"] == 3
+
+    def test_uses_calibrated_confidence_when_available(self, sweep_data):
+        """Threshold sweep should prefer calibrated confidence column when present."""
+        df, ml_preds = sweep_data
+        ml_preds = ml_preds.copy()
+        ml_preds["confidence_label_binary_cal"] = [0.2, 0.95, 0.99, 0.7]
+        result = threshold_sweep(df, ml_preds, [0.90])
+        row = result.iloc[0]
+        assert row["ml_handled"] == 1
+        assert row["llm_escalated"] == 3
