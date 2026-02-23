@@ -253,14 +253,6 @@ stages:
       hash: md5
       md5: ede8b6b60e1198ca71c90a78698261e3
       size: 803457
-    - path: reports/research/eval_report_hybrid.md
-      hash: md5
-      md5: da6d9779929134cf5c089f418a21e8e7
-      size: 1776
-    - path: reports/research/eval_report_ml.md
-      hash: md5
-      md5: d038729ba4a46e61b0361af3e067eda2
-      size: 1798
   research_external@deepset:
     cmd: python -m src.cli.research_external --dataset deepset
     deps:
@@ -314,10 +306,6 @@ stages:
       hash: md5
       md5: 51abbcb9175cda864b2e6eebb02387d9
       size: 54372
-    - path: reports/research_external/research_external_deepset.md
-      hash: md5
-      md5: 6db0d15cfb2fd4e022494eb714e73caf
-      size: 3763
   research_external@jackhhao:
     cmd: python -m src.cli.research_external --dataset jackhhao
     deps:
@@ -371,10 +359,6 @@ stages:
       hash: md5
       md5: 6833c0ea62671d579ef90d00d0e08b29
       size: 280536
-    - path: reports/research_external/research_external_jackhhao.md
-      hash: md5
-      md5: c7df94a6ae53161c072779193b060dcf
-      size: 4341
   research_external@safeguard:
     cmd: python -m src.cli.research_external --dataset safeguard
     deps:
@@ -428,10 +412,6 @@ stages:
       hash: md5
       md5: eb50c2848e3bac5325adb0b645f1ccf4
       size: 924896
-    - path: reports/research_external/research_external_safeguard.md
-      hash: md5
-      md5: dea6345774fe1913801674f0dbf63a6e
-      size: 4149
   research_external@spml:
     cmd: python -m src.cli.research_external --dataset spml
     deps:
@@ -485,10 +465,6 @@ stages:
       hash: md5
       md5: e6810c072ef620848395b15d2fc742e1
       size: 8848655
-    - path: reports/research_external/research_external_spml.md
-      hash: md5
-      md5: eba1dbd6a3cf77c2b734296ca38194ec
-      size: 4351
   inference_ml:
     cmd: python -m src.cli.infer_split --mode ml --split test --output reports/research/inference_ml_test.md
     deps:
@@ -525,3 +501,257 @@ stages:
       hash: md5
       md5: abddc834e350403854951d8e6ba1f0f8
       size: 2058
+  eval_new:
+    cmd: python -m src.cli.eval_new --split test --config configs/default.yaml --only-main
+    deps:
+    - path: data/processed/research/research_test.parquet
+      hash: md5
+      md5: ede8b6b60e1198ca71c90a78698261e3
+      size: 803457
+    - path: data/processed/research_external/
+      hash: md5
+      md5: bb5214776065fb28ca8f0c323cdfd697.dir
+      size: 10108459
+      nfiles: 4
+    - path: src/cli/eval_new.py
+      hash: md5
+      md5: e92662b34d3f4e3664f11df5a1365b64
+      size: 10824
+    - path: src/evaluate.py
+      hash: md5
+      md5: 688b4540f41e9c96963746d704c7ab5f
+      size: 12241
+    - path: src/research.py
+      hash: md5
+      md5: 0e4ae047d438af9fd70e3fd454e49fc7
+      size: 11992
+    - path: src/utils.py
+      hash: md5
+      md5: 82d7f957e271659a3b44e73381848f19
+      size: 1316
+    params:
+      configs/default.yaml:
+        external_datasets:
+          deepset:
+            name: deepset/prompt-injections
+            split: test
+            text_col: text
+            label_col: label
+            label_map:
+              1: adversarial
+              0: benign
+          jackhhao:
+            name: jackhhao/jailbreak-classification
+            split: test
+            text_col: prompt
+            label_col: type
+            label_map:
+              jailbreak: adversarial
+              benign: benign
+          safeguard:
+            name: xTRam1/safe-guard-prompt-injection
+            split: test
+            text_col: text
+            label_col: label
+            label_map:
+              1: adversarial
+              0: benign
+          spml:
+            name: reshabhs/SPML_Chatbot_Prompt_Injection
+            split: train
+            text_col: User Prompt
+            label_col: Prompt injection
+            label_map:
+              1: adversarial
+              0: benign
+        llm:
+          model: meta/llama-3.1-8b-instruct
+          model_quality: meta/llama-3.1-70b-instruct
+          temperature: 0
+          max_tokens_classifier: 200
+          max_tokens_judge: 500
+          judge_confidence_threshold: 0.7
+          few_shot:
+            unicode: 2
+            nlp: 5
+            include_hard_benign: false
+            embedding_model: nvidia/nv-embedqa-e5-v5
+            bank_size_per_type: 15
+            dynamic_k: 2
+    outs:
+    - path: reports/research/eval_report_hybrid.md
+      hash: md5
+      md5: da6d9779929134cf5c089f418a21e8e7
+      size: 1776
+    - path: reports/research/eval_report_llm.md
+      hash: md5
+      md5: 082b869bf95dea29dda8141a471d2a8b
+      size: 970
+    - path: reports/research/eval_report_ml.md
+      hash: md5
+      md5: d038729ba4a46e61b0361af3e067eda2
+      size: 1798
+    - path: reports/research/summary_report.md
+      hash: md5
+      md5: b831a73c7ce19aa2a18629ad222fe896
+      size: 1071
+  eval_new_external@deepset:
+    cmd: python -m src.cli.eval_new --config configs/default.yaml --only-external
+      --dataset deepset
+    deps:
+    - path: data/processed/research_external/research_external_deepset.parquet
+      hash: md5
+      md5: 51abbcb9175cda864b2e6eebb02387d9
+      size: 54372
+    - path: src/cli/eval_new.py
+      hash: md5
+      md5: e92662b34d3f4e3664f11df5a1365b64
+      size: 10824
+    - path: src/cli/research_external.py
+      hash: md5
+      md5: 07685730e704d770c9a0e6c1c66d2ddb
+      size: 16899
+    - path: src/evaluate.py
+      hash: md5
+      md5: 688b4540f41e9c96963746d704c7ab5f
+      size: 12241
+    - path: src/utils.py
+      hash: md5
+      md5: 82d7f957e271659a3b44e73381848f19
+      size: 1316
+    params:
+      configs/default.yaml:
+        external_datasets.deepset:
+          name: deepset/prompt-injections
+          split: test
+          text_col: text
+          label_col: label
+          label_map:
+            1: adversarial
+            0: benign
+        hybrid.ml_confidence_threshold: 0.85
+    outs:
+    - path: reports/research_external/research_external_deepset.md
+      hash: md5
+      md5: 6db0d15cfb2fd4e022494eb714e73caf
+      size: 3763
+  eval_new_external@jackhhao:
+    cmd: python -m src.cli.eval_new --config configs/default.yaml --only-external
+      --dataset jackhhao
+    deps:
+    - path: data/processed/research_external/research_external_jackhhao.parquet
+      hash: md5
+      md5: 6833c0ea62671d579ef90d00d0e08b29
+      size: 280536
+    - path: src/cli/eval_new.py
+      hash: md5
+      md5: e92662b34d3f4e3664f11df5a1365b64
+      size: 10824
+    - path: src/cli/research_external.py
+      hash: md5
+      md5: 07685730e704d770c9a0e6c1c66d2ddb
+      size: 16899
+    - path: src/evaluate.py
+      hash: md5
+      md5: 688b4540f41e9c96963746d704c7ab5f
+      size: 12241
+    - path: src/utils.py
+      hash: md5
+      md5: 82d7f957e271659a3b44e73381848f19
+      size: 1316
+    params:
+      configs/default.yaml:
+        external_datasets.jackhhao:
+          name: jackhhao/jailbreak-classification
+          split: test
+          text_col: prompt
+          label_col: type
+          label_map:
+            jailbreak: adversarial
+            benign: benign
+        hybrid.ml_confidence_threshold: 0.85
+    outs:
+    - path: reports/research_external/research_external_jackhhao.md
+      hash: md5
+      md5: c7df94a6ae53161c072779193b060dcf
+      size: 4341
+  eval_new_external@safeguard:
+    cmd: python -m src.cli.eval_new --config configs/default.yaml --only-external
+      --dataset safeguard
+    deps:
+    - path: data/processed/research_external/research_external_safeguard.parquet
+      hash: md5
+      md5: eb50c2848e3bac5325adb0b645f1ccf4
+      size: 924896
+    - path: src/cli/eval_new.py
+      hash: md5
+      md5: e92662b34d3f4e3664f11df5a1365b64
+      size: 10824
+    - path: src/cli/research_external.py
+      hash: md5
+      md5: 07685730e704d770c9a0e6c1c66d2ddb
+      size: 16899
+    - path: src/evaluate.py
+      hash: md5
+      md5: 688b4540f41e9c96963746d704c7ab5f
+      size: 12241
+    - path: src/utils.py
+      hash: md5
+      md5: 82d7f957e271659a3b44e73381848f19
+      size: 1316
+    params:
+      configs/default.yaml:
+        external_datasets.safeguard:
+          name: xTRam1/safe-guard-prompt-injection
+          split: test
+          text_col: text
+          label_col: label
+          label_map:
+            1: adversarial
+            0: benign
+        hybrid.ml_confidence_threshold: 0.85
+    outs:
+    - path: reports/research_external/research_external_safeguard.md
+      hash: md5
+      md5: dea6345774fe1913801674f0dbf63a6e
+      size: 4149
+  eval_new_external@spml:
+    cmd: python -m src.cli.eval_new --config configs/default.yaml --only-external
+      --dataset spml
+    deps:
+    - path: data/processed/research_external/research_external_spml.parquet
+      hash: md5
+      md5: e6810c072ef620848395b15d2fc742e1
+      size: 8848655
+    - path: src/cli/eval_new.py
+      hash: md5
+      md5: e92662b34d3f4e3664f11df5a1365b64
+      size: 10824
+    - path: src/cli/research_external.py
+      hash: md5
+      md5: 07685730e704d770c9a0e6c1c66d2ddb
+      size: 16899
+    - path: src/evaluate.py
+      hash: md5
+      md5: 688b4540f41e9c96963746d704c7ab5f
+      size: 12241
+    - path: src/utils.py
+      hash: md5
+      md5: 82d7f957e271659a3b44e73381848f19
+      size: 1316
+    params:
+      configs/default.yaml:
+        external_datasets.spml:
+          name: reshabhs/SPML_Chatbot_Prompt_Injection
+          split: train
+          text_col: User Prompt
+          label_col: Prompt injection
+          label_map:
+            1: adversarial
+            0: benign
+        hybrid.ml_confidence_threshold: 0.85
+    outs:
+    - path: reports/research_external/research_external_spml.md
+      hash: md5
+      md5: eba1dbd6a3cf77c2b734296ca38194ec
+      size: 4351

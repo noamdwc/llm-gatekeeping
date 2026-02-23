@@ -1,3 +1,6 @@
+vars:
+- configs/default.yaml
+
 stages:
   # ── Stage 1: Preprocess ──────────────────────────────────────────────────
   preprocess:
@@ -78,20 +81,12 @@ stages:
       - hybrid.ml_confidence_threshold
     outs:
     - data/processed/research/research_test.parquet
-    - reports/research/eval_report_ml.md:
-        cache: false
-    - reports/research/eval_report_hybrid.md:
-        cache: false
 
   # ── Stage 6: External Dataset Research (one stage per dataset) ───────────
   research_external:
-    foreach:
-    - deepset
-    - jackhhao
-    - safeguard
-    - spml
+    foreach: ${external_datasets}
     do:
-      cmd: python -m src.cli.research_external --dataset ${item}
+      cmd: python -m src.cli.research_external --dataset ${key}
       deps:
       - src/cli/research_external.py
       - src/eval_external.py
@@ -103,9 +98,50 @@ stages:
       - data/processed/splits/train.parquet
       params:
       - configs/default.yaml:
-        - external_datasets.${item}
+        - external_datasets.${key}
         - hybrid.ml_confidence_threshold
       outs:
-      - data/processed/research_external/research_external_${item}.parquet
-      - reports/research_external/research_external_${item}.md:
+      - data/processed/research_external/research_external_${key}.parquet
+
+  # ── Stage 7: Eval Reports (post-router-patch evaluation markdowns) ───────
+  eval_new:
+    cmd: python -m src.cli.eval_new --split test --config configs/default.yaml --only-main
+    deps:
+    - src/cli/eval_new.py
+    - src/research.py
+    - src/evaluate.py
+    - src/utils.py
+    - data/processed/research/research_test.parquet
+    - data/processed/research_external/
+    params:
+    - configs/default.yaml:
+      - llm
+      - external_datasets
+    outs:
+    - reports/research/eval_report_ml.md:
+        cache: false
+    - reports/research/eval_report_llm.md:
+        cache: false
+    - reports/research/eval_report_hybrid.md:
+        cache: false
+    - reports/research/summary_report.md:
+        cache: false
+
+  # ── Stage 8: External Eval Reports (dynamic foreach from config) ─────────
+  eval_new_external:
+    foreach: ${external_datasets}
+    do:
+      cmd: python -m src.cli.eval_new --config configs/default.yaml --only-external --dataset ${key}
+      deps:
+      - src/cli/eval_new.py
+      - src/cli/research_external.py
+      - src/evaluate.py
+      - src/utils.py
+      - data/processed/research_external/research_external_${key}.parquet
+      params:
+      - configs/default.yaml:
+        - external_datasets.${key}
+        - hybrid.ml_confidence_threshold
+      outs:
+      - reports/research_external/research_external_${key}.md:
           cache: false

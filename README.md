@@ -58,9 +58,10 @@ dvc repro
 #### DVC runbook (what runs, what gets recomputed)
 
 - **Stage graph**:
-  - `preprocess` → `build_splits` → `ml_model` → `research`
+  - `preprocess` → `build_splits` → `ml_model` → `research` → `eval_new`
   - `llm_classifier` is **frozen by default** (API cost); when unfrozen it produces `data/processed/predictions/llm_predictions_{split}.parquet` and `research` will include LLM metrics/report.
-  - `research_external@{dataset}` stages run via DVC `foreach` and are **independent** per dataset.
+  - `research_external@{dataset}` stages run via DVC `foreach`.
+  - `eval_new_external@{dataset}` is a dynamic `foreach` stage (from `external_datasets`) that writes external markdown reports.
 
 - **Run a single stage**:
 
@@ -68,11 +69,21 @@ dvc repro
 dvc repro ml_model
 dvc repro research
 dvc repro research_external@deepset
+dvc repro eval_new
+dvc repro eval_new_external@deepset
 ```
+
+`eval_new` writes:
+- `reports/research/eval_report_ml.md`
+- `reports/research/eval_report_llm.md`
+- `reports/research/eval_report_hybrid.md`
+- `reports/research/summary_report.md` (includes combined unseen-external progress metrics)
+
+`eval_new_external@{dataset}` writes:
+- `reports/research_external/research_external_<dataset>.md`
 
 - **Add a new external dataset (no recompute for existing ones)**:
   - Add the dataset config under `external_datasets` in `configs/default.yaml`
-  - Add the dataset key to the `foreach` list under `research_external` in `dvc.yaml`
   - Run:
 
 ```bash
@@ -85,7 +96,7 @@ dvc repro research_external@new_dataset
   - Changing `configs/default.yaml:dataset|labels|benign` → recomputes `preprocess` and everything downstream.
   - Changing `configs/default.yaml:splits|labels.held_out_attacks` → recomputes `build_splits` and everything downstream.
   - Changing `configs/default.yaml:ml` → recomputes `ml_model` and all downstream stages.
-  - Changing `configs/default.yaml:hybrid.ml_confidence_threshold` → recomputes `research` and all `research_external@{dataset}` stages, but **not** `ml_model`.
+  - Changing `configs/default.yaml:hybrid.ml_confidence_threshold` → recomputes `research`, all `research_external@{dataset}` stages, `eval_new`, and `eval_new_external@{dataset}`, but **not** `ml_model`.
   - Changing one external dataset config `external_datasets.<key>` → recomputes **only** `research_external@<key>`.
   - Adding a new dataset key → recomputes **only** the new `research_external@<key>` stage.
 
@@ -120,7 +131,10 @@ python -m src.llm_classifier.llm_classifier --split test --limit 100 --research
 # 5. Merge predictions + hybrid routing + reports (research stage)
 python -m src.research --split test
 
-# 6. Hybrid router evaluation (optional, API tokens)
+# 6. Generate tracked markdown evaluation reports (main + external)
+python -m src.cli.eval_new --split test --config configs/default.yaml
+
+# 7. Hybrid router evaluation (optional, API tokens)
 python -m src.hybrid_router --limit 100
 ```
 
