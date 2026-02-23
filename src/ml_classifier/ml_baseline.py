@@ -26,7 +26,8 @@ from sklearn.metrics import accuracy_score, classification_report, f1_score
 from sklearn.preprocessing import LabelEncoder
 from sklearn.base import BaseEstimator, ClassifierMixin
 
-from src.utils import ROOT, load_config, build_sample_id, SPLITS_DIR, MODELS_DIR, PREDICTIONS_DIR
+from src.utils import load_config, build_sample_id, SPLITS_DIR, MODELS_DIR, PREDICTIONS_DIR
+from src.llm_classifier.constants import NLP_TYPES
 from src.ml_classifier.utils import extract_features_df
 
 class MLBaseline(BaseEstimator, ClassifierMixin):
@@ -44,6 +45,38 @@ class MLBaseline(BaseEstimator, ClassifierMixin):
         self.models = {}  # keyed by level name
         self.label_encoders = {}
 
+    def _filter_char_attack_training_rows(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Keep only rows suitable for character/unicode ML training:
+        benign + non-NLP adversarial attacks (unicode/char perturbations).
+        NLP attack rows (semantic substitutions) are excluded.
+        """
+        total = len(df)
+
+        if "label_category" in df.columns:
+            mask = df["label_category"] != "nlp_attack"
+        elif "label_type" in df.columns:
+            # NLP attacks may appear as "nlp_attack" (collapsed) or original names
+            mask = (df["label_type"] != "nlp_attack") & ~df["label_type"].isin(NLP_TYPES)
+        else:
+            print(
+                f"  [ML training] WARNING: no label column found for NLP filtering; "
+                f"using all {total} rows (scope=all)"
+            )
+            return df
+
+        filtered = df[mask]
+        n_excluded = total - len(filtered)
+        n_benign = (filtered["label_binary"] == "benign").sum() if "label_binary" in filtered.columns else "?"
+
+        print(
+            f"  [ML training] scope=benign_plus_unicode_only | "
+            f"kept={len(filtered)}/{total} | "
+            f"excluded_nlp={n_excluded} | "
+            f"benign_in_train={n_benign}"
+        )
+        return filtered
+
     def _build_features(self, texts: pd.Series, fit: bool = False):
         """Combine TF-IDF + handcrafted features into a single matrix."""
         if fit:
@@ -58,6 +91,16 @@ class MLBaseline(BaseEstimator, ClassifierMixin):
 
     def fit(self, df_train: pd.DataFrame, text_col: str):
         """Train models for all three hierarchy levels."""
+        df_train = self._filter_char_attack_training_rows(df_train)
+
+        # Safety: binary model requires at least 2 classes
+        if "label_binary" in df_train.columns and df_train["label_binary"].nunique() < 2:
+            raise ValueError(
+                f"ML training data has only one binary class after NLP filtering "
+                f"({df_train['label_binary'].unique()}). "
+                "Ensure benign samples are present in the training split."
+            )
+
         X = self._build_features(df_train[text_col], fit=True)
 
         for level in ["label_binary", "label_category", "label_type"]:
@@ -137,16 +180,24 @@ class MLBaseline(BaseEstimator, ClassifierMixin):
 
 
 def evaluate_ml(model: MLBaseline, df: pd.DataFrame, text_col: str, split_name: str = "test"):
-    """Evaluate ML baseline and print results."""
-    preds = model.predict(df, text_col)
+    """Evaluate ML baseline on its domain (benign + unicode attacks)."""
+    # ML is a unicode specialist; exclude NLP attacks from evaluation
+    if "label_category" in df.columns:
+        df_eval = df[df["label_category"] != "nlp_attack"].copy()
+        n_excluded = len(df) - len(df_eval)
+    else:
+        df_eval = df
+        n_excluded = 0
+
+    preds = model.predict(df_eval, text_col)
 
     print(f"\n{'=' * 60}")
-    print(f"ML Baseline Results — {split_name}")
+    print(f"ML Baseline Results — {split_name}  [scope: benign + unicode, {n_excluded} NLP rows excluded]")
     print(f"{'=' * 60}")
 
     metrics = {}
     for level in ["label_binary", "label_category", "label_type"]:
-        y_true = df[level].values
+        y_true = df_eval[level].values
         y_pred = preds[f"pred_{level}"].values
         acc = accuracy_score(y_true, y_pred)
         f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)

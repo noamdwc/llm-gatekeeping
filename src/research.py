@@ -101,15 +101,23 @@ def build_research_dataframe(
 
 
 def generate_ml_report(research_df: pd.DataFrame, output_path: str):
-    """Generate ML-only evaluation report from the research DataFrame."""
-    binary = binary_metrics(research_df["label_binary"], research_df["ml_pred_binary"])
-    cat = category_metrics(research_df["label_category"], research_df["ml_pred_category"])
-    types = type_metrics(research_df["label_type"], research_df["ml_pred_type"])
+    """Generate ML-only evaluation report — evaluated on ML domain only (benign + unicode)."""
+    # ML is a unicode specialist; NLP attacks are intentionally deferred to LLM
+    df = research_df[research_df["label_category"] != "nlp_attack"].copy()
+    n_excluded = len(research_df) - len(df)
+
+    binary = binary_metrics(df["label_binary"], df["ml_pred_binary"])
+    cat = category_metrics(df["label_category"], df["ml_pred_category"])
+    types = type_metrics(df["label_type"], df["ml_pred_type"])
     cal = calibration_metrics(
-        research_df["label_binary"], research_df["ml_pred_binary"],
-        research_df["ml_conf_binary"],
+        df["label_binary"], df["ml_pred_binary"],
+        df["ml_conf_binary"],
     )
-    report = generate_report(research_df, binary, cat, types, cal,
+    usage = {
+        "eval_scope": "benign_plus_unicode_only",
+        "nlp_rows_excluded": n_excluded,
+    }
+    report = generate_report(df, binary, cat, types, cal, usage=usage,
                              title="ML Classifier Evaluation Report")
     with open(output_path, "w") as f:
         f.write(report)

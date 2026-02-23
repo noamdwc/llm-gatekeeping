@@ -1,0 +1,17 @@
+strict digraph  {
+"preprocess";
+"build_splits";
+"ml_model";
+"llm_classifier";
+"research";
+"research_external";
+"preprocess" -> "build_splits";
+"build_splits" -> "ml_model";
+"build_splits" -> "llm_classifier";
+"build_splits" -> "research";
+"build_splits" -> "research_external";
+"ml_model" -> "research";
+"ml_model" -> "research_external";
+"llm_classifier" -> "research";
+}
+
