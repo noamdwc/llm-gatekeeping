@@ -105,33 +105,38 @@ class ExemplarBank:
         df_train: pd.DataFrame,
         cfg: dict,
         show_progress: bool = True,
+        df_synthetic: pd.DataFrame | None = None,
     ) -> "ExemplarBank":
         """
         Build an exemplar bank from training data.
-        
+
         Args:
             df_train: Training DataFrame with text and label columns
             cfg: Config dict with dataset and llm.few_shot settings
             show_progress: Whether to show tqdm progress bar
-            
+            df_synthetic: Optional synthetic benign DataFrame. If provided,
+                a "hard_benign" slot is added to the bank using category C
+                and E prompts (15 samples). These are instruction-like benigns
+                that help the classifier avoid false positives on near-miss text.
+
         Returns:
             Populated ExemplarBank instance
         """
         bank = cls()
-        
+
         text_col = cfg["dataset"]["text_col"]
         label_col = cfg["dataset"]["label_col"]
-        
+
         # Get settings from config
         few_shot_cfg = cfg.get("llm", {}).get("few_shot", {})
         bank_size = few_shot_cfg.get("bank_size_per_type", 15)
         bank.embedding_model = few_shot_cfg.get("embedding_model", "nvidia/nv-embedqa-e5-v5")
-        
+
         # Combine unicode and nlp attack types
         all_types = cfg["labels"]["unicode_attacks"] + cfg["labels"]["nlp_attacks"]
-        
+
         iterator = tqdm(all_types, desc="Building exemplar bank") if show_progress else all_types
-        
+
         for attack_type in iterator:
             # Sample exemplars for this type
             pool = df_train.loc[df_train[label_col] == attack_type, text_col]
@@ -159,6 +164,20 @@ class ExemplarBank:
                 "texts": benign_samples,
                 "embeddings": benign_embeddings,
             }
+
+        # Optionally add hard benign slot from synthetic data (categories C + E)
+        if df_synthetic is not None and len(df_synthetic) > 0:
+            hard_pool = df_synthetic[
+                df_synthetic["synth_category"].isin(["C", "E"])
+            ]["modified_sample"]
+            n_hard = min(bank_size, len(hard_pool))
+            if n_hard > 0:
+                hard_samples = hard_pool.sample(n=n_hard, random_state=42).tolist()
+                hard_embeddings = get_embeddings(hard_samples, model=bank.embedding_model, input_type="passage")
+                bank.bank["hard_benign"] = {
+                    "texts": hard_samples,
+                    "embeddings": hard_embeddings,
+                }
 
         return bank
     
@@ -227,13 +246,35 @@ class ExemplarBank:
         """
         Select k pairs of (benign_text, attack_text, attack_type) for few-shot prompting.
 
-        Retrieves the k most similar benign examples and the k most similar attack
-        examples across all attack types (one per type), pairing a distinct benign
-        example with each attack example.
+        For each attack type in the bank, takes the single most similar exemplar to
+        the query, then ranks all candidates by similarity and returns the top k.
+        This avoids the bias of iterating attack types in definition order.
         """
-        benign_examples = self.select(query_embedding, "benign", k=k)
-        attack_examples = self.select_multi_type(query_embedding, ATTACK_TYPES, k_per_type=1)
-        attack_examples = attack_examples[:k]
+        # Prefer hard benigns (category C/E) if available; fall back to regular benigns
+        if "hard_benign" in self.bank:
+            hard_benign_examples = self.select(query_embedding, "hard_benign", k=1)
+            regular_benign_examples = self.select(query_embedding, "benign", k=k - 1)
+            benign_examples = hard_benign_examples + regular_benign_examples
+        else:
+            benign_examples = self.select(query_embedding, "benign", k=k)
+
+        # Collect the best (highest similarity) exemplar from each attack type
+        all_candidates = []
+        for attack_type, data in self.bank.items():
+            if attack_type in ("benign", "hard_benign"):
+                continue
+            sims = cosine_similarity(query_embedding, data["embeddings"])
+            best_idx = int(np.argmax(sims))
+            all_candidates.append({
+                "text": data["texts"][best_idx],
+                "label": attack_type,
+                "sim": float(sims[best_idx]),
+            })
+
+        # Rank all candidates by similarity, take top k
+        all_candidates.sort(key=lambda x: x["sim"], reverse=True)
+        attack_examples = all_candidates[:k]
+
         pairs = []
         for i, a in enumerate(attack_examples):
             if i < len(benign_examples):

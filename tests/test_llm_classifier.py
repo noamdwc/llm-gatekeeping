@@ -802,7 +802,7 @@ class TestFewShotMessages:
         assert adv_msgs[0]["evidence"] != ""
 
     def test_fixed_confidence_values(self, sample_config):
-        """Few-shot messages use fixed confidence values (0.90 benign, 0.88 adversarial)."""
+        """Few-shot messages use 0-100 scale confidence (90 benign, 88 adversarial) — Patch 2."""
         clf = _make_classifier(sample_config, few_shot=[
             ("hello world", "héllo wörld", "Diacritcs"),
         ])
@@ -810,8 +810,45 @@ class TestFewShotMessages:
         parsed = [json.loads(m["content"]) for m in messages if m["role"] == "assistant"]
         benign_conf = [p["confidence"] for p in parsed if p["label"] == "benign"]
         adv_conf = [p["confidence"] for p in parsed if p["label"] == "adversarial"]
-        assert all(c == 0.90 for c in benign_conf)
-        assert all(c == 0.88 for c in adv_conf)
+        assert all(c == 90 for c in benign_conf)
+        assert all(c == 88 for c in adv_conf)
+
+    def test_few_shot_confidence_scale_is_0_to_100(self, sample_config):
+        """All few-shot confidence values must be on 0-100 scale (> 1.0) — Patch 2."""
+        clf = _make_classifier(sample_config, few_shot=[
+            ("hello world", "héllo wörld", "Diacritcs"),
+            ("normal text", "greetings earth", "BAE"),
+        ])
+        messages = clf._build_few_shot_messages("test text")
+        for msg in messages:
+            if msg["role"] == "assistant":
+                parsed = json.loads(msg["content"])
+                assert parsed["confidence"] > 1.0, (
+                    f"Expected 0-100 scale confidence, got {parsed['confidence']}"
+                )
+
+    def test_few_shot_nlp_evidence_rule(self, sample_config):
+        """NLP attack few-shot examples have evidence=''; Unicode have non-empty evidence — Patch 1."""
+        clf = _make_classifier(sample_config, few_shot=[
+            ("normal text", "greetings earth", "BAE"),
+            ("hello world", "héllo wörld", "Diacritcs"),
+        ])
+        messages = clf._build_few_shot_messages("test text")
+        parsed_adv = [
+            json.loads(m["content"])
+            for m in messages
+            if m["role"] == "assistant" and json.loads(m["content"])["label"] == "adversarial"
+        ]
+        # Verify each adversarial example by nlp_attack_type field
+        for p in parsed_adv:
+            if p["nlp_attack_type"] in NLP_TYPES:
+                assert p["evidence"] == "", (
+                    f"NLP attack {p['nlp_attack_type']} should have empty evidence, got: {p['evidence']!r}"
+                )
+            else:
+                assert len(p["evidence"]) > 0, (
+                    f"Unicode attack should have non-empty evidence for type {p['nlp_attack_type']}"
+                )
 
     def test_improved_reason_strings(self, sample_config):
         """Few-shot reason strings are not the old generic placeholders."""

@@ -18,6 +18,7 @@ Definitions:
 Evidence gating (mandatory):
 - You may output label="adversarial" ONLY if you can copy an EXACT substring from INPUT_PROMPT (<=200 chars) that directly shows adversarial intent.
 - Evidence must be copied verbatim from INPUT_PROMPT (no paraphrasing). If you cannot copy an exact span, output label="uncertain".
+- Exception: For NLP text-perturbation attacks (BAE, Bert-Attack, Deep Word Bug, Alzantot, Pruthi, PWWS, TextBugger, TextFooler), the adversarial signal is statistical (token substitution), not a visible substring. In this case, set evidence="" and still label adversarial if you are confident the text is a perturbed adversarial prompt.
 
 NLP attack types:
 - Only set nlp_attack_type if the prompt is adversarial AND it matches one of:

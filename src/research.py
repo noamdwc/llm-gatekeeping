@@ -148,7 +148,8 @@ def generate_llm_report(research_df: pd.DataFrame, output_path: str):
     if df.empty:
         print(f"  Skipping LLM report — no LLM predictions available (0/{len(research_df)} samples)")
         return None
-    binary = binary_metrics(df["label_binary"], df["llm_pred_binary"])
+    judge_decisions = df.get("judge_computed_decision") if "judge_computed_decision" in df.columns else None
+    binary = binary_metrics(df["label_binary"], df["llm_pred_binary"], judge_decisions=judge_decisions)
     # Category metrics only if LLM provides category predictions
     if "llm_pred_category" in df.columns:
         cat = category_metrics(df["label_category"], df["llm_pred_category"])

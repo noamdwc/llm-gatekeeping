@@ -24,6 +24,20 @@ import wandb
 
 from src.llm_classifier.constants import NLP_TYPES
 from src.embeddings import ExemplarBank, get_embeddings
+
+# ---------------------------------------------------------------------------
+# Hard benign static examples (Patch 11)
+# These are instruction-like but genuinely benign prompts that help the LLM
+# avoid false positives on near-miss content (categories B, C, E).
+# ---------------------------------------------------------------------------
+_HARD_BENIGN_EXAMPLES = [
+    # Category C: security discussion (educational, no active attempt)
+    "What is prompt injection? Can you explain how it works conceptually?",
+    # Category E: contains "ignore" in a clearly benign everyday context
+    "I need to ignore the meeting agenda and focus on technical topics instead.",
+    # Category B: role-play framing with a benign task
+    "You are a helpful assistant. Please summarize the following research paper: [paper text here].",
+]
 from src.llm_classifier.utils import decide_accept_or_override
 from src.utils import load_config, build_sample_id, SPLITS_DIR, PREDICTIONS_DIR
 from src.llm_classifier.prompts import build_classifier_messages, build_judge_messages
@@ -154,7 +168,7 @@ class HierarchicalLLMClassifier:
             messages.append({
                 "role": "assistant", "content": json.dumps({
                     "label": 'benign',
-                    "confidence": 0.90,
+                    "confidence": 90,
                     "nlp_attack_type": 'none',
                     "evidence": "",
                     "reason": "No active attempt to override instructions, exfiltrate data, or hijack tools.",
@@ -172,7 +186,7 @@ class HierarchicalLLMClassifier:
             messages.append({
                 "role": "assistant", "content": json.dumps({
                     "label": 'adversarial',
-                    "confidence": 0.88,
+                    "confidence": 88,
                     "nlp_attack_type": attack_type if attack_type in NLP_TYPES else 'none',
                     "evidence": evidence,
                     "reason": adv_reason,
@@ -281,6 +295,8 @@ class HierarchicalLLMClassifier:
                 # Use independent_label from judge; preserve 3-way value
                 raw_label = judge_result.get("independent_label", clf_result["label"])
                 label = raw_label if raw_label in ("benign", "adversarial", "uncertain") else "adversarial"
+                # clf_result["confidence"] is already [0,1]; multiply by 100 so
+                # _normalize_confidence() divides it back to [0,1] as a safe fallback.
                 confidence = self._normalize_confidence(
                     judge_result.get("final_confidence", clf_result["confidence"] * 100)
                 )
@@ -356,12 +372,19 @@ class HierarchicalLLMClassifier:
 # Few-shot builder
 # ---------------------------------------------------------------------------
 def build_few_shot_examples(df: pd.DataFrame, cfg: dict) -> tuple[list[tuple[str, str, str]], list]:
-    """Build static few-shot examples as (benign_text, attack_text, attack_type) pairs."""
+    """Build static few-shot examples as (benign_text, attack_text, attack_type) pairs.
+
+    When cfg["llm"]["few_shot"]["include_hard_benign"] is True, prepends 3 extra
+    pairs where the benign_text is a hardcoded hard-benign example (instruction-like
+    but genuinely benign), paired with a randomly sampled attack text. This teaches
+    the LLM to correctly label near-miss benign content.
+    """
     text_col = cfg["dataset"]["text_col"]
     label_col = cfg["dataset"]["label_col"]
     n_unicode = cfg["llm"]["few_shot"]["unicode"]
     n_nlp = cfg["llm"]["few_shot"]["nlp"]
     unicode_set = set(cfg["labels"]["unicode_attacks"])
+    include_hard_benign = cfg.get("llm", {}).get("few_shot", {}).get("include_hard_benign", False)
 
     pairs = []
     used_ids = []
@@ -381,6 +404,17 @@ def build_few_shot_examples(df: pd.DataFrame, cfg: dict) -> tuple[list[tuple[str
         for attack_text in attack_samples.tolist():
             benign_text = rng.choice(benign_pool) if benign_pool else ""
             pairs.append((benign_text, attack_text, attack_type))
+
+    # Prepend hard-benign pairs when enabled (pairs hard benign text with sampled attack)
+    if include_hard_benign:
+        attack_pool = df.loc[df[label_col] != "benign"]
+        for i, hard_benign_text in enumerate(_HARD_BENIGN_EXAMPLES):
+            if len(attack_pool) > 0:
+                sample = attack_pool.sample(n=1, random_state=42 + i)
+                attack_text = sample[text_col].iloc[0]
+                attack_type = sample[label_col].iloc[0]
+                pairs.insert(i, (hard_benign_text, attack_text, attack_type))
+                used_ids.extend(sample.index.tolist())
 
     return pairs, used_ids
 

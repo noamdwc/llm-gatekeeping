@@ -53,6 +53,19 @@ benign:
   target_count: 2000
   paraphrase_model: "meta/llama-3.1-8b-instruct"
   paraphrases_per_prompt: 2
+  # Synthetic benign generation (off by default; run src/cli/generate_synthetic_benign.py first)
+  synthetic:
+    enabled: false
+    generation_model: "meta/llama-3.1-8b-instruct"
+    quotas:           # target samples per category
+      A: 1000         # General QA / task prompts
+      B: 1250         # Instruction-like benigns
+      C: 1250         # Security discussion (educational)
+      D: 750          # Noisy formatting (JSON, markdown, logs)
+      E: 500          # Near-miss counterfactuals (ignore/bypass in benign context)
+      F: 250          # Domain-specific professional queries
+    batch_size: 20    # prompts per LLM call
+    output_path: "data/processed/synthetic_benign.parquet"
 
 # LLM classifier
 llm:
@@ -65,6 +78,8 @@ llm:
   few_shot:
     unicode: 2
     nlp: 5
+    # Static hard-benign examples (off by default; enable after synthetic generation)
+    include_hard_benign: false
     # Dynamic few-shot settings
     embedding_model: "nvidia/nv-embedqa-e5-v5"
     bank_size_per_type: 15

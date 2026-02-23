@@ -73,11 +73,25 @@ def run_llm_full(
     rows = []
     for r in results:
         rows.append({
+            # Final prediction
             "llm_pred_binary": r["label_binary"],
             "llm_pred_raw": r["label"],
             "llm_pred_category": r["label_category"],
             "llm_conf_binary": r["confidence"],
+            "llm_evidence": r.get("evidence", ""),
             "llm_stages_run": r.get("llm_stages_run"),
+            # Classifier stage
+            "clf_label": r.get("clf_label"),
+            "clf_category": r.get("clf_category"),
+            "clf_confidence": r.get("clf_confidence"),
+            "clf_evidence": r.get("clf_evidence", ""),
+            "clf_nlp_attack_type": r.get("clf_nlp_attack_type", "none"),
+            # Judge stage (None if not run)
+            "judge_independent_label": r.get("judge_independent_label"),
+            "judge_category": r.get("judge_category"),
+            "judge_independent_confidence": r.get("judge_independent_confidence"),
+            "judge_independent_evidence": r.get("judge_independent_evidence"),
+            "judge_computed_decision": r.get("judge_computed_decision"),
         })
     result = pd.DataFrame(rows)
     result.insert(0, "sample_id", df[text_col].reset_index(drop=True).apply(build_sample_id))

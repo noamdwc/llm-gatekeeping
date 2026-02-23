@@ -33,6 +33,7 @@ def binary_metrics(
     y_true: pd.Series,
     y_pred: pd.Series,
     uncertain_policy: str = "adversarial",
+    judge_decisions: pd.Series | None = None,
 ) -> dict:
     """Compute binary detection metrics (adversarial vs benign).
 
@@ -42,6 +43,9 @@ def binary_metrics(
         uncertain_policy: How to handle "uncertain" predictions.
             "adversarial" (default): treat uncertain as adversarial (conservative).
             "exclude": exclude uncertain predictions from metric computation.
+        judge_decisions: Optional series of judge computed_decision values
+            ("accept_candidate" | "override_candidate"). Used to compute
+            judge_override_rate. Pass None (default) when LLM is not run.
     """
     y_pred = y_pred.copy()
     uncertain_rate = float((y_pred == "uncertain").mean()) if len(y_pred) > 0 else 0.0
@@ -65,6 +69,17 @@ def binary_metrics(
     if adv_mask.sum() > 0:
         fn_rate = (y_pred[adv_mask] == "benign").mean()
 
+    # Judge override rate: fraction of samples where the judge overrode the classifier.
+    # NaN when judge decisions are not available (LLM not run or judge not triggered).
+    if judge_decisions is not None and len(judge_decisions) > 0:
+        non_null = judge_decisions.dropna()
+        if len(non_null) > 0:
+            judge_override_rate = float((non_null == "override_candidate").sum() / len(y_true))
+        else:
+            judge_override_rate = float("nan")
+    else:
+        judge_override_rate = float("nan")
+
     return {
         "accuracy": acc,
         "adversarial_precision": p[0],
@@ -75,6 +90,7 @@ def binary_metrics(
         "benign_f1": f[1],
         "false_negative_rate": fn_rate,
         "uncertain_rate": uncertain_rate,
+        "judge_override_rate": judge_override_rate,
         "support_adversarial": int(adv_mask.sum()),
         "support_benign": int((~adv_mask).sum()),
     }
@@ -165,6 +181,8 @@ def generate_report(
     for k, v in binary.items():
         if k.startswith("support"):
             lines.append(f"| {k} | {v} |")
+        elif isinstance(v, float) and v != v:  # NaN check
+            lines.append(f"| {k} | N/A |")
         else:
             lines.append(f"| {k} | {v:.4f} |")
     lines.append("")

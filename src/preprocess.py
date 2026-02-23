@@ -71,9 +71,9 @@ def build_benign_set(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     """
     Construct benign examples from unique original prompts.
 
-    Uses de-duplicated original_prompt values. Augmentation with LLM
-    paraphrases is handled separately (requires API calls); here we
-    build the seed set and simple duplicates-based augmentation.
+    Uses de-duplicated original_prompt values as the seed set.
+    If benign.synthetic.enabled=True and synthetic_benign.parquet exists,
+    validated synthetic benigns are appended before any resampling.
     """
     orig_col = cfg["dataset"]["original_text_col"]
     text_col = cfg["dataset"]["text_col"]
@@ -90,12 +90,44 @@ def build_benign_set(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         "label_type": "benign",
     })
 
-    # Simple augmentation: sample with replacement up to target count
+    # Optionally integrate synthetic benigns
+    synth_cfg = cfg.get("benign", {}).get("synthetic", {})
+    if synth_cfg.get("enabled", False):
+        synth_path = Path(synth_cfg.get("output_path", "data/processed/synthetic_benign.parquet"))
+        if synth_path.exists():
+            df_synth = pd.read_parquet(synth_path)
+            # Only include validated synthetic samples
+            df_synth_valid = df_synth[df_synth["synth_validated"].astype(bool)].copy()
+            if len(df_synth_valid) > 0:
+                # Align columns: synthetic rows may have extra synth_* cols (kept as NaN in originals)
+                synth_rows = pd.DataFrame({
+                    text_col: df_synth_valid["modified_sample"].values,
+                    orig_col: df_synth_valid["original_sample"].values,
+                    cfg["dataset"]["label_col"]: "benign",
+                    "label_binary": "benign",
+                    "label_category": "benign",
+                    "label_type": "benign",
+                })
+                # Carry synthetic metadata columns
+                for col in df_synth_valid.columns:
+                    if col.startswith("synth_"):
+                        synth_rows[col] = df_synth_valid[col].values
+                # Deduplicate by prompt_hash before merging
+                existing_hashes = set(benign[text_col].apply(
+                    lambda t: hashlib.md5(str(t).strip().lower().encode()).hexdigest()[:12]
+                ))
+                new_hashes = df_synth_valid["prompt_hash"].tolist()
+                mask = [h not in existing_hashes for h in new_hashes]
+                synth_rows = synth_rows[mask].reset_index(drop=True)
+                benign = pd.concat([benign, synth_rows], ignore_index=True)
+                print(f"  Integrated {synth_rows.shape[0]} synthetic benign samples")
+        else:
+            print(f"  Warning: benign.synthetic.enabled=True but {synth_path} not found")
+
+    # Resample with replacement if still below target
     if len(benign) < target:
         extra_needed = target - len(benign)
         extras = benign.sample(n=extra_needed, replace=True, random_state=42).reset_index(drop=True)
-        # Add minor variation marker so they aren't exact dupes in features
-        extras = extras.copy()
         benign = pd.concat([benign, extras], ignore_index=True)
 
     return benign.head(target)
