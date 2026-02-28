@@ -1,71 +1,75 @@
 # Project Status — `llm-gatekeeping`
 
-Last updated: 2026-02-21
+Last updated: 2026-02-28
 
 ## Current state (what is functional today)
-Based on `dvc.yaml`, `src/`, and the existing `reports/` artifacts, the repo functions primarily as a **research + evaluation pipeline** for a hierarchical prompt-attack “gatekeeper”, with two supported run modes:
+The repo is functioning as a research/evaluation pipeline for hierarchical prompt-attack detection, with two supported run modes:
 
-- **Research (DVC)**: reproducible heavy run (`dvc repro`) producing research parquets + reports
-- **Inference (Bash)**: lightweight fast run (`./run_inference.sh`) producing only what’s needed + reports
+- **Research (DVC)**: reproducible pipeline with tracked research artifacts (`dvc repro`)
+- **Inference (Bash)**: targeted fast runs (`./run_inference.sh`)
 
-### Recent progress (this update)
-- **Pipeline organization**: outputs are now organized under `data/processed/{splits,models,predictions,research,research_external}/` and `reports/{research,research_external}/`.
-- **Research pipeline correctness**: `src.research` now **consumes precomputed** ML/LLM prediction parquets (no redundant recomputation).
-- **External datasets**: wired into DVC as `foreach` stages (`research_external@{dataset}`) so new datasets are **additive** and cached.
-- **Inference**: added `./run_inference.sh` for fast runs with arguments.
-- **Docs/tests**: README + STATUS updated; test suite passes end-to-end.
-
-### Implemented pipeline (DVC-backed)
+## Implemented pipeline (current DVC graph)
 | Capability | How to run | Outputs |
 |---|---|---|
 | **Preprocess Mindgard dataset + labels** | `python -m src.preprocess` | `data/processed/full_dataset.parquet` |
-| **Grouped splits + held-out generalization set** | `python -m src.build_splits` | `data/processed/splits/{train,val,test,test_unseen}.parquet` |
-| **ML baseline training (+ research predictions)** | `python -m src.ml_classifier.ml_baseline --research` | `data/processed/models/ml_baseline.pkl`, `data/processed/predictions/ml_predictions_*.parquet` |
-| **LLM classifier (classifier+judge, frozen by default)** | `python -m src.llm_classifier.llm_classifier --split test --limit 100 --research` | `data/processed/predictions/llm_predictions_test.parquet` |
-| **Research merge + hybrid routing + reports** | `python -m src.research --split test` | `data/processed/research/research_test.parquet`, `reports/research/eval_report_*.md` |
-| **External dataset eval (binary-only)** | `python -m src.eval_external --dataset <key> --mode ml|hybrid` | `reports/research_external/eval_external_<key>.md` |
-| **External dataset research (wide parquet + analysis)** | `python -m src.cli.research_external --dataset <key>` | `data/processed/research_external/research_external_<key>.parquet`, `reports/research_external/research_external_<key>.md` |
+| **Grouped splits + held-out generalization split** | `python -m src.build_splits` | `data/processed/splits/{train,val,test,test_unseen}.parquet` |
+| **ML baseline train + research predictions** | `python -m src.ml_classifier.ml_baseline --research --no-wandb` | `data/processed/models/ml_baseline.pkl`, `data/processed/predictions/ml_predictions_{val,test,test_unseen}.parquet` |
+| **LLM classifier (classifier+judge, frozen by default)** | `python -m src.llm_classifier.llm_classifier --split test --research --no-wandb` | `data/processed/predictions/llm_predictions_test.parquet` |
+| **Research merge + hybrid routing** | `python -m src.research --split test` | `data/processed/research/research_test.parquet` |
+| **Main eval markdowns** | `python -m src.cli.eval_new --split test --only-main` | `reports/research/eval_report_{ml,llm,hybrid}.md`, `reports/research/summary_report.md` |
+| **External per-dataset research parquet** | `python -m src.cli.research_external --dataset <key>` | `data/processed/research_external/research_external_<key>.parquet` |
+| **External per-dataset markdowns (from research parquets)** | `python -m src.cli.eval_new --only-external --dataset <key>` | `reports/research_external/research_external_<key>.md` |
 
-### External datasets are additive (DVC foreach + caching)
-- External dataset research runs as independent DVC stages (e.g. `research_external@deepset`) via `foreach` in `dvc.yaml`.
-- Adding a new dataset (new key in `configs/default.yaml` + add to `dvc.yaml` foreach list) means `dvc repro` computes **only the new dataset stage**; existing datasets remain cached and are not recomputed.
+## External datasets and caching behavior
+- DVC stages are dynamic via `foreach: ${external_datasets}` for both `research_external` and `eval_new_external`.
+- Adding a dataset under `external_datasets` in `configs/default.yaml` allows running only new dataset stages (existing stage outputs remain cached unless dependencies/params changed).
 
-### What the repo demonstrably produces (via `reports/`)
-| Mode | In-repo test metrics (sampled) | Notes |
-|---|---|---|
-| **LLM-only** | Binary accuracy **0.69**, false-negative rate **0.2235** | LLM binary gate is weak (misses unicode/invisible-char attacks) |
-| **Hybrid (default thresholds)** | Binary accuracy **0.79**, false-negative rate **0.0941**; category accuracy **0.9610**; unicode type accuracy **1.00** | Also reduces calls: **75 LLM calls / 100 samples** (in report) |
+## Current metrics (from tracked report artifacts)
+Source: `reports/research/summary_report.md` and `reports/research/eval_report_*.md`.
 
-## Completed vs pending (per `project_plan.md` vs repo state)
-| Roadmap item (`project_plan.md`) | Status | Evidence |
+| Mode | Rows | Accuracy | Adv F1 | Benign F1 | FNR | Notes |
+|---|---:|---:|---:|---:|---:|---|
+| **ML (unicode scope)** | 996 | 0.9829 | 0.9905 | 0.9128 | 0.0133 | Evaluated on benign + unicode scope (NLP excluded) |
+| **Hybrid** | 1690 | 0.6213 | 0.7506 | 0.2138 | 0.3966 | Routing: `ml=1643`, `llm=47` |
+| **LLM** | 100 | 0.7500 | 0.8408 | 0.4186 | 0.2584 | Subsampled LLM coverage in this artifact |
+
+External combined (ML on current research parquets): **accuracy 0.1556**, **FNR 0.9482**, **benign F1 0.2182**.
+
+## Completed vs pending (against `project_plan.md`)
+| Roadmap item | Status | Evidence |
 |---|---:|---|
-| **Step 1 — Benign set + proper splits** | ✅ Completed | `src/preprocess.py`, `src/build_splits.py`, `dvc.yaml` stages + generated parquet outputs |
-| **Step 2 — Hierarchical LLM classifier** | ✅ Completed | `src/llm_classifier/llm_classifier.py`, `reports/research/eval_report_llm.md` (when LLM stage is run) |
+| **Step 1 — Benign set + proper splits** | ✅ Completed | `src/preprocess.py`, `src/build_splits.py`, DVC stages + split outputs |
+| **Step 2 — Hierarchical LLM classifier** | ✅ Completed | `src/llm_classifier/llm_classifier.py`, `reports/research/eval_report_llm.md` |
 | **Step 3 — ML baseline + hybrid router** | ✅ Completed | `src/ml_classifier/ml_baseline.py`, `src/hybrid_router.py`, `reports/research/eval_report_hybrid.md` |
-| **Step 4 — Dynamic few-shot + error analysis** | 🟡 Partially complete | Dynamic few-shot is implemented (`--dynamic`, exemplar bank in `src/embeddings.py`), but a dedicated consolidated `reports/error_analysis.md` deliverable is not present |
-| **Step 5 — Reporting + polish** | 🟡 Partially complete | Reporting and run commands are now more consistent (DVC + inference script + organized outputs), but additional polish (smoke tests / notebooks alignment) remains |
+| **Step 4 — Dynamic few-shot + error analysis** | 🟡 Partially complete | `--dynamic` + exemplar bank implemented (`src/embeddings.py`), but no consolidated `reports/error_analysis.md` |
+| **Step 5 — Reporting + polish** | 🟡 Partially complete | Eval report flow is standardized via `src.cli.eval_new`; polish gaps remain |
 
-## Known blockers / gaps (repo-derived)
-### Productization gaps (not implemented)
-- **No production service integration**: There is no HTTP API/middleware, policy engine (block/warn/allow), audit logging, or human review workflow beyond the `abstain` label.
-- **Data governance constraints unspecified**: Not defined whether prompts may be sent to third-party LLMs (OpenAI) or stored.
+## Known blockers / gaps
+### Productization gaps
+- No production HTTP/API integration, policy engine (block/warn/allow), audit trail, or human-review workflow beyond `abstain`.
+- Data governance constraints are not encoded (for example retention/logging policy for prompts sent to third-party providers such as NVIDIA NIM).
 
-### Technical gaps impacting correctness/generalization
-- **Cross-dataset generalization is currently poor** (binary-only external evals):
-  - `reports/research_external/eval_external_deepset.md`: benign F1 **0.0** (massive false positives).
-  - `reports/research_external/eval_external_jackhhao.md`: false-negative rate **~0.50** (many attacks missed).
-  - `reports/research_external/eval_external_spml.md` / `reports/research_external/eval_external_safeguard.md`: low overall accuracy with severe calibration issues.
-- **Confidence calibration instability** on external datasets (high-confidence bins with low accuracy).
-- **Benign distribution mismatch**: benign generation is topic-taxonomy based; external benign prompts don’t match training distribution, leading to false positives.
+### Technical gaps affecting generalization
+- Cross-dataset performance remains poor on current external artifacts:
+  - `deepset`: accuracy **0.4483**, FNR **0.2500**
+  - `jackhhao`: accuracy **0.2634**, FNR **0.9496**
+  - `safeguard`: accuracy **0.3553**, FNR **0.9676**
+  - `spml`: accuracy **0.1260**, FNR **0.9506**
+- Calibration is unstable on external data (high-confidence bins with low realized accuracy in multiple reports).
+- Benign distribution mismatch is still a likely driver of false positives/false negatives out of distribution.
 
-### Repo consistency / operability issues
-- **Pipeline “how-to” still requires discipline**: There are now canonical commands (`dvc repro`, `./run_llm.sh`, `./run_inference.sh`), but notebooks and ad-hoc scripts may still diverge. Prefer the DVC pipeline for reproducible research outputs.
+### Operability notes
+- Canonical reproducible path: DVC stages + report generation via `src.cli.eval_new`.
+- Legacy reports exist at repo root from older runs; prefer `reports/research/` and `reports/research_external/` as current outputs.
 
-## Next steps (next sprint: concrete technical tasks)
+## Verification snapshot
+- `pytest -q`: **300 passed** (latest local run).
+
+## Next steps
 | Priority | Task | Outcome |
 |---:|---|---|
-| P0 | Add a lightweight **smoke test suite** for key CLIs (no network) | Prevent regressions (imports, file outputs, schema) |
-| P1 | Improve **benign realism / diversity** (generation prompts, held-out topics, add non-LLM benign sources) | Reduce false positives; raise benign F1 |
-| P1 | Add **calibration + threshold tuning** for routing and decisioning | More reliable `confidence_*` and better routing behavior |
-| P1 | Build an **error analysis report** artifact (per plan Step 4) | Consolidated failure modes + targeted fixes |
-| P2 | Investigate **domain adaptation** (train/fine-tune on external datasets, or multi-source training) | Better cross-dataset generalization |
+| P0 | Build a consolidated `reports/error_analysis.md` from current artifacts | Sharper failure-mode targeting |
+| P1 | Improve benign realism/diversity (including non-LLM benign sources) | Better external benign recall and calibration |
+| P1 | Re-tune routing and confidence calibration using current specialist policy | Recover hybrid FNR/accuracy trade-off |
+| P1 | Expand CLI smoke tests for end-to-end command contracts | Prevent pipeline/report regressions |
+| P2 | Explore domain adaptation / multi-source training for external datasets | Improve cross-dataset robustness |
