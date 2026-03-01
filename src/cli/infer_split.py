@@ -80,18 +80,19 @@ def format_scope_breakdown_markdown(scope_breakdown: dict[str, dict]) -> str:
     lines = [
         "## Scope Breakdown",
         "",
-        "| Scope | Rows | Accuracy | False-negative rate |",
-        "|-------|------|----------|---------------------|",
+        "| Scope | Rows | Accuracy | False-positive rate | False-negative rate |",
+        "|-------|------|----------|---------------------|---------------------|",
     ]
     for scope in ["full", "ml_scope_no_nlp", "nlp_only"]:
         entry = scope_breakdown[scope]
         rows = entry["rows"]
         if entry["binary"] is None:
-            lines.append(f"| {scope} | {rows} | N/A | N/A |")
+            lines.append(f"| {scope} | {rows} | N/A | N/A | N/A |")
             continue
         acc = entry["binary"]["accuracy"]
+        fpr = entry["binary"]["false_positive_rate"]
         fnr = entry["binary"]["false_negative_rate"]
-        lines.append(f"| {scope} | {rows} | {acc:.4f} | {fnr:.4f} |")
+        lines.append(f"| {scope} | {rows} | {acc:.4f} | {fpr:.4f} | {fnr:.4f} |")
 
     lines.extend([
         "",
@@ -154,12 +155,17 @@ def main():
     for scope in ["full", "ml_scope_no_nlp", "nlp_only"]:
         entry = scope_breakdown[scope]
         if entry["binary"] is None:
-            print(f"  {scope}: rows={entry['rows']} | accuracy=N/A | false_negative_rate=N/A")
+            print(
+                f"  {scope}: rows={entry['rows']} | "
+                "accuracy=N/A | false_positive_rate=N/A | false_negative_rate=N/A"
+            )
             continue
         b = entry["binary"]
         print(
             f"  {scope}: rows={entry['rows']} | "
-            f"accuracy={b['accuracy']:.4f} | false_negative_rate={b['false_negative_rate']:.4f}"
+            f"accuracy={b['accuracy']:.4f} | "
+            f"false_positive_rate={b['false_positive_rate']:.4f} | "
+            f"false_negative_rate={b['false_negative_rate']:.4f}"
         )
 
 

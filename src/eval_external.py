@@ -225,6 +225,7 @@ def run_single_dataset(
     print(f"  Accuracy:           {binary['accuracy']:.4f}")
     print(f"  Adversarial F1:     {binary['adversarial_f1']:.4f}")
     print(f"  Benign F1:          {binary['benign_f1']:.4f}")
+    print(f"  False-positive rate: {binary['false_positive_rate']:.4f}")
     print(f"  False-negative rate: {binary['false_negative_rate']:.4f}")
 
     # Save report
@@ -289,12 +290,14 @@ def main():
         print(f"\n{'=' * 60}")
         print("Cross-dataset comparison")
         print(f"{'=' * 60}")
-        header = f"{'Dataset':<15} {'Accuracy':>10} {'Adv F1':>10} {'FNR':>10}"
+        header = f"{'Dataset':<15} {'Accuracy':>10} {'Adv F1':>10} {'FPR':>10} {'FNR':>10}"
         print(header)
         print("-" * len(header))
         for name, b in all_results.items():
-            print(f"{name:<15} {b['accuracy']:>10.4f} {b['adversarial_f1']:>10.4f} "
-                  f"{b['false_negative_rate']:>10.4f}")
+            print(
+                f"{name:<15} {b['accuracy']:>10.4f} {b['adversarial_f1']:>10.4f} "
+                f"{b['false_positive_rate']:>10.4f} {b['false_negative_rate']:>10.4f}"
+            )
 
 
 if __name__ == "__main__":

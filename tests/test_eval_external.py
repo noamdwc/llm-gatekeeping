@@ -177,6 +177,7 @@ class TestGenerateBinaryReport:
             "benign_precision": 0.95,
             "benign_recall": 0.91,
             "benign_f1": 0.93,
+            "false_positive_rate": 0.09,
             "false_negative_rate": 0.1,
             "support_adversarial": 50,
             "support_benign": 50,
@@ -189,6 +190,7 @@ class TestGenerateBinaryReport:
         assert "deepset/prompt-injections" in report
         assert "Binary Detection" in report
         assert "0.9000" in report  # accuracy formatted
+        assert "false_positive_rate" in report
 
     def test_report_includes_router_stats(self):
         binary = {
@@ -199,6 +201,7 @@ class TestGenerateBinaryReport:
             "benign_precision": 0.8,
             "benign_recall": 0.8,
             "benign_f1": 0.8,
+            "false_positive_rate": 0.2,
             "false_negative_rate": 0.2,
             "support_adversarial": 40,
             "support_benign": 60,

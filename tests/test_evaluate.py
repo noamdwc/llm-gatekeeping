@@ -28,6 +28,7 @@ class TestBinaryMetrics:
         assert m["accuracy"] == 1.0
         assert m["adversarial_f1"] == 1.0
         assert m["benign_f1"] == 1.0
+        assert m["false_positive_rate"] == 0.0
         assert m["false_negative_rate"] == 0.0
 
     def test_all_wrong(self):
@@ -45,6 +46,15 @@ class TestBinaryMetrics:
 
         m = binary_metrics(y_true, y_pred)
         assert abs(m["false_negative_rate"] - 2 / 3) < 1e-9
+        assert m["false_positive_rate"] == 0.0
+
+    def test_false_positive_rate(self):
+        """FPR = fraction of benign samples predicted adversarial."""
+        y_true = pd.Series(["adversarial", "benign", "benign", "benign"])
+        y_pred = pd.Series(["adversarial", "adversarial", "benign", "adversarial"])
+
+        m = binary_metrics(y_true, y_pred)
+        assert abs(m["false_positive_rate"] - 2 / 3) < 1e-9
 
     def test_support_counts(self):
         """Support counts match actual class distribution."""
@@ -61,6 +71,7 @@ class TestBinaryMetrics:
         y_pred = pd.Series(["benign", "benign"])
 
         m = binary_metrics(y_true, y_pred)
+        assert m["false_positive_rate"] == 0.0
         assert m["false_negative_rate"] == 0.0
 
 
@@ -201,7 +212,7 @@ class TestGenerateReport:
             "accuracy": 0.9, "adversarial_precision": 0.8,
             "adversarial_recall": 0.85, "adversarial_f1": 0.82,
             "benign_precision": 0.95, "benign_recall": 0.9,
-            "benign_f1": 0.92, "false_negative_rate": 0.15,
+            "benign_f1": 0.92, "false_positive_rate": 0.05, "false_negative_rate": 0.15,
             "support_adversarial": 100, "support_benign": 100,
         }
         category = {"category_accuracy": 0.88, "category_f1_macro": 0.87}

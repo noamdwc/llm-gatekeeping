@@ -2,7 +2,7 @@
 Evaluation framework for the hierarchical classifier.
 
 Computes metrics at each hierarchy level:
-  - Binary: precision, recall, F1 (focus on false-negative rate)
+  - Binary: precision, recall, F1, false-positive rate, false-negative rate
   - Category: accuracy, confusion matrix
   - Per-type: macro F1, per-class breakdown (unicode types only)
   - Calibration: confidence vs accuracy buckets
@@ -69,6 +69,12 @@ def binary_metrics(
     if adv_mask.sum() > 0:
         fn_rate = (y_pred[adv_mask] == "benign").mean()
 
+    # False-positive rate: benign samples predicted as adversarial
+    ben_mask = y_true == "benign"
+    fp_rate = 0.0
+    if ben_mask.sum() > 0:
+        fp_rate = (y_pred[ben_mask] == "adversarial").mean()
+
     # Judge override rate: fraction of samples where the judge overrode the classifier.
     # NaN when judge decisions are not available (LLM not run or judge not triggered).
     if judge_decisions is not None and len(judge_decisions) > 0:
@@ -88,11 +94,12 @@ def binary_metrics(
         "benign_precision": p[1],
         "benign_recall": r[1],
         "benign_f1": f[1],
+        "false_positive_rate": fp_rate,
         "false_negative_rate": fn_rate,
         "uncertain_rate": uncertain_rate,
         "judge_override_rate": judge_override_rate,
         "support_adversarial": int(adv_mask.sum()),
-        "support_benign": int((~adv_mask).sum()),
+        "support_benign": int(ben_mask.sum()),
     }
 
 

@@ -29,6 +29,9 @@ class TestScopeBreakdown:
         assert breakdown["ml_scope_no_nlp"]["binary"]["accuracy"] == 1.0
         assert breakdown["nlp_only"]["binary"]["accuracy"] == 0.0
 
+        assert breakdown["full"]["binary"]["false_positive_rate"] == 0.0
+        assert breakdown["ml_scope_no_nlp"]["binary"]["false_positive_rate"] == 0.0
+        assert breakdown["nlp_only"]["binary"]["false_positive_rate"] == 0.0
         assert breakdown["full"]["binary"]["false_negative_rate"] == 2 / 3
         assert breakdown["ml_scope_no_nlp"]["binary"]["false_negative_rate"] == 0.0
         assert breakdown["nlp_only"]["binary"]["false_negative_rate"] == 1.0
@@ -55,14 +58,23 @@ class TestScopeBreakdown:
 
     def test_scope_breakdown_markdown_format(self):
         breakdown = {
-            "full": {"rows": 4, "binary": {"accuracy": 0.5, "false_negative_rate": 2 / 3}},
-            "ml_scope_no_nlp": {"rows": 2, "binary": {"accuracy": 1.0, "false_negative_rate": 0.0}},
-            "nlp_only": {"rows": 2, "binary": {"accuracy": 0.0, "false_negative_rate": 1.0}},
+            "full": {
+                "rows": 4,
+                "binary": {"accuracy": 0.5, "false_positive_rate": 0.0, "false_negative_rate": 2 / 3},
+            },
+            "ml_scope_no_nlp": {
+                "rows": 2,
+                "binary": {"accuracy": 1.0, "false_positive_rate": 0.0, "false_negative_rate": 0.0},
+            },
+            "nlp_only": {
+                "rows": 2,
+                "binary": {"accuracy": 0.0, "false_positive_rate": 0.0, "false_negative_rate": 1.0},
+            },
         }
 
         md = format_scope_breakdown_markdown(breakdown)
 
         assert "## Scope Breakdown" in md
-        assert "| full | 4 | 0.5000 | 0.6667 |" in md
-        assert "| ml_scope_no_nlp | 2 | 1.0000 | 0.0000 |" in md
-        assert "| nlp_only | 2 | 0.0000 | 1.0000 |" in md
+        assert "| full | 4 | 0.5000 | 0.0000 | 0.6667 |" in md
+        assert "| ml_scope_no_nlp | 2 | 1.0000 | 0.0000 | 0.0000 |" in md
+        assert "| nlp_only | 2 | 0.0000 | 0.0000 | 1.0000 |" in md
