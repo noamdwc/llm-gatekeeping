@@ -82,11 +82,30 @@ stages:
     outs:
     - data/processed/research/research_test.parquet
 
-  # ── Stage 6: External Dataset Research (one stage per dataset) ───────────
+  # ── Stage 6: External LLM Predictions (one stage per dataset) ────────────
+  research_external_llm:
+    foreach: ${external_datasets}
+    do:
+      cmd: python -m src.cli.research_external --dataset ${key} --mode llm --llm-predictions-path data/processed/predictions_external/llm_predictions_external_${key}.parquet
+      deps:
+      - src/cli/research_external.py
+      - src/eval_external.py
+      - src/embeddings.py
+      - src/llm_classifier/
+      - src/utils.py
+      - data/processed/splits/train.parquet
+      params:
+      - configs/default.yaml:
+        - external_datasets.${key}
+        - llm
+      outs:
+      - data/processed/predictions_external/llm_predictions_external_${key}.parquet
+
+  # ── Stage 7: External Dataset Research (strict hybrid; one stage per dataset) ───────────
   research_external:
     foreach: ${external_datasets}
     do:
-      cmd: python -m src.cli.research_external --dataset ${key}
+      cmd: python -m src.cli.research_external --dataset ${key} --mode hybrid --llm-predictions-path data/processed/predictions_external/llm_predictions_external_${key}.parquet
       deps:
       - src/cli/research_external.py
       - src/eval_external.py
@@ -96,6 +115,7 @@ stages:
       - src/utils.py
       - data/processed/models/ml_baseline.pkl
       - data/processed/splits/train.parquet
+      - data/processed/predictions_external/llm_predictions_external_${key}.parquet
       params:
       - configs/default.yaml:
         - external_datasets.${key}
@@ -103,7 +123,7 @@ stages:
       outs:
       - data/processed/research_external/research_external_${key}.parquet
 
-  # ── Stage 7: Eval Reports (post-router-patch evaluation markdowns) ───────
+  # ── Stage 8: Eval Reports (post-router-patch evaluation markdowns) ───────
   eval_new:
     cmd: python -m src.cli.eval_new --split test --config configs/default.yaml --only-main
     deps:
@@ -127,7 +147,7 @@ stages:
     - reports/research/summary_report.md:
         cache: false
 
-  # ── Stage 8: External Eval Reports (dynamic foreach from config) ─────────
+  # ── Stage 9: External Eval Reports (dynamic foreach from config) ─────────
   eval_new_external:
     foreach: ${external_datasets}
     do:
