@@ -9,6 +9,7 @@ from src.ml_classifier.ml_baseline import MLBaseline
 from src.research import (
     compute_hybrid_routing,
     build_research_dataframe,
+    generate_hybrid_report,
 )
 from src.utils import build_sample_id
 
@@ -225,6 +226,19 @@ class TestComputeHybridRouting:
         result = compute_hybrid_routing(ml_df, llm_df, threshold=0.85)
         assert list(result["hybrid_routed_to"]) == ["ml", "llm", "ml", "llm"]
 
+    def test_uses_calibrated_confidence_when_available(self):
+        """Calibrated confidence should drive routing when present."""
+        ml_df = self._make_ml_df([0.99, 0.99])
+        ml_df["ml_conf_binary_cal"] = [0.20, 0.95]
+        llm_df = self._make_llm_df(2)
+
+        result = compute_hybrid_routing(ml_df, llm_df, threshold=0.85)
+
+        # row0 raw=0.99 would be ML, but calibrated=0.20 forces escalation
+        assert result.iloc[0]["hybrid_routed_to"] == "llm"
+        # row1 remains confident adversarial and stays ML
+        assert result.iloc[1]["hybrid_routed_to"] == "ml"
+
     def test_skip_llm_fallback(self):
         """When LLM is None, escalated samples fall back to ML predictions."""
         ml_df = self._make_ml_df([0.50])
@@ -271,6 +285,49 @@ class TestComputeHybridRouting:
         result = compute_hybrid_routing(ml_df, llm_df, threshold=0.85)
         assert (result["hybrid_routed_to"] == "llm").all()
         assert list(result["hybrid_pred_binary"]) == ["adversarial", "adversarial"]
+
+    def test_non_adversarial_alias_always_escalates_when_llm_available(self):
+        """Any non-adversarial ML label should escalate to LLM."""
+        ml_df = self._make_ml_df([0.99], preds_binary=["uncertain"])
+        llm_df = self._make_llm_df(1)
+        result = compute_hybrid_routing(ml_df, llm_df, threshold=0.85)
+        assert result.iloc[0]["hybrid_routed_to"] == "llm"
+
+    def test_strict_mode_requires_llm_df(self):
+        """Strict hybrid mode should fail when llm_df is missing."""
+        ml_df = self._make_ml_df([0.50])
+        with pytest.raises(RuntimeError, match="requires LLM predictions"):
+            compute_hybrid_routing(
+                ml_df,
+                None,
+                threshold=0.85,
+                require_llm_for_escalations=True,
+                llm_required_path="data/processed/predictions_external/llm.parquet",
+            )
+
+    def test_strict_mode_requires_non_empty_llm_df(self):
+        """Strict hybrid mode should fail when llm_df is empty."""
+        ml_df = self._make_ml_df([0.50])
+        llm_df = pd.DataFrame(columns=["sample_id", "llm_pred_binary"])
+        with pytest.raises(RuntimeError, match="non-empty LLM predictions"):
+            compute_hybrid_routing(
+                ml_df,
+                llm_df,
+                threshold=0.85,
+                require_llm_for_escalations=True,
+            )
+
+    def test_strict_mode_requires_llm_coverage_for_escalations(self):
+        """Strict hybrid mode should fail when escalated rows are missing in llm_df."""
+        ml_df = self._make_ml_df([0.95, 0.50, 0.40, 0.30])
+        llm_df = self._make_llm_df(3)  # sample_3 missing while escalated
+        with pytest.raises(RuntimeError, match="missing from llm_df"):
+            compute_hybrid_routing(
+                ml_df,
+                llm_df,
+                threshold=0.85,
+                require_llm_for_escalations=True,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -350,3 +407,25 @@ class TestRunMlFull:
         assert len(result) == len(sample_dataframe)
         assert "ml_pred_binary" in result.columns
         assert "ml_conf_binary" in result.columns
+
+
+class TestHybridReportDiagnostics:
+    """Tests for additive routing diagnostics in hybrid report."""
+
+    def test_generate_hybrid_report_includes_routing_diagnostics(self, tmp_path):
+        df = pd.DataFrame({
+            "label_binary": ["adversarial", "benign", "adversarial", "benign"],
+            "label_category": ["unicode_attack", "benign", "nlp_attack", "benign"],
+            "label_type": ["Diacritcs", "benign", "nlp_attack", "benign"],
+            "ml_pred_binary": ["adversarial", "benign", "adversarial", "adversarial"],
+            "ml_conf_binary": [0.95, 0.60, 0.90, 0.70],
+            "hybrid_pred_binary": ["adversarial", "benign", "adversarial", "benign"],
+            "hybrid_pred_category": ["unicode_attack", "benign", "nlp_attack", "benign"],
+            "hybrid_pred_type": ["Diacritcs", "benign", "nlp_attack", "benign"],
+            "hybrid_routed_to": ["ml", "llm", "ml", "llm"],
+        })
+        out = tmp_path / "hybrid_report.md"
+        generate_hybrid_report(df, str(out))
+        text = out.read_text()
+        assert "## Routing Diagnostics" in text
+        assert "| ml_pred_label | routed_ml | routed_llm | escalation_rate |" in text

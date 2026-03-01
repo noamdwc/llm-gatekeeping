@@ -51,10 +51,91 @@ def _is_adversarial_label(label) -> bool:
     return norm in ADVERSARIAL_LABEL_ALIASES or norm.startswith("adv")
 
 
+def _format_llm_required_error(
+    message: str,
+    llm_required_path: str | None = None,
+    llm_generation_hint: str | None = None,
+) -> str:
+    lines = [message]
+    if llm_required_path:
+        lines.append(f"Expected LLM predictions artifact: {llm_required_path}")
+    if llm_generation_hint:
+        lines.append(f"Generate it via: {llm_generation_hint}")
+    return "\n".join(lines)
+
+
+def compute_routing_diagnostics(
+    df: pd.DataFrame,
+    ml_pred_col: str = "ml_pred_binary",
+    route_col: str = "hybrid_routed_to",
+) -> dict:
+    """Compute additive routing diagnostics for hybrid reports."""
+    total = int(len(df))
+    routed_ml = int((df[route_col] == "ml").sum()) if total else 0
+    routed_llm = int((df[route_col] == "llm").sum()) if total else 0
+
+    ml_is_adv = df[ml_pred_col].map(_is_adversarial_label) if total else pd.Series(dtype=bool)
+    ben_mask = ~ml_is_adv if total else pd.Series(dtype=bool)
+    adv_mask = ml_is_adv if total else pd.Series(dtype=bool)
+
+    ben_total = int(ben_mask.sum()) if total else 0
+    ben_to_ml = int(((df[route_col] == "ml") & ben_mask).sum()) if total else 0
+    ben_to_llm = int(((df[route_col] == "llm") & ben_mask).sum()) if total else 0
+
+    adv_total = int(adv_mask.sum()) if total else 0
+    adv_to_ml = int(((df[route_col] == "ml") & adv_mask).sum()) if total else 0
+    adv_to_llm = int(((df[route_col] == "llm") & adv_mask).sum()) if total else 0
+
+    return {
+        "total_samples": total,
+        "routed_ml": routed_ml,
+        "routed_llm": routed_llm,
+        "routed_ml_rate": (routed_ml / total) if total else 0.0,
+        "routed_llm_rate": (routed_llm / total) if total else 0.0,
+        "ml_pred_benign_total": ben_total,
+        "ml_pred_benign_routed_ml": ben_to_ml,
+        "ml_pred_benign_routed_llm": ben_to_llm,
+        "ml_pred_benign_escalation_rate": (ben_to_llm / ben_total) if ben_total else 0.0,
+        "ml_pred_adversarial_total": adv_total,
+        "ml_pred_adversarial_routed_ml": adv_to_ml,
+        "ml_pred_adversarial_routed_llm": adv_to_llm,
+        "ml_pred_adversarial_escalation_rate": (adv_to_llm / adv_total) if adv_total else 0.0,
+    }
+
+
+def render_routing_diagnostics_markdown(diag: dict) -> str:
+    """Render routing diagnostics as an additive markdown section."""
+    lines = [
+        "## Routing Diagnostics",
+        "",
+        f"- total_samples: {diag['total_samples']}",
+        f"- routed_ml: {diag['routed_ml']} ({diag['routed_ml_rate']:.4f})",
+        f"- routed_llm: {diag['routed_llm']} ({diag['routed_llm_rate']:.4f})",
+        "",
+        "| ml_pred_label | routed_ml | routed_llm | escalation_rate |",
+        "|---------------|-----------|------------|-----------------|",
+        (
+            f"| benign | {diag['ml_pred_benign_routed_ml']} | "
+            f"{diag['ml_pred_benign_routed_llm']} | "
+            f"{diag['ml_pred_benign_escalation_rate']:.4f} |"
+        ),
+        (
+            f"| adversarial | {diag['ml_pred_adversarial_routed_ml']} | "
+            f"{diag['ml_pred_adversarial_routed_llm']} | "
+            f"{diag['ml_pred_adversarial_escalation_rate']:.4f} |"
+        ),
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def compute_hybrid_routing(
     ml_df: pd.DataFrame,
     llm_df: pd.DataFrame | None,
     threshold: float,
+    require_llm_for_escalations: bool = False,
+    llm_required_path: str | None = None,
+    llm_generation_hint: str | None = None,
 ) -> pd.DataFrame:
     """Compute hybrid routing decisions from ML prediction + confidence threshold.
 
@@ -69,11 +150,36 @@ def compute_hybrid_routing(
     Returns DataFrame with: sample_id, hybrid_routed_to, hybrid_pred_{binary,category,type}
     """
     conf_col = "ml_conf_binary_cal" if "ml_conf_binary_cal" in ml_df.columns else "ml_conf_binary"
+    print(f"  [research routing] confidence source={conf_col}")
     ml_conf = ml_df[conf_col].values
     ml_pred_binary = ml_df["ml_pred_binary"].values
 
     ml_adv_mask = np.array([_is_adversarial_label(v) for v in ml_pred_binary], dtype=bool)
     confident = ml_adv_mask & (ml_conf >= threshold)
+    n_ml_fastpath = int(confident.sum())
+    n_llm_candidates = int((~confident).sum())
+    print(
+        "  [research routing] "
+        f"threshold={threshold} | ml_confident_adv_fastpath={n_ml_fastpath} | "
+        f"llm_escalation_candidates={n_llm_candidates}"
+    )
+
+    if require_llm_for_escalations and llm_df is None:
+        raise RuntimeError(
+            _format_llm_required_error(
+                "Hybrid routing requires LLM predictions but llm_df is missing.",
+                llm_required_path=llm_required_path,
+                llm_generation_hint=llm_generation_hint,
+            )
+        )
+    if require_llm_for_escalations and llm_df is not None and llm_df.empty:
+        raise RuntimeError(
+            _format_llm_required_error(
+                "Hybrid routing requires non-empty LLM predictions but llm_df is empty.",
+                llm_required_path=llm_required_path,
+                llm_generation_hint=llm_generation_hint,
+            )
+        )
 
     # Start with ML predictions for every row (default / fallback)
     result = pd.DataFrame({
@@ -106,10 +212,38 @@ def compute_hybrid_routing(
         # Escalated rows without LLM fall back to ML (predictions already set);
         # correct routing label from "llm" → "ml"
         no_llm_idx = has_llm[~has_llm].index
+        if require_llm_for_escalations and len(no_llm_idx) > 0:
+            raise RuntimeError(
+                _format_llm_required_error(
+                    (
+                        "Hybrid routing requires LLM coverage for all escalated samples, "
+                        f"but {len(no_llm_idx)} escalated sample(s) are missing from llm_df."
+                    ),
+                    llm_required_path=llm_required_path,
+                    llm_generation_hint=llm_generation_hint,
+                )
+            )
         result.loc[no_llm_idx, "hybrid_routed_to"] = "ml"
     else:
+        if require_llm_for_escalations:
+            raise RuntimeError(
+                _format_llm_required_error(
+                    "Hybrid routing requires LLM predictions but llm_df is missing.",
+                    llm_required_path=llm_required_path,
+                    llm_generation_hint=llm_generation_hint,
+                )
+            )
         # No LLM at all — everything routes to ML
         result["hybrid_routed_to"] = "ml"
+        print("  [research routing] llm_df missing -> ML fallback for all rows")
+
+    route_diag = compute_routing_diagnostics(result.assign(ml_pred_binary=ml_df["ml_pred_binary"].values))
+    print(f"  [research routing] final routing counts={result['hybrid_routed_to'].value_counts().to_dict()}")
+    print(
+        "  [research routing] diagnostics | "
+        f"ml_pred_benign_to_llm_rate={route_diag['ml_pred_benign_escalation_rate']:.4f} | "
+        f"ml_pred_adv_to_llm_rate={route_diag['ml_pred_adversarial_escalation_rate']:.4f}"
+    )
 
     return result
 
@@ -170,11 +304,19 @@ def generate_hybrid_report(research_df: pd.DataFrame, output_path: str):
     )
 
     # Add routing stats as usage info
-    routing = research_df["hybrid_routed_to"].value_counts().to_dict()
-    usage = {f"routed_{k}": v for k, v in routing.items()}
+    routing_diag = compute_routing_diagnostics(research_df)
+    usage = {
+        "routed_ml": routing_diag["routed_ml"],
+        "routed_llm": routing_diag["routed_llm"],
+        "ml_pred_benign_routed_ml": routing_diag["ml_pred_benign_routed_ml"],
+        "ml_pred_benign_routed_llm": routing_diag["ml_pred_benign_routed_llm"],
+        "ml_pred_adversarial_routed_ml": routing_diag["ml_pred_adversarial_routed_ml"],
+        "ml_pred_adversarial_routed_llm": routing_diag["ml_pred_adversarial_routed_llm"],
+    }
 
     report = generate_report(research_df, binary, cat, types, cal, usage,
                              title="Hybrid Router Evaluation Report")
+    report = f"{report}\n{render_routing_diagnostics_markdown(routing_diag)}"
     with open(output_path, "w") as f:
         f.write(report)
     print(f"  Hybrid report saved → {output_path}")

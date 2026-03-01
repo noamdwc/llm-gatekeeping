@@ -189,6 +189,22 @@ class TestPredictSingle:
         assert result["routed_to"] == "llm"
         assert result["route_reason"] == "ml_adv_low_conf_escalate"
 
+    def test_supports_research_style_ml_keys(self, router):
+        """Router accepts ml_* keys in addition to pred_* keys."""
+        ml_pred = {
+            "ml_pred_binary": "adversarial",
+            "ml_conf_binary_cal": 0.95,
+            "ml_pred_category": "unicode_attack",
+            "ml_pred_type": "Diacritcs",
+            "ml_conf_category": 0.9,
+            "ml_conf_type": 0.85,
+        }
+        result = router.predict_single("text", ml_pred)
+        assert result["routed_to"] == "ml"
+        assert result["label_binary"] == "adversarial"
+        assert result["label_category"] == "unicode_attack"
+        assert result["label_type"] == "Diacritcs"
+
 
 # ---------------------------------------------------------------------------
 # threshold_sweep

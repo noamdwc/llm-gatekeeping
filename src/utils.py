@@ -11,6 +11,7 @@ DATA_DIR = ROOT / "data" / "processed"
 SPLITS_DIR = DATA_DIR / "splits"
 MODELS_DIR = DATA_DIR / "models"
 PREDICTIONS_DIR = DATA_DIR / "predictions"
+PREDICTIONS_EXTERNAL_DIR = DATA_DIR / "predictions_external"
 RESEARCH_DIR = DATA_DIR / "research"
 RESEARCH_EXTERNAL_DIR = DATA_DIR / "research_external"
 REPORTS_DIR = ROOT / "reports"
@@ -21,7 +22,7 @@ REPORTS_EXTERNAL_DIR = REPORTS_DIR / "research_external"
 def ensure_dirs():
     """Create all output directories if they don't exist."""
     for d in [
-        DATA_DIR, SPLITS_DIR, MODELS_DIR, PREDICTIONS_DIR,
+        DATA_DIR, SPLITS_DIR, MODELS_DIR, PREDICTIONS_DIR, PREDICTIONS_EXTERNAL_DIR,
         RESEARCH_DIR, RESEARCH_EXTERNAL_DIR,
         REPORTS_DIR, REPORTS_RESEARCH_DIR, REPORTS_EXTERNAL_DIR,
     ]:

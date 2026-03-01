@@ -101,25 +101,33 @@ class HybridRouter:
 
     def _get_ml_binary_confidence(self, ml_pred: dict) -> float:
         """Prefer calibrated binary confidence, fallback to raw for old artifacts."""
-        has_cal = (
-            "confidence_label_binary_cal" in ml_pred
-            and pd.notna(ml_pred["confidence_label_binary_cal"])
-        )
-        if has_cal:
-            conf = float(ml_pred["confidence_label_binary_cal"])
-            source = "calibrated"
-        elif "confidence_label_binary" in ml_pred and pd.notna(ml_pred["confidence_label_binary"]):
-            conf = float(ml_pred["confidence_label_binary"])
-            source = "raw_fallback"
-        else:
-            conf = 0.5
-            source = "default_0.5"
+        confidence_sources = [
+            ("confidence_label_binary_cal", "calibrated"),
+            ("ml_conf_binary_cal", "calibrated"),
+            ("confidence_label_binary", "raw_fallback"),
+            ("ml_conf_binary", "raw_fallback"),
+        ]
+        conf = 0.5
+        source = "default_0.5"
+        for col, source_name in confidence_sources:
+            if col in ml_pred and pd.notna(ml_pred[col]):
+                conf = float(ml_pred[col])
+                source = source_name
+                break
 
         if not self._ml_conf_source_logged:
             print(f"  [HybridRouter] binary confidence source={source}")
             self._ml_conf_source_logged = True
 
         return conf
+
+    @staticmethod
+    def _get_ml_binary_label(ml_pred: dict) -> str:
+        return (
+            ml_pred.get("ml_pred_binary")
+            or ml_pred.get("pred_label_binary")
+            or "benign"
+        )
 
     def _route_via_llm(self, text: str, ml_pred: dict, route_reason: str) -> dict:
         """Escalate a sample to LLM and standardize output schema."""
@@ -136,11 +144,11 @@ class HybridRouter:
         llm_category = llm_result.get("label_category")
         return {
             "label_binary": llm_binary,
-            "label_category": llm_category or ml_pred.get("pred_label_category", llm_binary),
-            "label_type": ml_pred.get("pred_label_type", llm_binary),
+            "label_category": llm_category or ml_pred.get("ml_pred_category", ml_pred.get("pred_label_category", llm_binary)),
+            "label_type": ml_pred.get("ml_pred_type", ml_pred.get("pred_label_type", llm_binary)),
             "confidence_binary": llm_conf,
-            "confidence_category": ml_pred.get("confidence_label_category"),
-            "confidence_type": ml_pred.get("confidence_label_type"),
+            "confidence_category": ml_pred.get("ml_conf_category", ml_pred.get("confidence_label_category")),
+            "confidence_type": ml_pred.get("ml_conf_type", ml_pred.get("confidence_label_type")),
             "routed_to": routed_to,
             "route_reason": route_reason,
         }
@@ -154,7 +162,7 @@ class HybridRouter:
         self.stats.total += 1
 
         ml_conf = self._get_ml_binary_confidence(ml_pred)
-        ml_binary = ml_pred.get("pred_label_binary", "benign")
+        ml_binary = self._get_ml_binary_label(ml_pred)
         ml_binary_is_adv = _is_adversarial_label(ml_binary)
 
         # ML benign is never trusted in fast path.
@@ -168,11 +176,11 @@ class HybridRouter:
             self.stats.ml_handled += 1
             return {
                 "label_binary": ml_binary,
-                "label_category": ml_pred.get("pred_label_category", ml_binary),
-                "label_type": ml_pred.get("pred_label_type", ml_binary),
+                "label_category": ml_pred.get("ml_pred_category", ml_pred.get("pred_label_category", ml_binary)),
+                "label_type": ml_pred.get("ml_pred_type", ml_pred.get("pred_label_type", ml_binary)),
                 "confidence_binary": ml_conf,
-                "confidence_category": ml_pred.get("confidence_label_category"),
-                "confidence_type": ml_pred.get("confidence_label_type"),
+                "confidence_category": ml_pred.get("ml_conf_category", ml_pred.get("confidence_label_category")),
+                "confidence_type": ml_pred.get("ml_conf_type", ml_pred.get("confidence_label_type")),
                 "routed_to": "ml",
                 "route_reason": "ml_adv_high_conf_finalize",
             }
@@ -220,13 +228,19 @@ def threshold_sweep(
     rows = []
 
     for thresh in thresholds:
-        conf_col = (
-            "confidence_label_binary_cal"
-            if "confidence_label_binary_cal" in ml_preds.columns
-            else "confidence_label_binary"
-        )
+        if "confidence_label_binary_cal" in ml_preds.columns:
+            conf_col = "confidence_label_binary_cal"
+        elif "ml_conf_binary_cal" in ml_preds.columns:
+            conf_col = "ml_conf_binary_cal"
+        elif "confidence_label_binary" in ml_preds.columns:
+            conf_col = "confidence_label_binary"
+        else:
+            conf_col = "ml_conf_binary"
         ml_conf = ml_preds[conf_col].values
-        ml_pred_binary = ml_preds["pred_label_binary"].values
+        if "pred_label_binary" in ml_preds.columns:
+            ml_pred_binary = ml_preds["pred_label_binary"].values
+        else:
+            ml_pred_binary = ml_preds["ml_pred_binary"].values
         y_true = df[text_col_binary].values
 
         adv_pred_mask = np.array([_is_adversarial_label(v) for v in ml_pred_binary], dtype=bool)
