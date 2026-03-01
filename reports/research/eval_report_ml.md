@@ -4,13 +4,14 @@
 
 | Metric | Value |
 |--------|-------|
-| accuracy | 0.9829 |
-| adversarial_precision | 0.9944 |
+| accuracy | 0.9839 |
+| adversarial_precision | 0.9955 |
 | adversarial_recall | 0.9867 |
-| adversarial_f1 | 0.9905 |
-| benign_precision | 0.8812 |
-| benign_recall | 0.9468 |
-| benign_f1 | 0.9128 |
+| adversarial_f1 | 0.9911 |
+| benign_precision | 0.8824 |
+| benign_recall | 0.9574 |
+| benign_f1 | 0.9184 |
+| false_positive_rate | 0.0426 |
 | false_negative_rate | 0.0133 |
 | uncertain_rate | 0.0000 |
 | judge_override_rate | N/A |
@@ -29,13 +30,13 @@ Labels: ['unicode_attack', 'nlp_attack']
 
 ## Per-Type Classification (Unicode Sub-Types)
 
-- Accuracy: 0.9900
-- Macro F1: 0.9947
+- Accuracy: 0.9889
+- Macro F1: 0.9941
 
 | Type | Precision | Recall | F1 | Support |
 |------|-----------|--------|-----|---------|
 | Bidirectional Text | 1.00 | 1.00 | 1.00 | 82 |
-| Deletion Characters | 1.00 | 0.89 | 0.94 | 82 |
+| Deletion Characters | 1.00 | 0.88 | 0.94 | 82 |
 | Diacritcs | 1.00 | 1.00 | 1.00 | 82 |
 | Full Width Text | 1.00 | 1.00 | 1.00 | 82 |
 | Homoglyphs | 1.00 | 1.00 | 1.00 | 82 |
@@ -53,10 +54,10 @@ Labels: ['unicode_attack', 'nlp_attack']
 
 | Bin | Count | Avg Confidence | Accuracy |
 |-----|-------|----------------|----------|
-| 0.5-0.6 | 9 | 0.531 | 0.556 |
-| 0.6-0.7 | 11 | 0.661 | 0.636 |
-| 0.7-0.8 | 6 | 0.767 | 0.667 |
-| 0.8-0.9 | 24 | 0.857 | 0.833 |
+| 0.5-0.6 | 9 | 0.534 | 0.667 |
+| 0.6-0.7 | 10 | 0.653 | 0.700 |
+| 0.7-0.8 | 7 | 0.761 | 0.571 |
+| 0.8-0.9 | 24 | 0.856 | 0.833 |
 | 0.9-1.0 | 946 | 0.996 | 0.997 |
 
 ## Cost / Usage
