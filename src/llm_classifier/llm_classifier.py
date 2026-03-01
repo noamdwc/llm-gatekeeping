@@ -10,6 +10,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import time
 import dotenv
 import random
@@ -22,7 +23,11 @@ from dataclasses import dataclass, field
 import openai
 import wandb
 
-from src.llm_classifier.constants import NLP_TYPES
+from src.llm_classifier.constants import (
+    NLP_TYPES,
+    BENIGN_TASK_INTENT_PATTERNS,
+    BYPASS_INTENT_PATTERNS,
+)
 from src.embeddings import ExemplarBank, get_embeddings
 
 # ---------------------------------------------------------------------------
@@ -51,6 +56,7 @@ class UsageStats:
     completion_tokens: int = 0
     total_latency_s: float = 0.0
     calls_by_stage: dict = field(default_factory=lambda: defaultdict(int))
+    judge_benign_task_overrides: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -69,6 +75,7 @@ class UsageStats:
             "total_latency_s": round(self.total_latency_s, 2),
             "avg_latency_s": round(self.avg_latency_s, 3),
             "calls_by_stage": dict(self.calls_by_stage),
+            "judge_benign_task_overrides": self.judge_benign_task_overrides,
         }
 
 
@@ -235,6 +242,29 @@ class HierarchicalLLMClassifier:
             conf /= 100.0
         return max(0.0, min(1.0, conf))
 
+    @staticmethod
+    def _normalize_confidence_0_100(raw_conf: object, default: float = 0.0) -> float:
+        """Normalize confidence to [0, 100], accepting either 0-1 or 0-100 inputs."""
+        try:
+            conf = float(raw_conf)
+        except (TypeError, ValueError):
+            return default
+        if 0.0 <= conf <= 1.0:
+            conf *= 100.0
+        return max(0.0, min(100.0, conf))
+
+    @staticmethod
+    def _matches_any_pattern(text: str, patterns: list[str]) -> bool:
+        for pattern in patterns:
+            if re.search(pattern, text, flags=re.IGNORECASE):
+                return True
+        return False
+
+    def _compute_benign_task_override_flags(self, text: str) -> tuple[bool, bool]:
+        is_bypass_intent = self._matches_any_pattern(text, BYPASS_INTENT_PATTERNS)
+        is_benign_task = self._matches_any_pattern(text, BENIGN_TASK_INTENT_PATTERNS)
+        return is_benign_task, is_bypass_intent
+
     # -- Classifier --------------------------------------------------------
 
     def classify(self, text: str) -> dict:
@@ -280,7 +310,35 @@ class HierarchicalLLMClassifier:
             model=self.model_quality,
         )
         decision = decide_accept_or_override(result, classifier_output)
-        result['computed_decision'] = decision
+        result["computed_decision"] = decision
+
+        # Deterministic benign-task override (Option A):
+        # If prompt is a benign productivity task and has no bypass intent, force benign.
+        is_benign_task, is_bypass_intent = self._compute_benign_task_override_flags(text)
+        if is_benign_task and not is_bypass_intent:
+            final_conf = self._normalize_confidence_0_100(result.get("final_confidence"), default=0.0)
+            ind_conf = self._normalize_confidence_0_100(result.get("independent_confidence"), default=0.0)
+            forced_conf = max(80.0, final_conf, ind_conf)
+            result.update(
+                {
+                    "independent_label": "benign",
+                    "independent_confidence": forced_conf,
+                    "independent_evidence": "",
+                    "final_label": "benign",
+                    "final_confidence": forced_conf,
+                    "nlp_attack_type": "none",
+                    "final_evidence": "",
+                    "decision": "override_candidate",
+                    "reason": "benign productivity task; no bypass intent",
+                    "computed_decision": "override_candidate",
+                    "judge_benign_task_override": True,
+                    "judge_override_reason": "benign productivity task; no bypass intent",
+                }
+            )
+            self.usage.judge_benign_task_overrides += 1
+        else:
+            result["judge_benign_task_override"] = False
+            result["judge_override_reason"] = None
         return result
 
     # -- Full pipeline -----------------------------------------------------
@@ -365,12 +423,16 @@ class HierarchicalLLMClassifier:
             result["judge_independent_confidence"] = judge_conf
             result["judge_independent_evidence"] = judge_result.get("independent_evidence", "")
             result["judge_computed_decision"] = judge_result.get("computed_decision")
+            result["judge_benign_task_override"] = judge_result.get("judge_benign_task_override", False)
+            result["judge_override_reason"] = judge_result.get("judge_override_reason")
         else:
             result["judge_independent_label"] = None
             result["judge_category"] = None
             result["judge_independent_confidence"] = None
             result["judge_independent_evidence"] = None
             result["judge_computed_decision"] = None
+            result["judge_benign_task_override"] = None
+            result["judge_override_reason"] = None
 
         return result
 
@@ -527,6 +589,8 @@ def main():
                 "judge_independent_confidence": r.get("judge_independent_confidence"),
                 "judge_independent_evidence": r.get("judge_independent_evidence"),
                 "judge_computed_decision": r.get("judge_computed_decision"),
+                "judge_benign_task_override": r.get("judge_benign_task_override"),
+                "judge_override_reason": r.get("judge_override_reason"),
             })
         llm_df = pd.DataFrame(research_rows)
 
