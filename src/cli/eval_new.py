@@ -36,6 +36,11 @@ def _binary_metrics_or_none(df: pd.DataFrame, pred_col: str) -> dict | None:
     return binary_metrics(df["label_binary"], df[pred_col])
 
 
+def _external_pred_col(df: pd.DataFrame) -> str:
+    """Prefer hybrid predictions for external reports when available."""
+    return "hybrid_pred_binary" if "hybrid_pred_binary" in df.columns else "ml_pred_binary"
+
+
 def _main_metric_rows(df: pd.DataFrame) -> list[dict]:
     rows = []
 
@@ -105,8 +110,8 @@ def _render_summary_markdown(
         "",
         "## Main Dataset",
         "",
-        "| Model | Rows | Accuracy | Adv F1 | Benign F1 | FNR |",
-        "|-------|------|----------|--------|-----------|-----|",
+        "| Model | Rows | Accuracy | Adv F1 | Benign F1 | FPR | FNR |",
+        "|-------|------|----------|--------|-----------|-----|-----|",
     ]
 
     for row in _main_metric_rows(main_df):
@@ -117,6 +122,7 @@ def _render_summary_markdown(
             f"{_fmt_metric(m['accuracy'] if m else None)} | "
             f"{_fmt_metric(m['adversarial_f1'] if m else None)} | "
             f"{_fmt_metric(m['benign_f1'] if m else None)} | "
+            f"{_fmt_metric(m['false_positive_rate'] if m else None)} | "
             f"{_fmt_metric(m['false_negative_rate'] if m else None)} |"
         )
 
@@ -127,7 +133,7 @@ def _render_summary_markdown(
 
     if external_frames:
         combined_df = pd.concat(list(external_frames.values()), ignore_index=True)
-        combined = _binary_metrics_or_none(combined_df, "ml_pred_binary")
+        combined = _binary_metrics_or_none(combined_df, _external_pred_col(combined_df))
         adv_pct = (
             (combined_df["label_binary"] == "adversarial").mean() if len(combined_df) > 0 else 0.0
         )
@@ -136,26 +142,27 @@ def _render_summary_markdown(
             "",
             "## External Combined (Unseen) Progress",
             "",
-            "| Total Rows | Adv % | Accuracy | Adv F1 | Benign F1 | FNR | Support Adv | Support Benign |",
-            "|------------|-------|----------|--------|-----------|-----|-------------|----------------|",
+            "| Total Rows | Adv % | Accuracy | Adv F1 | Benign F1 | FPR | FNR | Support Adv | Support Benign |",
+            "|------------|-------|----------|--------|-----------|-----|-----|-------------|----------------|",
             "| "
             f"{len(combined_df)} | {adv_pct:.4f} | "
             f"{_fmt_metric(combined['accuracy'] if combined else None)} | "
             f"{_fmt_metric(combined['adversarial_f1'] if combined else None)} | "
             f"{_fmt_metric(combined['benign_f1'] if combined else None)} | "
+            f"{_fmt_metric(combined['false_positive_rate'] if combined else None)} | "
             f"{_fmt_metric(combined['false_negative_rate'] if combined else None)} | "
             f"{(combined['support_adversarial'] if combined else 'N/A')} | "
             f"{(combined['support_benign'] if combined else 'N/A')} |",
             "",
             "## External Dataset Breakdown",
             "",
-            "| Dataset | Rows | Adv % | Accuracy | Adv F1 | Benign F1 | FNR |",
-            "|---------|------|-------|----------|--------|-----------|-----|",
+            "| Dataset | Rows | Adv % | Accuracy | Adv F1 | Benign F1 | FPR | FNR |",
+            "|---------|------|-------|----------|--------|-----------|-----|-----|",
         ])
 
         for ds_key in sorted(external_frames.keys()):
             df = external_frames[ds_key]
-            m = _binary_metrics_or_none(df, "ml_pred_binary")
+            m = _binary_metrics_or_none(df, _external_pred_col(df))
             adv_pct = (df["label_binary"] == "adversarial").mean() if len(df) > 0 else 0.0
             lines.append(
                 "| "
@@ -163,6 +170,7 @@ def _render_summary_markdown(
                 f"{_fmt_metric(m['accuracy'] if m else None)} | "
                 f"{_fmt_metric(m['adversarial_f1'] if m else None)} | "
                 f"{_fmt_metric(m['benign_f1'] if m else None)} | "
+                f"{_fmt_metric(m['false_positive_rate'] if m else None)} | "
                 f"{_fmt_metric(m['false_negative_rate'] if m else None)} |"
             )
     else:
@@ -254,10 +262,11 @@ def generate_external_reports(cfg: dict, dataset: str | None = None):
             )
 
         research_df = pd.read_parquet(research_path)
-        binary = binary_metrics(research_df["label_binary"], research_df["ml_pred_binary"])
+        pred_col = _external_pred_col(research_df)
+        binary = binary_metrics(research_df["label_binary"], research_df[pred_col])
         cal = calibration_metrics(
             research_df["label_binary"],
-            research_df["ml_pred_binary"],
+            research_df[pred_col],
             research_df["ml_conf_binary"],
         )
         report = generate_research_report(
@@ -267,6 +276,8 @@ def generate_external_reports(cfg: dict, dataset: str | None = None):
             binary,
             cal,
             threshold,
+            pred_col=pred_col,
+            mode="hybrid" if pred_col == "hybrid_pred_binary" else "ml",
         )
         report_path = REPORTS_EXTERNAL_DIR / f"research_external_{ds_key}.md"
         report_path.write_text(report)

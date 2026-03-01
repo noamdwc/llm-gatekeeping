@@ -5,31 +5,35 @@ intermediate ML probabilities and hybrid routing decisions.
 Designed to be called once per dataset by DVC foreach stages:
     python -m src.cli.research_external --dataset deepset
 
-LLM execution is controlled primarily via the ``SKIP_LLM`` environment
-variable.  By default ``SKIP_LLM`` is ``"1"`` (skip LLM), so a plain
-``dvc repro`` will not compute LLM predictions.  To enable LLM predictions,
-set ``SKIP_LLM=0`` in the environment.  The CLI flags ``--skip-llm`` and
-``--no-skip-llm`` can override the environment variable explicitly.
+Modes:
+  - ``llm``: generate LLM predictions artifact for one external dataset.
+  - ``hybrid``: require external LLM artifact + compute strict hybrid outputs.
+  - ``ml``: ML-only research output (explicitly non-hybrid).
 
 Produces per-dataset:
+  - LLM predictions parquet (llm mode)
   - Wide parquet file (data/processed/research_external/{ds_key}.parquet)
   - Detailed markdown report (reports/research_external/{ds_key}.md)
 """
 
 import argparse
 import os
+from pathlib import Path
 
 import dotenv
-import numpy as np
 import pandas as pd
 
 from src.utils import (
     load_config, build_sample_id, MODELS_DIR, SPLITS_DIR,
-    RESEARCH_EXTERNAL_DIR, REPORTS_EXTERNAL_DIR,
+    RESEARCH_EXTERNAL_DIR, REPORTS_EXTERNAL_DIR, PREDICTIONS_EXTERNAL_DIR,
 )
 from src.evaluate import binary_metrics, calibration_metrics
 from src.eval_external import load_external_dataset
-from src.research import compute_hybrid_routing
+from src.research import (
+    compute_hybrid_routing,
+    compute_routing_diagnostics,
+    render_routing_diagnostics_markdown,
+)
 from src.llm_classifier.llm_classifier import (
         HierarchicalLLMClassifier,
         build_few_shot_examples,
@@ -44,6 +48,36 @@ EXTERNAL_GT_COLS = [
     "label_category",
     "label_type",
 ]
+
+
+def default_llm_predictions_path(ds_key: str) -> Path:
+    return PREDICTIONS_EXTERNAL_DIR / f"llm_predictions_external_{ds_key}.parquet"
+
+
+def load_llm_predictions_required(
+    ds_key: str,
+    llm_predictions_path: Path,
+) -> pd.DataFrame:
+    """Load external LLM predictions artifact and fail loudly if missing/empty."""
+    if not llm_predictions_path.exists():
+        raise RuntimeError(
+            "Hybrid external evaluation requires precomputed LLM predictions but the artifact is missing.\n"
+            f"Missing file: {llm_predictions_path}\n"
+            f"Generate it via DVC: dvc repro research_external_llm@{ds_key}\n"
+            "Or run CLI directly: "
+            f"python -m src.cli.research_external --dataset {ds_key} --mode llm "
+            f"--llm-predictions-path {llm_predictions_path}"
+        )
+
+    llm_df = pd.read_parquet(llm_predictions_path)
+    if llm_df.empty:
+        raise RuntimeError(
+            "Hybrid external evaluation requires non-empty LLM predictions, but the artifact is empty.\n"
+            f"Artifact: {llm_predictions_path}\n"
+            f"Regenerate via: dvc repro research_external_llm@{ds_key}"
+        )
+
+    return llm_df
 
 
 def run_ml_full(ml_model, df: pd.DataFrame, text_col: str) -> pd.DataFrame:
@@ -139,6 +173,8 @@ def generate_research_report(
     binary: dict,
     calibration: dict,
     threshold: float,
+    pred_col: str = "ml_pred_binary",
+    mode: str = "hybrid",
 ) -> str:
     """Generate a detailed Markdown research report for an external dataset."""
     n = len(research_df)
@@ -148,6 +184,7 @@ def generate_research_report(
     lines = [
         f"# Research Report — {ds_key}\n",
         f"- **Dataset**: `{hf_name}`",
+        f"- **Mode**: {mode}",
         f"- **Total samples**: {n}",
         f"- **Adversarial**: {n_adv} ({n_adv / n * 100:.1f}%)",
         f"- **Benign**: {n_ben} ({n_ben / n * 100:.1f}%)",
@@ -181,7 +218,7 @@ def generate_research_report(
     lines.append("")
 
     # Confidence by correctness
-    correct = research_df["ml_pred_binary"] == research_df["label_binary"]
+    correct = research_df[pred_col] == research_df["label_binary"]
     c_correct = conf[correct]
     c_wrong = conf[~correct]
     lines.append("### By Prediction Correctness\n")
@@ -231,6 +268,10 @@ def generate_research_report(
                      f"accuracy={route_correct:.4f}")
     lines.append("")
 
+    # --- Routing diagnostics ---
+    route_diag = compute_routing_diagnostics(research_df)
+    lines.append(render_routing_diagnostics_markdown(route_diag))
+
     # --- Error analysis ---
     lines.append("## Error Analysis\n")
     errors = research_df[~correct].copy()
@@ -239,7 +280,7 @@ def generate_research_report(
 
     if n_errors > 0:
         # False negatives (adversarial predicted as benign)
-        fn_mask = (errors["label_binary"] == "adversarial") & (errors["ml_pred_binary"] == "benign")
+        fn_mask = (errors["label_binary"] == "adversarial") & (errors[pred_col] == "benign")
         fn = errors[fn_mask]
         lines.append(f"### False Negatives (adversarial -> benign): {len(fn)}\n")
         if len(fn) > 0:
@@ -254,7 +295,7 @@ def generate_research_report(
             lines.append("")
 
         # False positives (benign predicted as adversarial)
-        fp_mask = (errors["label_binary"] == "benign") & (errors["ml_pred_binary"] == "adversarial")
+        fp_mask = (errors["label_binary"] == "benign") & (errors[pred_col] == "adversarial")
         fp = errors[fp_mask]
         lines.append(f"### False Positives (benign -> adversarial): {len(fp)}\n")
         if len(fp) > 0:
@@ -313,6 +354,8 @@ def run_research_single(
     ds_key: str,
     ds_cfg: dict,
     cfg: dict,
+    mode: str = "hybrid",
+    llm_predictions_path: str | None = None,
     skip_llm: bool = True,
     force_all_stages: bool = False,
     limit: int | None = None,
@@ -337,14 +380,41 @@ def run_research_single(
     ml.load(str(MODELS_DIR / "ml_baseline.pkl"))
     ml_df = run_ml_full(ml, df, "modified_sample")
 
-    llm_df = None
-    if not skip_llm:
+    llm_path = Path(llm_predictions_path) if llm_predictions_path else default_llm_predictions_path(ds_key)
+
+    if mode == "llm":
         print("  Running LLM classifier...")
         llm_df = run_llm_full(df, cfg, "modified_sample", force_all_stages=force_all_stages)
+        PREDICTIONS_EXTERNAL_DIR.mkdir(parents=True, exist_ok=True)
+        llm_path.parent.mkdir(parents=True, exist_ok=True)
+        llm_df.to_parquet(llm_path, index=False)
+        print(f"  LLM predictions saved -> {llm_path} (shape: {llm_df.shape})")
+        return llm_df
+
+    if mode == "hybrid":
+        llm_df = load_llm_predictions_required(ds_key, llm_path)
+        print(f"  Loaded LLM predictions: {llm_path} ({len(llm_df)} samples)")
+    elif mode == "ml":
+        llm_df = None
+    else:
+        raise ValueError(f"Unknown mode: {mode!r}. Expected one of: hybrid, ml, llm.")
+
+    if not skip_llm and mode == "ml":
+        print("  [note] --no-skip-llm ignored in mode=ml.")
 
     threshold = cfg["hybrid"]["ml_confidence_threshold"]
     print(f"  Computing hybrid routing (threshold={threshold})...")
-    hybrid_df = compute_hybrid_routing(ml_df, llm_df, threshold)
+    hybrid_df = compute_hybrid_routing(
+        ml_df,
+        llm_df,
+        threshold,
+        require_llm_for_escalations=(mode == "hybrid"),
+        llm_required_path=str(llm_path) if mode == "hybrid" else None,
+        llm_generation_hint=(
+            f"dvc repro research_external_llm@{ds_key} research_external@{ds_key}"
+            if mode == "hybrid" else None
+        ),
+    )
 
     research_df = build_external_research_df(df, ml_df, hybrid_df, llm_df)
 
@@ -353,18 +423,17 @@ def run_research_single(
     research_df.to_parquet(parquet_path, index=False)
     print(f"  Research parquet saved -> {parquet_path} (shape: {research_df.shape})")
 
-    binary = binary_metrics(
-        research_df["label_binary"],
-        research_df["ml_pred_binary"],
-    )
+    pred_col = "hybrid_pred_binary" if mode == "hybrid" else "ml_pred_binary"
+    binary = binary_metrics(research_df["label_binary"], research_df[pred_col])
     cal = calibration_metrics(
         research_df["label_binary"],
-        research_df["ml_pred_binary"],
+        research_df[pred_col],
         research_df["ml_conf_binary"],
     )
 
     report = generate_research_report(
         ds_key, ds_cfg["name"], research_df, binary, cal, threshold,
+        pred_col=pred_col, mode=mode,
     )
     REPORTS_EXTERNAL_DIR.mkdir(parents=True, exist_ok=True)
     report_path = REPORTS_EXTERNAL_DIR / f"research_external_{ds_key}.md"
@@ -375,10 +444,17 @@ def run_research_single(
     print(f"  Accuracy:           {binary['accuracy']:.4f}")
     print(f"  Adversarial F1:     {binary['adversarial_f1']:.4f}")
     print(f"  Benign F1:          {binary['benign_f1']:.4f}")
+    print(f"  False-positive rate: {binary['false_positive_rate']:.4f}")
     print(f"  False-negative rate: {binary['false_negative_rate']:.4f}")
 
     routing = hybrid_df["hybrid_routed_to"].value_counts().to_dict()
     print(f"  Routing: {routing}")
+    route_diag = compute_routing_diagnostics(research_df)
+    print(
+        "  Routing diagnostics: "
+        f"benign->llm_rate={route_diag['ml_pred_benign_escalation_rate']:.4f}, "
+        f"adv->llm_rate={route_diag['ml_pred_adversarial_escalation_rate']:.4f}"
+    )
 
     return research_df
 
@@ -410,12 +486,23 @@ def main():
     parser.add_argument("--config", default=None, help="Path to config YAML")
     parser.add_argument("--limit", type=int, default=None, help="Max samples per dataset")
     parser.add_argument(
+        "--mode",
+        choices=["hybrid", "ml", "llm"],
+        default="hybrid",
+        help="Execution mode: llm (artifact generation), hybrid (strict), or ml",
+    )
+    parser.add_argument(
+        "--llm-predictions-path",
+        default=None,
+        help="Path to external LLM predictions artifact parquet",
+    )
+    parser.add_argument(
         "--skip-llm", action="store_true", dest="skip_llm",
-        help="Force skip LLM (overrides SKIP_LLM env var)",
+        help="Legacy flag (deprecated): force skip LLM (overrides SKIP_LLM env var)",
     )
     parser.add_argument(
         "--no-skip-llm", action="store_false", dest="skip_llm",
-        help="Force run LLM (overrides SKIP_LLM env var)",
+        help="Legacy flag (deprecated): force run LLM (overrides SKIP_LLM env var)",
     )
     parser.set_defaults(skip_llm=None)
     parser.add_argument("--force-all-stages", action="store_true",
@@ -438,6 +525,8 @@ def main():
 
     run_research_single(
         args.dataset, ext_datasets[args.dataset], cfg,
+        mode=args.mode,
+        llm_predictions_path=args.llm_predictions_path,
         skip_llm=skip_llm,
         force_all_stages=args.force_all_stages,
         limit=args.limit,
@@ -446,4 +535,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -10,7 +10,9 @@ from src.cli.research_external import (
     EXTERNAL_GT_COLS,
     build_external_research_df,
     build_predictions_df,
+    default_llm_predictions_path,
     generate_research_report,
+    load_llm_predictions_required,
     resolve_skip_llm,
 )
 from src.utils import build_sample_id
@@ -162,6 +164,7 @@ class TestGenerateResearchReport:
         assert "ML Confidence Distribution" in report
         assert "Calibration" in report
         assert "Hybrid Routing Analysis" in report
+        assert "Routing Diagnostics" in report
         assert "Error Analysis" in report
 
     def test_report_shows_dataset_info(self):
@@ -221,6 +224,26 @@ class TestGenerateResearchReport:
         assert "median=" in report
         assert "Correct" in report
         assert "Wrong" in report
+
+    def test_report_mode_and_pred_col_override(self):
+        """Report should support mode/pred_col inputs for hybrid metrics."""
+        research_df = self._make_research_df()
+        # Force a different correctness profile via hybrid predictions.
+        research_df["hybrid_pred_binary"] = ["adversarial", "adversarial", "benign", "benign"]
+        binary = {
+            "accuracy": 0.75, "adversarial_precision": 0.66,
+            "adversarial_recall": 1.0, "adversarial_f1": 0.8,
+            "benign_precision": 1.0, "benign_recall": 0.5, "benign_f1": 0.67,
+            "false_negative_rate": 0.0,
+            "support_adversarial": 2, "support_benign": 2,
+        }
+        cal = {"calibration_buckets": []}
+        report = generate_research_report(
+            "test", "test/dataset", research_df, binary, cal, 0.85,
+            pred_col="hybrid_pred_binary", mode="hybrid",
+        )
+        assert "- **Mode**: hybrid" in report
+        assert "Routing Diagnostics" in report
 
 
 # ---------------------------------------------------------------------------
@@ -376,3 +399,22 @@ class TestResolveSkipLlm:
         """No CLI flag + no SKIP_LLM env var → default skip (True)."""
         with patch.dict("os.environ", {}, clear=True):
             assert resolve_skip_llm(None) is True
+
+
+class TestExternalLlmArtifactHelpers:
+    """Tests for external LLM predictions artifact helpers."""
+
+    def test_default_llm_predictions_path(self):
+        path = default_llm_predictions_path("deepset")
+        assert str(path).endswith("data/processed/predictions_external/llm_predictions_external_deepset.parquet")
+
+    def test_load_llm_predictions_required_missing_raises(self, tmp_path):
+        missing = tmp_path / "missing.parquet"
+        with pytest.raises(RuntimeError, match="requires precomputed LLM predictions"):
+            load_llm_predictions_required("deepset", missing)
+
+    def test_load_llm_predictions_required_empty_raises(self, tmp_path):
+        p = tmp_path / "llm.parquet"
+        pd.DataFrame(columns=["sample_id", "llm_pred_binary"]).to_parquet(p, index=False)
+        with pytest.raises(RuntimeError, match="non-empty LLM predictions"):
+            load_llm_predictions_required("deepset", p)
