@@ -72,6 +72,9 @@ llm:
   model: "meta/llama-3.1-8b-instruct"
   model_quality: "meta/llama-3.1-70b-instruct"
   temperature: 0
+  max_concurrency: 8
+  checkpoint_every: 200
+  resume: true
   max_tokens_classifier: 200
   max_tokens_judge: 500
   judge_confidence_threshold: 0.7

@@ -8,17 +8,20 @@ Usage:
 """
 
 import argparse
+import concurrent.futures
 import json
 import os
 import re
 import time
 import dotenv
 import random
+import threading
 import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Callable
 
 import openai
 import wandb
@@ -57,25 +60,55 @@ class UsageStats:
     total_latency_s: float = 0.0
     calls_by_stage: dict = field(default_factory=lambda: defaultdict(int))
     judge_benign_task_overrides: int = 0
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+
+    def record_call(
+        self,
+        stage: str,
+        latency_s: float,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+    ) -> None:
+        with self._lock:
+            self.total_calls += 1
+            self.calls_by_stage[stage] += 1
+            self.total_latency_s += latency_s
+            self.prompt_tokens += prompt_tokens
+            self.completion_tokens += completion_tokens
+
+    def record_judge_override(self) -> None:
+        with self._lock:
+            self.judge_benign_task_overrides += 1
 
     @property
     def total_tokens(self) -> int:
-        return self.prompt_tokens + self.completion_tokens
+        with self._lock:
+            return self.prompt_tokens + self.completion_tokens
 
     @property
     def avg_latency_s(self) -> float:
-        return self.total_latency_s / max(self.total_calls, 1)
+        with self._lock:
+            return self.total_latency_s / max(self.total_calls, 1)
 
     def to_dict(self) -> dict:
+        with self._lock:
+            total_calls = self.total_calls
+            prompt_tokens = self.prompt_tokens
+            completion_tokens = self.completion_tokens
+            total_tokens = prompt_tokens + completion_tokens
+            total_latency_s = self.total_latency_s
+            avg_latency_s = self.total_latency_s / max(self.total_calls, 1)
+            calls_by_stage = dict(self.calls_by_stage)
+            judge_overrides = self.judge_benign_task_overrides
         return {
-            "total_calls": self.total_calls,
-            "prompt_tokens": self.prompt_tokens,
-            "completion_tokens": self.completion_tokens,
-            "total_tokens": self.total_tokens,
-            "total_latency_s": round(self.total_latency_s, 2),
-            "avg_latency_s": round(self.avg_latency_s, 3),
-            "calls_by_stage": dict(self.calls_by_stage),
-            "judge_benign_task_overrides": self.judge_benign_task_overrides,
+            "total_calls": total_calls,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "total_latency_s": round(total_latency_s, 2),
+            "avg_latency_s": round(avg_latency_s, 3),
+            "calls_by_stage": calls_by_stage,
+            "judge_benign_task_overrides": judge_overrides,
         }
 
 
@@ -90,13 +123,13 @@ class HierarchicalLLMClassifier:
         exemplar_bank: ExemplarBank | None = None,
     ):
         self.cfg = cfg
-        self.client = openai.OpenAI(
-            base_url="https://integrate.api.nvidia.com/v1",
-            api_key=os.environ["NVIDIA_API_KEY"],
-        )
+        self._client_base_url = "https://integrate.api.nvidia.com/v1"
+        self._client_api_key = os.environ["NVIDIA_API_KEY"]
+        self._thread_local = threading.local()
         self.model = cfg["llm"]["model"]
         self.model_quality = cfg["llm"].get("model_quality", self.model)
         self.temperature = cfg["llm"]["temperature"]
+        self.max_concurrency = int(cfg.get("llm", {}).get("max_concurrency", 8))
         self.few_shot = few_shot_examples or []
         self.usage = UsageStats()
 
@@ -107,6 +140,15 @@ class HierarchicalLLMClassifier:
             raise ValueError("ExemplarBank required when dynamic=True")
 
     # -- internal helpers --------------------------------------------------
+    def _get_client(self):
+        client = getattr(self._thread_local, "client", None)
+        if client is None:
+            client = openai.OpenAI(
+                base_url=self._client_base_url,
+                api_key=self._client_api_key,
+            )
+            self._thread_local.client = client
+        return client
 
     def _call_llm(
         self, messages: list[dict], max_tokens: int, stage: str,
@@ -119,7 +161,8 @@ class HierarchicalLLMClassifier:
         for attempt in range(max_retries):
             try:
                 t0 = time.time()
-                response = self.client.chat.completions.create(
+                client = self._get_client()
+                response = client.chat.completions.create(
                     model=model or self.model,
                     messages=messages,
                     temperature=self.temperature,
@@ -141,12 +184,12 @@ class HierarchicalLLMClassifier:
                 print(f"\nAPI error ({type(exc).__name__}), retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
                 time.sleep(wait)
 
-        self.usage.total_calls += 1
-        self.usage.calls_by_stage[stage] += 1
-        self.usage.total_latency_s += latency
+        prompt_tokens = 0
+        completion_tokens = 0
         if response is not None and response.usage:
-            self.usage.prompt_tokens += response.usage.prompt_tokens
-            self.usage.completion_tokens += response.usage.completion_tokens
+            prompt_tokens = response.usage.prompt_tokens
+            completion_tokens = response.usage.completion_tokens
+        self.usage.record_call(stage, latency, prompt_tokens, completion_tokens)
 
         if response is None:
             return {}
@@ -335,7 +378,7 @@ class HierarchicalLLMClassifier:
                     "judge_override_reason": "benign productivity task; no bypass intent",
                 }
             )
-            self.usage.judge_benign_task_overrides += 1
+            self.usage.record_judge_override()
         else:
             result["judge_benign_task_override"] = False
             result["judge_override_reason"] = None
@@ -441,9 +484,48 @@ class HierarchicalLLMClassifier:
         texts: list[str],
         desc: str = "Classifying",
         force_all_stages: bool = False,
+        max_workers: int | None = None,
+        on_result: Callable[[int, dict], None] | None = None,
     ) -> list[dict]:
-        """Predict on a list of texts with progress bar."""
-        return [self.predict(t, force_all_stages=force_all_stages) for t in tqdm(texts, desc=desc)]
+        """Predict on a list of texts with progress bar.
+
+        Args:
+            max_workers: Number of parallel workers. Defaults to config llm.max_concurrency.
+            on_result: Optional callback called as each sample completes (index, result).
+        """
+        if not texts:
+            return []
+
+        workers = max_workers if max_workers is not None else self.max_concurrency
+        workers = max(1, int(workers))
+
+        if workers == 1:
+            results = []
+            for idx, text in enumerate(tqdm(texts, desc=desc)):
+                result = self.predict(text, force_all_stages=force_all_stages)
+                results.append(result)
+                if on_result is not None:
+                    on_result(idx, result)
+            return results
+
+        results: list[dict | None] = [None] * len(texts)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_idx = {
+                executor.submit(self.predict, text, force_all_stages=force_all_stages): idx
+                for idx, text in enumerate(texts)
+            }
+            with tqdm(total=len(texts), desc=desc) as pbar:
+                for future in concurrent.futures.as_completed(future_to_idx):
+                    idx = future_to_idx[future]
+                    result = future.result()
+                    results[idx] = result
+                    if on_result is not None:
+                        on_result(idx, result)
+                    pbar.update(1)
+        if any(r is None for r in results):
+            raise RuntimeError("predict_batch completed with missing results.")
+        final_results: list[dict] = [r for r in results if r is not None]
+        return final_results
 
 
 # ---------------------------------------------------------------------------

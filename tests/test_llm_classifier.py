@@ -1,6 +1,7 @@
 """Tests for src.llm_classifier — LLM classification with mocked API calls."""
 
 import json
+import time
 from collections import defaultdict
 from unittest.mock import MagicMock, patch, call
 
@@ -638,6 +639,19 @@ class TestForceAllStages:
         for call in clf.predict.call_args_list:
             assert call.kwargs["force_all_stages"] is True
 
+    def test_predict_batch_preserves_order_with_concurrency(self, sample_config):
+        """Concurrent predict_batch should still return results in input order."""
+        clf = self._make_classifier(sample_config)
+
+        def delayed_predict(text, force_all_stages=False):
+            if text == "slow":
+                time.sleep(0.02)
+            return {"label": text}
+
+        clf.predict = MagicMock(side_effect=delayed_predict)
+        result = clf.predict_batch(["slow", "fast"], max_workers=2)
+        assert [r["label"] for r in result] == ["slow", "fast"]
+
 
 # ---------------------------------------------------------------------------
 # TestDynamicFewShot
@@ -1171,13 +1185,15 @@ class TestCallLlmRetry:
         """APIConnectionError on first 2 attempts, success on 3rd → returns parsed result."""
         clf = _make_classifier(sample_config)
         good_response = self._make_response('{"label": "benign", "confidence": 90}')
-        clf.client.chat.completions.create = MagicMock(
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = MagicMock(
             side_effect=[
                 openai.APIConnectionError(request=MagicMock()),
                 openai.APIConnectionError(request=MagicMock()),
                 good_response,
             ]
         )
+        clf._get_client = MagicMock(return_value=mock_client)
         with patch("src.llm_classifier.llm_classifier.time.sleep"):
             result = clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
         assert result.get("label") == "benign"
@@ -1185,9 +1201,11 @@ class TestCallLlmRetry:
     def test_retries_exhaust_api_connection_error_raises(self, sample_config):
         """All 5 attempts fail with APIConnectionError → re-raises."""
         clf = _make_classifier(sample_config)
-        clf.client.chat.completions.create = MagicMock(
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = MagicMock(
             side_effect=openai.APIConnectionError(request=MagicMock())
         )
+        clf._get_client = MagicMock(return_value=mock_client)
         with patch("src.llm_classifier.llm_classifier.time.sleep"):
             with pytest.raises(openai.APIConnectionError):
                 clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier", max_retries=5)
@@ -1196,12 +1214,14 @@ class TestCallLlmRetry:
         """APIError (5xx) on first attempt, success on 2nd → returns parsed result."""
         clf = _make_classifier(sample_config)
         good_response = self._make_response('{"label": "adversarial", "confidence": 88}')
-        clf.client.chat.completions.create = MagicMock(
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = MagicMock(
             side_effect=[
                 openai.APIError(message="server error", request=MagicMock(), body=None),
                 good_response,
             ]
         )
+        clf._get_client = MagicMock(return_value=mock_client)
         with patch("src.llm_classifier.llm_classifier.time.sleep"):
             result = clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
         assert result.get("label") == "adversarial"

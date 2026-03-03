@@ -18,6 +18,7 @@ Produces per-dataset:
 
 import argparse
 import os
+import time
 from pathlib import Path
 
 import dotenv
@@ -47,6 +48,26 @@ EXTERNAL_GT_COLS = [
     "label_binary",
     "label_category",
     "label_type",
+]
+
+LLM_OUTPUT_COLUMNS = [
+    "sample_id",
+    "llm_pred_binary",
+    "llm_pred_raw",
+    "llm_pred_category",
+    "llm_conf_binary",
+    "llm_evidence",
+    "llm_stages_run",
+    "clf_label",
+    "clf_category",
+    "clf_confidence",
+    "clf_evidence",
+    "clf_nlp_attack_type",
+    "judge_independent_label",
+    "judge_category",
+    "judge_independent_confidence",
+    "judge_independent_evidence",
+    "judge_computed_decision",
 ]
 
 
@@ -87,49 +108,115 @@ def run_ml_full(ml_model, df: pd.DataFrame, text_col: str) -> pd.DataFrame:
     return result
 
 
+def _llm_result_to_row(result: dict, sample_id: str) -> dict:
+    """Convert raw classifier output to persisted LLM prediction row."""
+    return {
+        "sample_id": sample_id,
+        "llm_pred_binary": result["label_binary"],
+        "llm_pred_raw": result["label"],
+        "llm_pred_category": result["label_category"],
+        "llm_conf_binary": result["confidence"],
+        "llm_evidence": result.get("evidence", ""),
+        "llm_stages_run": result.get("llm_stages_run"),
+        "clf_label": result.get("clf_label"),
+        "clf_category": result.get("clf_category"),
+        "clf_confidence": result.get("clf_confidence"),
+        "clf_evidence": result.get("clf_evidence", ""),
+        "clf_nlp_attack_type": result.get("clf_nlp_attack_type", "none"),
+        "judge_independent_label": result.get("judge_independent_label"),
+        "judge_category": result.get("judge_category"),
+        "judge_independent_confidence": result.get("judge_independent_confidence"),
+        "judge_independent_evidence": result.get("judge_independent_evidence"),
+        "judge_computed_decision": result.get("judge_computed_decision"),
+    }
+
+
+def _normalize_existing_llm_df(llm_df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize existing artifacts to current expected schema."""
+    normalized = llm_df.copy()
+    for col in LLM_OUTPUT_COLUMNS:
+        if col not in normalized.columns:
+            normalized[col] = None
+    return normalized[LLM_OUTPUT_COLUMNS].drop_duplicates("sample_id", keep="last")
+
+
+def _write_parquet_atomic(df: pd.DataFrame, path: Path) -> None:
+    """Write parquet atomically to avoid corrupted checkpoints on interruption."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+    df.to_parquet(tmp_path, index=False)
+    tmp_path.replace(path)
+
+
 def run_llm_full(
     df: pd.DataFrame,
     cfg: dict,
     text_col: str,
     force_all_stages: bool = False,
-) -> pd.DataFrame:
-    """Run LLM classifier on all samples and return predictions DataFrame."""
+    llm_predictions_path: Path | None = None,
+    resume: bool = True,
+    checkpoint_every: int = 0,
+    max_concurrency: int | None = None,
+) -> tuple[pd.DataFrame, dict]:
+    """Run LLM classifier and return predictions + runtime metadata."""
+    t0 = time.time()
     df_train = pd.read_parquet(SPLITS_DIR / "train.parquet")
     few_shot, _ = build_few_shot_examples(df_train, cfg)
     classifier = HierarchicalLLMClassifier(cfg, few_shot)
 
+    sample_ids = df[text_col].reset_index(drop=True).apply(build_sample_id).tolist()
+    existing_df = pd.DataFrame(columns=LLM_OUTPUT_COLUMNS)
+    if resume and llm_predictions_path is not None and llm_predictions_path.exists():
+        existing_df = _normalize_existing_llm_df(pd.read_parquet(llm_predictions_path))
+    sample_id_set = set(sample_ids)
+    existing_df = existing_df[existing_df["sample_id"].isin(sample_id_set)].reset_index(drop=True)
+    existing_ids = set(existing_df["sample_id"].tolist())
+
+    pending_indices = [idx for idx, sid in enumerate(sample_ids) if sid not in existing_ids]
+    pending_ids = [sample_ids[idx] for idx in pending_indices]
+    pending_texts = [df[text_col].iloc[idx] for idx in pending_indices]
+    pending_rows: dict[str, dict] = {}
+
+    def on_result(idx: int, result: dict) -> None:
+        pending_rows[pending_ids[idx]] = _llm_result_to_row(result, pending_ids[idx])
+        if (
+            checkpoint_every > 0
+            and llm_predictions_path is not None
+            and len(pending_rows) % checkpoint_every == 0
+        ):
+            checkpoint_df = pd.DataFrame(list(pending_rows.values()))
+            merged = pd.concat([existing_df, checkpoint_df], ignore_index=True)
+            merged = _normalize_existing_llm_df(merged)
+            _write_parquet_atomic(merged, llm_predictions_path)
+
     results = classifier.predict_batch(
-        df[text_col].tolist(),
+        pending_texts,
         desc="LLM classifying",
         force_all_stages=force_all_stages,
+        max_workers=max_concurrency,
+        on_result=on_result if checkpoint_every > 0 and llm_predictions_path is not None else None,
     )
 
-    rows = []
-    for r in results:
-        rows.append({
-            # Final prediction
-            "llm_pred_binary": r["label_binary"],
-            "llm_pred_raw": r["label"],
-            "llm_pred_category": r["label_category"],
-            "llm_conf_binary": r["confidence"],
-            "llm_evidence": r.get("evidence", ""),
-            "llm_stages_run": r.get("llm_stages_run"),
-            # Classifier stage
-            "clf_label": r.get("clf_label"),
-            "clf_category": r.get("clf_category"),
-            "clf_confidence": r.get("clf_confidence"),
-            "clf_evidence": r.get("clf_evidence", ""),
-            "clf_nlp_attack_type": r.get("clf_nlp_attack_type", "none"),
-            # Judge stage (None if not run)
-            "judge_independent_label": r.get("judge_independent_label"),
-            "judge_category": r.get("judge_category"),
-            "judge_independent_confidence": r.get("judge_independent_confidence"),
-            "judge_independent_evidence": r.get("judge_independent_evidence"),
-            "judge_computed_decision": r.get("judge_computed_decision"),
-        })
-    result = pd.DataFrame(rows)
-    result.insert(0, "sample_id", df[text_col].reset_index(drop=True).apply(build_sample_id))
-    return result
+    if not pending_rows and results:
+        pending_rows = {
+            pending_ids[idx]: _llm_result_to_row(result, pending_ids[idx])
+            for idx, result in enumerate(results)
+        }
+
+    new_df = pd.DataFrame(list(pending_rows.values())) if pending_rows else pd.DataFrame(columns=LLM_OUTPUT_COLUMNS)
+    merged_df = pd.concat([existing_df, new_df], ignore_index=True)
+    merged_df = _normalize_existing_llm_df(merged_df)
+    result = merged_df.set_index("sample_id").reindex(sample_ids).reset_index()
+    result = _normalize_existing_llm_df(result)
+
+    meta = {
+        "n_total": len(sample_ids),
+        "n_resumed": len(existing_ids),
+        "n_new": len(pending_indices),
+        "elapsed_s": time.time() - t0,
+        "usage": classifier.usage.to_dict(),
+    }
+    return result, meta
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +445,9 @@ def run_research_single(
     llm_predictions_path: str | None = None,
     skip_llm: bool = True,
     force_all_stages: bool = False,
+    llm_max_concurrency: int | None = None,
+    llm_checkpoint_every: int | None = None,
+    llm_resume: bool | None = None,
     limit: int | None = None,
 ) -> pd.DataFrame:
     """Run research-mode pipeline on a single external dataset."""
@@ -383,12 +473,44 @@ def run_research_single(
     llm_path = Path(llm_predictions_path) if llm_predictions_path else default_llm_predictions_path(ds_key)
 
     if mode == "llm":
+        llm_cfg = cfg.get("llm", {})
+        effective_resume = llm_cfg.get("resume", True) if llm_resume is None else llm_resume
+        effective_checkpoint = (
+            int(llm_cfg.get("checkpoint_every", 200))
+            if llm_checkpoint_every is None else int(llm_checkpoint_every)
+        )
+        effective_concurrency = (
+            int(llm_cfg.get("max_concurrency", 8))
+            if llm_max_concurrency is None else int(llm_max_concurrency)
+        )
         print("  Running LLM classifier...")
-        llm_df = run_llm_full(df, cfg, "modified_sample", force_all_stages=force_all_stages)
-        PREDICTIONS_EXTERNAL_DIR.mkdir(parents=True, exist_ok=True)
-        llm_path.parent.mkdir(parents=True, exist_ok=True)
-        llm_df.to_parquet(llm_path, index=False)
+        print(
+            "  LLM settings: "
+            f"max_concurrency={effective_concurrency}, "
+            f"resume={effective_resume}, checkpoint_every={effective_checkpoint}"
+        )
+        llm_df, llm_meta = run_llm_full(
+            df,
+            cfg,
+            "modified_sample",
+            force_all_stages=force_all_stages,
+            llm_predictions_path=llm_path,
+            resume=effective_resume,
+            checkpoint_every=effective_checkpoint,
+            max_concurrency=effective_concurrency,
+        )
+        _write_parquet_atomic(llm_df, llm_path)
         print(f"  LLM predictions saved -> {llm_path} (shape: {llm_df.shape})")
+        elapsed = llm_meta["elapsed_s"]
+        n_total = llm_meta["n_total"]
+        n_new = llm_meta["n_new"]
+        throughput = (n_new / elapsed) if elapsed > 0 else 0.0
+        print(
+            "  LLM summary: "
+            f"total={n_total}, resumed={llm_meta['n_resumed']}, newly_classified={n_new}, "
+            f"elapsed={elapsed:.1f}s, throughput={throughput:.2f} samples/s"
+        )
+        print(f"  LLM usage stats: {llm_meta['usage']}")
         return llm_df
 
     if mode == "hybrid":
@@ -507,6 +629,25 @@ def main():
     parser.set_defaults(skip_llm=None)
     parser.add_argument("--force-all-stages", action="store_true",
                         default=False, help="Force LLM to run all 3 stages on every sample")
+    parser.add_argument(
+        "--llm-max-concurrency",
+        type=int,
+        default=None,
+        help="Max parallel workers for LLM classification (defaults to config llm.max_concurrency)",
+    )
+    parser.add_argument(
+        "--llm-checkpoint-every",
+        type=int,
+        default=None,
+        help="Checkpoint every N newly classified samples in mode=llm (defaults to config llm.checkpoint_every)",
+    )
+    parser.add_argument(
+        "--no-llm-resume",
+        action="store_false",
+        dest="llm_resume",
+        default=None,
+        help="Disable resume from existing llm_predictions parquet in mode=llm",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -529,6 +670,9 @@ def main():
         llm_predictions_path=args.llm_predictions_path,
         skip_llm=skip_llm,
         force_all_stages=args.force_all_stages,
+        llm_max_concurrency=args.llm_max_concurrency,
+        llm_checkpoint_every=args.llm_checkpoint_every,
+        llm_resume=args.llm_resume,
         limit=args.limit,
     )
 

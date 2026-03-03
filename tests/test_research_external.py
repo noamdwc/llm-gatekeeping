@@ -13,6 +13,7 @@ from src.cli.research_external import (
     default_llm_predictions_path,
     generate_research_report,
     load_llm_predictions_required,
+    run_llm_full,
     resolve_skip_llm,
 )
 from src.utils import build_sample_id
@@ -418,3 +419,98 @@ class TestExternalLlmArtifactHelpers:
         pd.DataFrame(columns=["sample_id", "llm_pred_binary"]).to_parquet(p, index=False)
         with pytest.raises(RuntimeError, match="non-empty LLM predictions"):
             load_llm_predictions_required("deepset", p)
+
+
+class TestRunLlmFull:
+    """Tests for run_llm_full resume behavior."""
+
+    def test_resume_uses_existing_rows_and_classifies_only_missing(self, sample_config, tmp_path):
+        df = pd.DataFrame({
+            "modified_sample": ["text_0", "text_1"],
+            "label_binary": ["adversarial", "benign"],
+            "label_category": ["adversarial", "benign"],
+            "label_type": ["adversarial", "benign"],
+        })
+        path = tmp_path / "llm_predictions.parquet"
+        existing = pd.DataFrame({
+            "sample_id": [build_sample_id("text_0")],
+            "llm_pred_binary": ["adversarial"],
+            "llm_pred_raw": ["adversarial"],
+            "llm_pred_category": ["unicode_attack"],
+            "llm_conf_binary": [0.91],
+            "llm_evidence": [""],
+            "llm_stages_run": [1],
+            "clf_label": ["adversarial"],
+            "clf_category": ["unicode_attack"],
+            "clf_confidence": [0.91],
+            "clf_evidence": [""],
+            "clf_nlp_attack_type": ["none"],
+            "judge_independent_label": [None],
+            "judge_category": [None],
+            "judge_independent_confidence": [None],
+            "judge_independent_evidence": [None],
+            "judge_computed_decision": [None],
+        })
+        existing.to_parquet(path, index=False)
+
+        train_df = pd.DataFrame({
+            "modified_sample": ["seed text"],
+            "attack_name": ["benign"],
+        })
+        orig_read_parquet = pd.read_parquet
+
+        class DummyUsage:
+            @staticmethod
+            def to_dict():
+                return {"total_calls": 1, "calls_by_stage": {"classifier": 1}}
+
+        class DummyClassifier:
+            def __init__(self, *_args, **_kwargs):
+                self.usage = DummyUsage()
+
+            def predict_batch(self, texts, **_kwargs):
+                assert texts == ["text_1"]
+                return [{
+                    "label_binary": "benign",
+                    "label": "benign",
+                    "label_category": "benign",
+                    "confidence": 0.86,
+                    "evidence": "",
+                    "llm_stages_run": 1,
+                    "clf_label": "benign",
+                    "clf_category": "benign",
+                    "clf_confidence": 0.86,
+                    "clf_evidence": "",
+                    "clf_nlp_attack_type": "none",
+                    "judge_independent_label": None,
+                    "judge_category": None,
+                    "judge_independent_confidence": None,
+                    "judge_independent_evidence": None,
+                    "judge_computed_decision": None,
+                }]
+
+        def fake_read_parquet(path_like, *args, **kwargs):
+            if str(path_like).endswith("train.parquet"):
+                return train_df
+            return orig_read_parquet(path_like, *args, **kwargs)
+
+        with patch("src.cli.research_external.pd.read_parquet", side_effect=fake_read_parquet):
+            with patch("src.cli.research_external.build_few_shot_examples", return_value=([], [])):
+                with patch("src.cli.research_external.HierarchicalLLMClassifier", DummyClassifier):
+                    llm_df, meta = run_llm_full(
+                        df,
+                        sample_config,
+                        "modified_sample",
+                        llm_predictions_path=path,
+                        resume=True,
+                        checkpoint_every=1,
+                        max_concurrency=2,
+                    )
+
+        assert len(llm_df) == 2
+        assert list(llm_df["sample_id"]) == [build_sample_id("text_0"), build_sample_id("text_1")]
+        assert llm_df.loc[llm_df["sample_id"] == build_sample_id("text_0"), "llm_pred_binary"].iloc[0] == "adversarial"
+        assert llm_df.loc[llm_df["sample_id"] == build_sample_id("text_1"), "llm_pred_binary"].iloc[0] == "benign"
+        assert meta["n_total"] == 2
+        assert meta["n_resumed"] == 1
+        assert meta["n_new"] == 1
