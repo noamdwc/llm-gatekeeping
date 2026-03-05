@@ -293,6 +293,25 @@ class TestComputeHybridRouting:
         result = compute_hybrid_routing(ml_df, llm_df, threshold=0.85)
         assert result.iloc[0]["hybrid_routed_to"] == "llm"
 
+    def test_non_unicode_adversarial_high_confidence_escalates(self):
+        """High-confidence adversarial rows outside unicode lane should escalate."""
+        ml_df = self._make_ml_df([0.99], preds_binary=["adversarial"])
+        ml_df["ml_pred_category"] = ["nlp_attack"]
+        ml_df["ml_pred_type"] = ["TextFooler"]
+        llm_df = self._make_llm_df(1)
+        result = compute_hybrid_routing(ml_df, llm_df, threshold=0.85)
+        assert result.iloc[0]["hybrid_routed_to"] == "llm"
+
+    def test_low_llm_confidence_routes_to_abstain_and_forces_adversarial(self):
+        """Escalated low-confidence LLM rows should abstain and force binary adversarial."""
+        ml_df = self._make_ml_df([0.20], preds_binary=["adversarial"])
+        llm_df = self._make_llm_df(1)
+        llm_df["llm_conf_binary"] = [0.1]
+        llm_df["llm_pred_binary"] = ["benign"]
+        result = compute_hybrid_routing(ml_df, llm_df, threshold=0.85, llm_conf_threshold=0.7)
+        assert result.iloc[0]["hybrid_routed_to"] == "abstain"
+        assert result.iloc[0]["hybrid_pred_binary"] == "adversarial"
+
     def test_strict_mode_requires_llm_df(self):
         """Strict hybrid mode should fail when llm_df is missing."""
         ml_df = self._make_ml_df([0.50])
@@ -428,4 +447,5 @@ class TestHybridReportDiagnostics:
         generate_hybrid_report(df, str(out))
         text = out.read_text()
         assert "## Routing Diagnostics" in text
-        assert "| ml_pred_label | routed_ml | routed_llm | escalation_rate |" in text
+        assert "| ml_pred_label | routed_ml | routed_llm | routed_abstain | escalation_rate |" in text
+        assert "| unicode_lane | total | fastpath_ml | escalated_llm_or_abstain |" in text

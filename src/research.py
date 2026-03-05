@@ -46,6 +46,10 @@ def _normalize_binary_label(label) -> str:
     return str(label).strip().lower().replace("-", "_")
 
 
+def _normalize_attack_token(value) -> str:
+    return str(value).strip().lower().replace("-", "_").replace(" ", "_")
+
+
 def _is_adversarial_label(label) -> bool:
     norm = _normalize_binary_label(label)
     return norm in ADVERSARIAL_LABEL_ALIASES or norm.startswith("adv")
@@ -64,42 +68,119 @@ def _format_llm_required_error(
     return "\n".join(lines)
 
 
+def _compute_unicode_lane_mask(
+    df: pd.DataFrame,
+    category_col: str = "ml_pred_category",
+    type_col: str = "ml_pred_type",
+    unicode_types: list[str] | set[str] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return (unicode_lane_mask, lane_reliable_mask)."""
+    n = len(df)
+    if n == 0:
+        return np.zeros(0, dtype=bool), np.zeros(0, dtype=bool)
+
+    if category_col in df.columns:
+        category = df[category_col]
+        cat_has_value = category.notna().values
+        cat_norm = category.astype(str).map(_normalize_attack_token)
+        unicode_by_category = (cat_norm == "unicode_attack").values
+    else:
+        cat_has_value = np.zeros(n, dtype=bool)
+        unicode_by_category = np.zeros(n, dtype=bool)
+        cat_norm = pd.Series([""] * n)
+
+    if type_col in df.columns:
+        attack_type = df[type_col]
+        type_has_value = attack_type.notna().values
+        type_norm = attack_type.astype(str).map(_normalize_attack_token)
+    else:
+        type_has_value = np.zeros(n, dtype=bool)
+        type_norm = pd.Series([""] * n)
+
+    unicode_types_norm = {
+        _normalize_attack_token(v)
+        for v in (unicode_types or [])
+        if v is not None and pd.notna(v)
+    }
+    if not unicode_types_norm and type_col in df.columns and category_col in df.columns:
+        unicode_types_norm = {
+            t for t, is_unicode_cat in zip(type_norm.values, unicode_by_category) if is_unicode_cat and t
+        }
+
+    unicode_by_type = type_norm.isin(unicode_types_norm).values if unicode_types_norm else np.zeros(n, dtype=bool)
+    unicode_lane = unicode_by_category | unicode_by_type
+    lane_reliable = cat_has_value | type_has_value
+    return unicode_lane, lane_reliable
+
+
 def compute_routing_diagnostics(
     df: pd.DataFrame,
     ml_pred_col: str = "ml_pred_binary",
     route_col: str = "hybrid_routed_to",
+    ml_category_col: str = "ml_pred_category",
+    ml_type_col: str = "ml_pred_type",
+    unicode_types: list[str] | set[str] | None = None,
 ) -> dict:
     """Compute additive routing diagnostics for hybrid reports."""
     total = int(len(df))
     routed_ml = int((df[route_col] == "ml").sum()) if total else 0
     routed_llm = int((df[route_col] == "llm").sum()) if total else 0
+    routed_abstain = int((df[route_col] == "abstain").sum()) if total else 0
 
     ml_is_adv = df[ml_pred_col].map(_is_adversarial_label) if total else pd.Series(dtype=bool)
     ben_mask = ~ml_is_adv if total else pd.Series(dtype=bool)
     adv_mask = ml_is_adv if total else pd.Series(dtype=bool)
+    esc_mask = (df[route_col] == "llm") | (df[route_col] == "abstain") if total else pd.Series(dtype=bool)
 
     ben_total = int(ben_mask.sum()) if total else 0
     ben_to_ml = int(((df[route_col] == "ml") & ben_mask).sum()) if total else 0
     ben_to_llm = int(((df[route_col] == "llm") & ben_mask).sum()) if total else 0
+    ben_to_abstain = int(((df[route_col] == "abstain") & ben_mask).sum()) if total else 0
 
     adv_total = int(adv_mask.sum()) if total else 0
     adv_to_ml = int(((df[route_col] == "ml") & adv_mask).sum()) if total else 0
     adv_to_llm = int(((df[route_col] == "llm") & adv_mask).sum()) if total else 0
+    adv_to_abstain = int(((df[route_col] == "abstain") & adv_mask).sum()) if total else 0
+
+    unicode_lane, lane_reliable = _compute_unicode_lane_mask(
+        df,
+        category_col=ml_category_col,
+        type_col=ml_type_col,
+        unicode_types=unicode_types,
+    )
+    unicode_true_total = int(unicode_lane.sum()) if total else 0
+    unicode_false_total = int((~unicode_lane).sum()) if total else 0
+    unknown_lane_total = int((~lane_reliable).sum()) if total else 0
+    unicode_true_fastpath_ml = int(((df[route_col] == "ml") & unicode_lane).sum()) if total else 0
+    unicode_true_escalated = int((esc_mask & unicode_lane).sum()) if total else 0
+    unicode_false_fastpath_ml = int(((df[route_col] == "ml") & ~unicode_lane).sum()) if total else 0
+    unicode_false_escalated = int((esc_mask & ~unicode_lane).sum()) if total else 0
 
     return {
         "total_samples": total,
         "routed_ml": routed_ml,
         "routed_llm": routed_llm,
+        "routed_abstain": routed_abstain,
         "routed_ml_rate": (routed_ml / total) if total else 0.0,
         "routed_llm_rate": (routed_llm / total) if total else 0.0,
+        "routed_abstain_rate": (routed_abstain / total) if total else 0.0,
         "ml_pred_benign_total": ben_total,
         "ml_pred_benign_routed_ml": ben_to_ml,
         "ml_pred_benign_routed_llm": ben_to_llm,
-        "ml_pred_benign_escalation_rate": (ben_to_llm / ben_total) if ben_total else 0.0,
+        "ml_pred_benign_routed_abstain": ben_to_abstain,
+        "ml_pred_benign_escalation_rate": ((ben_to_llm + ben_to_abstain) / ben_total) if ben_total else 0.0,
         "ml_pred_adversarial_total": adv_total,
         "ml_pred_adversarial_routed_ml": adv_to_ml,
         "ml_pred_adversarial_routed_llm": adv_to_llm,
-        "ml_pred_adversarial_escalation_rate": (adv_to_llm / adv_total) if adv_total else 0.0,
+        "ml_pred_adversarial_routed_abstain": adv_to_abstain,
+        "ml_pred_adversarial_escalation_rate": ((adv_to_llm + adv_to_abstain) / adv_total) if adv_total else 0.0,
+        "unicode_lane_true_total": unicode_true_total,
+        "unicode_lane_false_total": unicode_false_total,
+        "unicode_lane_unknown_total": unknown_lane_total,
+        "unicode_lane_true_fastpath_ml": unicode_true_fastpath_ml,
+        "unicode_lane_true_escalated": unicode_true_escalated,
+        "unicode_lane_false_fastpath_ml": unicode_false_fastpath_ml,
+        "unicode_lane_false_escalated": unicode_false_escalated,
     }
 
 
@@ -111,18 +192,35 @@ def render_routing_diagnostics_markdown(diag: dict) -> str:
         f"- total_samples: {diag['total_samples']}",
         f"- routed_ml: {diag['routed_ml']} ({diag['routed_ml_rate']:.4f})",
         f"- routed_llm: {diag['routed_llm']} ({diag['routed_llm_rate']:.4f})",
+        f"- routed_abstain: {diag['routed_abstain']} ({diag['routed_abstain_rate']:.4f})",
+        f"- unicode_lane_unknown_total: {diag['unicode_lane_unknown_total']}",
         "",
-        "| ml_pred_label | routed_ml | routed_llm | escalation_rate |",
-        "|---------------|-----------|------------|-----------------|",
+        "| ml_pred_label | routed_ml | routed_llm | routed_abstain | escalation_rate |",
+        "|---------------|-----------|------------|----------------|-----------------|",
         (
             f"| benign | {diag['ml_pred_benign_routed_ml']} | "
             f"{diag['ml_pred_benign_routed_llm']} | "
+            f"{diag['ml_pred_benign_routed_abstain']} | "
             f"{diag['ml_pred_benign_escalation_rate']:.4f} |"
         ),
         (
             f"| adversarial | {diag['ml_pred_adversarial_routed_ml']} | "
             f"{diag['ml_pred_adversarial_routed_llm']} | "
+            f"{diag['ml_pred_adversarial_routed_abstain']} | "
             f"{diag['ml_pred_adversarial_escalation_rate']:.4f} |"
+        ),
+        "",
+        "| unicode_lane | total | fastpath_ml | escalated_llm_or_abstain |",
+        "|--------------|-------|-------------|---------------------------|",
+        (
+            f"| True | {diag['unicode_lane_true_total']} | "
+            f"{diag['unicode_lane_true_fastpath_ml']} | "
+            f"{diag['unicode_lane_true_escalated']} |"
+        ),
+        (
+            f"| False | {diag['unicode_lane_false_total']} | "
+            f"{diag['unicode_lane_false_fastpath_ml']} | "
+            f"{diag['unicode_lane_false_escalated']} |"
         ),
         "",
     ]
@@ -133,6 +231,8 @@ def compute_hybrid_routing(
     ml_df: pd.DataFrame,
     llm_df: pd.DataFrame | None,
     threshold: float,
+    llm_conf_threshold: float = 0.7,
+    unicode_types: list[str] | set[str] | None = None,
     require_llm_for_escalations: bool = False,
     llm_required_path: str | None = None,
     llm_generation_hint: str | None = None,
@@ -145,7 +245,10 @@ def compute_hybrid_routing(
 
     Specialist policy:
       - ML benign (or non-adversarial) predictions always escalate to LLM.
-      - ML adversarial predictions route to ML only when confidence >= threshold.
+      - ML adversarial predictions route to ML only when confidence >= threshold
+        and the prediction is in unicode lane.
+      - If escalated LLM confidence < llm_conf_threshold, route to abstain and
+        force binary output to adversarial.
 
     Returns DataFrame with: sample_id, hybrid_routed_to, hybrid_pred_{binary,category,type}
     """
@@ -155,13 +258,21 @@ def compute_hybrid_routing(
     ml_pred_binary = ml_df["ml_pred_binary"].values
 
     ml_adv_mask = np.array([_is_adversarial_label(v) for v in ml_pred_binary], dtype=bool)
-    confident = ml_adv_mask & (ml_conf >= threshold)
+    unicode_lane, lane_reliable = _compute_unicode_lane_mask(ml_df, unicode_types=unicode_types)
+    confident = ml_adv_mask & unicode_lane & (ml_conf >= threshold)
     n_ml_fastpath = int(confident.sum())
     n_llm_candidates = int((~confident).sum())
     print(
         "  [research routing] "
-        f"threshold={threshold} | ml_confident_adv_fastpath={n_ml_fastpath} | "
+        f"threshold={threshold} | llm_conf_threshold={llm_conf_threshold} | "
+        f"ml_confident_unicode_adv_fastpath={n_ml_fastpath} | "
         f"llm_escalation_candidates={n_llm_candidates}"
+    )
+    print(
+        "  [research routing] lane coverage | "
+        f"unicode_lane_true={int(unicode_lane.sum())} | "
+        f"unicode_lane_false={int((~unicode_lane).sum())} | "
+        f"unicode_lane_unknown={int((~lane_reliable).sum())}"
     )
 
     if require_llm_for_escalations and llm_df is None:
@@ -207,6 +318,13 @@ def compute_hybrid_routing(
             # Override category if LLM provides it (llm_pred_category exists when LLM derives category)
             if "llm_pred_category" in llm_indexed.columns:
                 result.loc[override_idx, "hybrid_pred_category"] = llm_rows["llm_pred_category"].values
+            if "llm_conf_binary" in llm_indexed.columns:
+                llm_conf = llm_rows["llm_conf_binary"].fillna(0.5).astype(float).values
+                abstain_mask = llm_conf < llm_conf_threshold
+                abstain_idx = override_idx[abstain_mask]
+                if len(abstain_idx) > 0:
+                    result.loc[abstain_idx, "hybrid_routed_to"] = "abstain"
+                    result.loc[abstain_idx, "hybrid_pred_binary"] = "adversarial"
             # LLM does not provide type-level predictions; hybrid_pred_type stays as ML's prediction
 
         # Escalated rows without LLM fall back to ML (predictions already set);
@@ -237,12 +355,24 @@ def compute_hybrid_routing(
         result["hybrid_routed_to"] = "ml"
         print("  [research routing] llm_df missing -> ML fallback for all rows")
 
-    route_diag = compute_routing_diagnostics(result.assign(ml_pred_binary=ml_df["ml_pred_binary"].values))
+    route_diag = compute_routing_diagnostics(
+        result.assign(
+            ml_pred_binary=ml_df["ml_pred_binary"].values,
+            ml_pred_category=(
+                ml_df["ml_pred_category"].values if "ml_pred_category" in ml_df.columns else None
+            ),
+            ml_pred_type=(
+                ml_df["ml_pred_type"].values if "ml_pred_type" in ml_df.columns else None
+            ),
+        ),
+        unicode_types=unicode_types,
+    )
     print(f"  [research routing] final routing counts={result['hybrid_routed_to'].value_counts().to_dict()}")
     print(
         "  [research routing] diagnostics | "
         f"ml_pred_benign_to_llm_rate={route_diag['ml_pred_benign_escalation_rate']:.4f} | "
-        f"ml_pred_adv_to_llm_rate={route_diag['ml_pred_adversarial_escalation_rate']:.4f}"
+        f"ml_pred_adv_to_llm_rate={route_diag['ml_pred_adversarial_escalation_rate']:.4f} | "
+        f"routed_abstain={route_diag['routed_abstain']}"
     )
 
     return result
@@ -291,7 +421,11 @@ def generate_ml_report(research_df: pd.DataFrame, output_path: str):
     return binary
 
 
-def generate_hybrid_report(research_df: pd.DataFrame, output_path: str):
+def generate_hybrid_report(
+    research_df: pd.DataFrame,
+    output_path: str,
+    unicode_types: list[str] | set[str] | None = None,
+):
     """Generate hybrid evaluation report from the research DataFrame."""
     binary = binary_metrics(research_df["label_binary"], research_df["hybrid_pred_binary"])
     cat = category_metrics(research_df["label_category"], research_df["hybrid_pred_category"])
@@ -304,14 +438,17 @@ def generate_hybrid_report(research_df: pd.DataFrame, output_path: str):
     )
 
     # Add routing stats as usage info
-    routing_diag = compute_routing_diagnostics(research_df)
+    routing_diag = compute_routing_diagnostics(research_df, unicode_types=unicode_types)
     usage = {
         "routed_ml": routing_diag["routed_ml"],
         "routed_llm": routing_diag["routed_llm"],
+        "routed_abstain": routing_diag["routed_abstain"],
         "ml_pred_benign_routed_ml": routing_diag["ml_pred_benign_routed_ml"],
         "ml_pred_benign_routed_llm": routing_diag["ml_pred_benign_routed_llm"],
+        "ml_pred_benign_routed_abstain": routing_diag["ml_pred_benign_routed_abstain"],
         "ml_pred_adversarial_routed_ml": routing_diag["ml_pred_adversarial_routed_ml"],
         "ml_pred_adversarial_routed_llm": routing_diag["ml_pred_adversarial_routed_llm"],
+        "ml_pred_adversarial_routed_abstain": routing_diag["ml_pred_adversarial_routed_abstain"],
     }
 
     report = generate_report(research_df, binary, cat, types, cal, usage,
@@ -361,6 +498,8 @@ def main():
 
     cfg = load_config(args.config)
     threshold = cfg["hybrid"]["ml_confidence_threshold"]
+    llm_threshold = cfg["hybrid"]["llm_confidence_threshold"]
+    unicode_types = cfg.get("labels", {}).get("unicode_attacks", [])
 
     # ── Read pre-computed ML predictions ─────────────────────────────────────
     ml_path = PREDICTIONS_DIR / f"ml_predictions_{args.split}.parquet"
@@ -383,7 +522,13 @@ def main():
 
     # ── Compute hybrid routing ───────────────────────────────────────────────
     print(f"Computing hybrid routing (threshold={threshold})...")
-    hybrid_df = compute_hybrid_routing(ml_df, llm_df, threshold)
+    hybrid_df = compute_hybrid_routing(
+        ml_df,
+        llm_df,
+        threshold,
+        llm_conf_threshold=llm_threshold,
+        unicode_types=unicode_types,
+    )
 
     # ── Build wide research DataFrame ────────────────────────────────────────
     research_df = build_research_dataframe(ml_df, hybrid_df, llm_df)
@@ -401,7 +546,11 @@ def main():
 
     print("\nGenerating reports...")
     generate_ml_report(research_df, str(REPORTS_RESEARCH_DIR / "eval_report_ml.md"))
-    generate_hybrid_report(research_df, str(REPORTS_RESEARCH_DIR / "eval_report_hybrid.md"))
+    generate_hybrid_report(
+        research_df,
+        str(REPORTS_RESEARCH_DIR / "eval_report_hybrid.md"),
+        unicode_types=unicode_types,
+    )
     if llm_df is not None:
         generate_llm_report(research_df, str(REPORTS_RESEARCH_DIR / "eval_report_llm.md"))
 

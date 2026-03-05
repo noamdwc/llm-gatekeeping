@@ -12,13 +12,13 @@ Usage:
 """
 
 import argparse
-import json
 from pathlib import Path
 
 import pandas as pd
 from datasets import load_dataset
 
 from src.evaluate import binary_metrics, calibration_metrics
+from src.research import compute_routing_diagnostics, render_routing_diagnostics_markdown
 from src.utils import load_config, MODELS_DIR, SPLITS_DIR, REPORTS_EXTERNAL_DIR
 
 
@@ -128,8 +128,13 @@ def generate_binary_report(
     if router_stats:
         lines.append("## Router Stats\n")
         for k, v in router_stats.items():
+            if k == "routing_diagnostics":
+                continue
             lines.append(f"- {k}: {v}")
         lines.append("")
+        if "routing_diagnostics" in router_stats:
+            lines.append(render_routing_diagnostics_markdown(router_stats["routing_diagnostics"]))
+            lines.append("")
 
     return "\n".join(lines)
 
@@ -192,7 +197,16 @@ def evaluate_hybrid(
     binary = binary_metrics(df["label_binary"], pred_binary)
     cal = calibration_metrics(df["label_binary"], pred_binary, conf_binary)
 
-    return binary, cal, router.stats.to_dict()
+    routing_diag = compute_routing_diagnostics(
+        preds,
+        ml_pred_col="ml_pred_binary",
+        route_col="routed_to",
+        ml_category_col="ml_pred_category",
+        ml_type_col="ml_pred_type",
+        unicode_types=cfg.get("labels", {}).get("unicode_attacks", []),
+    )
+    router_stats = {**router.stats.to_dict(), "routing_diagnostics": routing_diag}
+    return binary, cal, router_stats
 
 
 # ---------------------------------------------------------------------------

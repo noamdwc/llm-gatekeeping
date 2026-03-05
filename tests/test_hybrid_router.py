@@ -70,7 +70,7 @@ class TestPredictSingle:
         result = router.predict_single("text", ml_pred)
 
         assert result["routed_to"] == "ml"
-        assert result["route_reason"] == "ml_adv_high_conf_finalize"
+        assert result["route_reason"] == "ml_adv_high_conf_unicode_finalize"
         assert result["label_binary"] == "adversarial"
         assert result["label_category"] == "unicode_attack"
         assert result["label_type"] == "Diacritcs"
@@ -81,16 +81,18 @@ class TestPredictSingle:
         ml_pred = {
             "pred_label_binary": "AdVerSarial",
             "confidence_label_binary": 0.95,
+            "pred_label_category": "unicode_attack",
         }
         result = router.predict_single("text", ml_pred)
         assert result["routed_to"] == "ml"
-        assert result["route_reason"] == "ml_adv_high_conf_finalize"
+        assert result["route_reason"] == "ml_adv_high_conf_unicode_finalize"
 
     def test_low_ml_confidence_escalates_to_llm(self, router):
         """Low-confidence ML adversarial prediction escalates to LLM."""
         ml_pred = {
             "pred_label_binary": "adversarial",
             "confidence_label_binary": 0.5,  # below 0.85 threshold
+            "pred_label_category": "unicode_attack",
         }
         router.llm.predict.return_value = {
             "label": "adversarial",
@@ -111,15 +113,18 @@ class TestPredictSingle:
         ml_pred = {
             "pred_label_binary": "adversarial",
             "confidence_label_binary": 0.5,
+            "pred_label_category": "unicode_attack",
         }
         router.llm.predict.return_value = {
-            "label": "adversarial",
+            "label": "benign",
             "confidence": 0.3,  # below 0.7 threshold
         }
 
         result = router.predict_single("text", ml_pred)
         assert result["routed_to"] == "abstain"
         assert result["route_reason"] == "ml_adv_low_conf_escalate"
+        assert result["label"] == "uncertain"
+        assert result["label_binary"] == "adversarial"
 
     def test_benign_high_confidence_always_escalates(self, router):
         """Benign predictions are never finalized by ML."""
@@ -159,6 +164,7 @@ class TestPredictSingle:
         router.predict_single("t2", {
             "pred_label_binary": "adversarial",
             "confidence_label_binary": 0.4,
+            "pred_label_category": "unicode_attack",
         })
 
         assert router.stats.total == 2
@@ -170,6 +176,7 @@ class TestPredictSingle:
         ml_pred = {
             "pred_label_binary": "adversarial",
             "confidence_label_binary": 0.85,  # exactly at threshold
+            "pred_label_category": "unicode_attack",
         }
         result = router.predict_single("text", ml_pred)
         assert result["routed_to"] == "ml"
@@ -180,6 +187,7 @@ class TestPredictSingle:
             "pred_label_binary": "adversarial",
             "confidence_label_binary": 0.99,
             "confidence_label_binary_cal": 0.20,  # force escalation
+            "pred_label_category": "unicode_attack",
         }
         router.llm.predict.return_value = {
             "label_binary": "adversarial",
@@ -188,6 +196,36 @@ class TestPredictSingle:
         result = router.predict_single("text", ml_pred)
         assert result["routed_to"] == "llm"
         assert result["route_reason"] == "ml_adv_low_conf_escalate"
+
+    def test_non_unicode_adversarial_high_confidence_escalates(self, router):
+        """High-confidence non-unicode adversarial should not finalize via ML."""
+        ml_pred = {
+            "pred_label_binary": "adversarial",
+            "confidence_label_binary": 0.99,
+            "pred_label_category": "nlp_attack",
+            "pred_label_type": "TextFooler",
+        }
+        router.llm.predict.return_value = {
+            "label_binary": "adversarial",
+            "confidence": 0.95,
+        }
+        result = router.predict_single("text", ml_pred)
+        assert result["routed_to"] == "llm"
+        assert result["route_reason"] == "ml_adv_non_unicode_escalate"
+
+    def test_missing_lane_signal_escalates_safely(self, router):
+        """Missing category/type should default to escalation."""
+        ml_pred = {
+            "pred_label_binary": "adversarial",
+            "confidence_label_binary": 0.99,
+        }
+        router.llm.predict.return_value = {
+            "label_binary": "adversarial",
+            "confidence": 0.95,
+        }
+        result = router.predict_single("text", ml_pred)
+        assert result["routed_to"] == "llm"
+        assert result["route_reason"] == "ml_adv_unknown_lane_escalate"
 
     def test_supports_research_style_ml_keys(self, router):
         """Router accepts ml_* keys in addition to pred_* keys."""
@@ -221,6 +259,8 @@ class TestThresholdSweep:
         ml_preds = pd.DataFrame({
             "pred_label_binary": ["adversarial", "adversarial", "benign", "benign"],
             "confidence_label_binary": [0.99, 0.60, 0.95, 0.55],
+            "pred_label_category": ["unicode_attack", "unicode_attack", "benign", "benign"],
+            "pred_label_type": ["Diacritcs", "Zero Width", "benign", "benign"],
         })
         return df, ml_preds
 

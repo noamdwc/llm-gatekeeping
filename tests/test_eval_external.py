@@ -207,9 +207,37 @@ class TestGenerateBinaryReport:
             "support_benign": 60,
         }
         cal = {"calibration_buckets": []}
-        router_stats = {"ml_handled": 80, "llm_escalated": 20}
+        router_stats = {
+            "ml_handled": 80,
+            "llm_escalated": 20,
+            "routing_diagnostics": {
+                "total_samples": 100,
+                "routed_ml": 80,
+                "routed_llm": 15,
+                "routed_abstain": 5,
+                "routed_ml_rate": 0.8,
+                "routed_llm_rate": 0.15,
+                "routed_abstain_rate": 0.05,
+                "unicode_lane_unknown_total": 0,
+                "ml_pred_benign_routed_ml": 0,
+                "ml_pred_benign_routed_llm": 50,
+                "ml_pred_benign_routed_abstain": 5,
+                "ml_pred_benign_escalation_rate": 1.0,
+                "ml_pred_adversarial_routed_ml": 80,
+                "ml_pred_adversarial_routed_llm": 10,
+                "ml_pred_adversarial_routed_abstain": 0,
+                "ml_pred_adversarial_escalation_rate": 0.1111,
+                "unicode_lane_true_total": 70,
+                "unicode_lane_false_total": 30,
+                "unicode_lane_true_fastpath_ml": 70,
+                "unicode_lane_true_escalated": 0,
+                "unicode_lane_false_fastpath_ml": 10,
+                "unicode_lane_false_escalated": 20,
+            },
+        }
         report = generate_binary_report(
             "test", "test/dataset", "hybrid", 100, binary, cal, router_stats,
         )
         assert "Router Stats" in report
         assert "ml_handled" in report
+        assert "Routing Diagnostics" in report

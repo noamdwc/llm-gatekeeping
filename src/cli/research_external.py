@@ -525,11 +525,15 @@ def run_research_single(
         print("  [note] --no-skip-llm ignored in mode=ml.")
 
     threshold = cfg["hybrid"]["ml_confidence_threshold"]
+    llm_threshold = cfg["hybrid"]["llm_confidence_threshold"]
+    unicode_types = cfg.get("labels", {}).get("unicode_attacks", [])
     print(f"  Computing hybrid routing (threshold={threshold})...")
     hybrid_df = compute_hybrid_routing(
         ml_df,
         llm_df,
         threshold,
+        llm_conf_threshold=llm_threshold,
+        unicode_types=unicode_types,
         require_llm_for_escalations=(mode == "hybrid"),
         llm_required_path=str(llm_path) if mode == "hybrid" else None,
         llm_generation_hint=(
