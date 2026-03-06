@@ -49,6 +49,8 @@ def sample_config():
             "max_tokens_classifier": 60,
             "max_tokens_judge": 300,
             "judge_confidence_threshold": 0.7,
+            "capture_logprobs": False,
+            "top_logprobs": 3,
             "few_shot": {
                 "unicode": 2,
                 "nlp": 2,

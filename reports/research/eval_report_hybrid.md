@@ -1,18 +1,18 @@
-# Hybrid Router Evaluation Report
+# Hybrid Router Evaluation Report (Strict LLM Coverage)
 
 ## Binary Detection (Adversarial vs Benign)
 
 | Metric | Value |
 |--------|-------|
-| accuracy | 0.6219 |
-| adversarial_precision | 0.9938 |
-| adversarial_recall | 0.6034 |
-| adversarial_f1 | 0.7509 |
-| benign_precision | 0.1221 |
-| benign_recall | 0.9362 |
-| benign_f1 | 0.2160 |
-| false_positive_rate | 0.0638 |
-| false_negative_rate | 0.3966 |
+| accuracy | 0.7083 |
+| adversarial_precision | 0.9791 |
+| adversarial_recall | 0.7061 |
+| adversarial_f1 | 0.8205 |
+| benign_precision | 0.1299 |
+| benign_recall | 0.7447 |
+| benign_f1 | 0.2212 |
+| false_positive_rate | 0.2553 |
+| false_negative_rate | 0.2939 |
 | uncertain_rate | 0.0000 |
 | judge_override_rate | N/A |
 | support_adversarial | 1596 |
@@ -20,13 +20,13 @@
 
 ## Category Classification (Unicode vs NLP)
 
-- Accuracy: 0.5702
-- Macro F1: 0.5127
+- Accuracy: 0.5664
+- Macro F1: 0.4754
 
 Confusion matrix (rows=true, cols=pred):
 Labels: ['unicode_attack', 'nlp_attack']
-  [893, 0]
-  [32, 17]
+  [884, 0]
+  [190, 20]
 
 ## Per-Type Classification (Unicode Sub-Types)
 
@@ -54,28 +54,46 @@ Labels: ['unicode_attack', 'nlp_attack']
 
 | Bin | Count | Avg Confidence | Accuracy |
 |-----|-------|----------------|----------|
-| 0.5-0.6 | 43 | 0.547 | 0.465 |
-| 0.6-0.7 | 56 | 0.646 | 0.446 |
-| 0.7-0.8 | 63 | 0.753 | 0.270 |
-| 0.8-0.9 | 106 | 0.860 | 0.283 |
-| 0.9-1.0 | 1422 | 0.987 | 0.674 |
+| 0.5-0.6 | 43 | 0.547 | 0.488 |
+| 0.6-0.7 | 56 | 0.646 | 0.321 |
+| 0.7-0.8 | 63 | 0.753 | 0.397 |
+| 0.8-0.9 | 106 | 0.860 | 0.491 |
+| 0.9-1.0 | 1422 | 0.987 | 0.760 |
 
 ## Cost / Usage
 
-- routed_ml: 1643
-- routed_llm: 47
-- ml_pred_benign_routed_ml: 694
-- ml_pred_benign_routed_llm: 45
-- ml_pred_adversarial_routed_ml: 949
-- ml_pred_adversarial_routed_llm: 2
+- routed_ml: 886
+- routed_llm: 760
+- routed_abstain: 44
+- ml_pred_benign_routed_ml: 0
+- ml_pred_benign_routed_llm: 703
+- ml_pred_benign_routed_abstain: 36
+- ml_pred_adversarial_routed_ml: 886
+- ml_pred_adversarial_routed_llm: 57
+- ml_pred_adversarial_routed_abstain: 8
 
 ## Routing Diagnostics
 
 - total_samples: 1690
-- routed_ml: 1643 (0.9722)
-- routed_llm: 47 (0.0278)
+- routed_ml: 886 (0.5243)
+- routed_llm: 760 (0.4497)
+- routed_abstain: 44 (0.0260)
+- unicode_lane_unknown_total: 0
 
-| ml_pred_label | routed_ml | routed_llm | escalation_rate |
-|---------------|-----------|------------|-----------------|
-| benign | 694 | 45 | 0.0609 |
-| adversarial | 949 | 2 | 0.0021 |
+| ml_pred_label | routed_ml | routed_llm | routed_abstain | escalation_rate |
+|---------------|-----------|------------|----------------|-----------------|
+| benign | 0 | 703 | 36 | 1.0000 |
+| adversarial | 886 | 57 | 8 | 0.0683 |
+
+| unicode_lane | total | fastpath_ml | escalated_llm_or_abstain |
+|--------------|-------|-------------|---------------------------|
+| True | 1690 | 886 | 804 |
+| False | 0 | 0 | 0 |
+
+## FPR Diagnostic Views
+
+| View | FPR | Notes |
+|------|-----|-------|
+| Standard | 0.2553 | All samples, abstain=adversarial |
+| Abstain-excluded | 0.2391 | 44 abstain samples removed |
+| Abstain rate | 0.0260 | 44/1690 samples |

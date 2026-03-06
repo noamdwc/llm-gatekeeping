@@ -12,9 +12,7 @@ stages:
     params:
     - configs/default.yaml:
       - benign.synthetic
-    outs:
-    - data/processed/synthetic_benign.parquet
-    frozen: true
+    # frozen: true
 
   # ── Stage 1: Preprocess ──────────────────────────────────────────────────
   preprocess:

@@ -4,7 +4,7 @@ LLM classifier with classifier + judge pattern:
   Stage 2: Judge — conditional higher-quality model call on low-confidence predictions
 
 Usage:
-    python -m src.llm_classifier [--config configs/default.yaml] [--split test] [--limit 100]
+    python -m src.llm_classifier [--config configs/default.yaml] [--split test] [--limit N]
 """
 
 import argparse
@@ -130,6 +130,8 @@ class HierarchicalLLMClassifier:
         self.model_quality = cfg["llm"].get("model_quality", self.model)
         self.temperature = cfg["llm"]["temperature"]
         self.max_concurrency = int(cfg.get("llm", {}).get("max_concurrency", 8))
+        self.capture_logprobs = bool(cfg.get("llm", {}).get("capture_logprobs", False))
+        self.top_logprobs = max(0, int(cfg.get("llm", {}).get("top_logprobs", 5)))
         self.few_shot = few_shot_examples or []
         self.usage = UsageStats()
 
@@ -162,19 +164,26 @@ class HierarchicalLLMClassifier:
             try:
                 t0 = time.time()
                 client = self._get_client()
+                request_kwargs = {
+                    "model": model or self.model,
+                    "messages": messages,
+                    "temperature": self.temperature,
+                    "max_tokens": max_tokens,
+                    "response_format": {"type": "json_object"},
+                }
+                if self.capture_logprobs:
+                    request_kwargs["logprobs"] = True
+                    if self.top_logprobs > 0:
+                        request_kwargs["top_logprobs"] = self.top_logprobs
                 response = client.chat.completions.create(
-                    model=model or self.model,
-                    messages=messages,
-                    temperature=self.temperature,
-                    max_tokens=max_tokens,
-                    response_format={"type": "json_object"},
+                    **request_kwargs,
                 )
                 latency = time.time() - t0
                 break
             except openai.RateLimitError:
                 if attempt == max_retries - 1:
                     raise
-                wait = min(2 ** attempt * 5, 60)
+                wait = min(2 ** attempt * 12, 60)
                 print(f"\nRate limit hit, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
                 time.sleep(wait)
             except (openai.APIConnectionError, openai.APIError) as exc:
@@ -194,9 +203,67 @@ class HierarchicalLLMClassifier:
         if response is None:
             return {}
         try:
-            return json.loads(response.choices[0].message.content)
+            parsed = json.loads(response.choices[0].message.content)
+            # Some providers occasionally return JSON-encoded JSON strings.
+            if isinstance(parsed, str):
+                try:
+                    parsed = json.loads(parsed)
+                except json.JSONDecodeError:
+                    return {}
+            if not isinstance(parsed, dict):
+                return {}
+            parsed["_token_logprobs"] = self._extract_completion_logprobs(response)
+            return parsed
         except (json.JSONDecodeError, IndexError):
             return {}
+
+    @staticmethod
+    def _extract_completion_logprobs(response) -> list[dict] | None:
+        """Extract per-token completion logprobs from OpenAI-compatible responses."""
+        try:
+            choice = response.choices[0]
+            logprobs = getattr(choice, "logprobs", None)
+            content = getattr(logprobs, "content", None)
+            if not content:
+                return None
+        except (AttributeError, IndexError, TypeError):
+            return None
+
+        extracted: list[dict] = []
+        for item in content:
+            token = getattr(item, "token", None)
+            logprob = getattr(item, "logprob", None)
+            top_items = getattr(item, "top_logprobs", None) or []
+            token_payload = {
+                "token": token,
+                "logprob": float(logprob) if logprob is not None else None,
+                "top_logprobs": [
+                    {
+                        "token": getattr(alt, "token", None),
+                        "logprob": (
+                            float(getattr(alt, "logprob", None))
+                            if getattr(alt, "logprob", None) is not None
+                            else None
+                        ),
+                    }
+                    for alt in top_items
+                ],
+            }
+            extracted.append(token_payload)
+        return extracted or None
+
+    @staticmethod
+    def _coerce_result_dict(result: object) -> dict:
+        if isinstance(result, dict):
+            return result
+        if isinstance(result, str):
+            try:
+                parsed = json.loads(result)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+        return {}
 
     # -- Few-shot helpers --------------------------------------------------
 
@@ -318,9 +385,9 @@ class HierarchicalLLMClassifier:
             "benign", "adversarial", or "uncertain".
         """
         messages = build_classifier_messages(text, self._build_few_shot_messages(text))
-        result = self._call_llm(
+        result = self._coerce_result_dict(self._call_llm(
             messages, self.cfg["llm"]["max_tokens_classifier"], "classifier"
-        )
+        ))
         # Normalize label: LLM should output binary labels; any deviation defaults to adversarial
         label = result.get("label", "")
         if label not in ("benign", "adversarial", "uncertain"):
@@ -348,10 +415,10 @@ class HierarchicalLLMClassifier:
             {"label": str, "confidence": float, "reasoning": str}
         """
         messages = build_judge_messages(text, classifier_output)
-        result = self._call_llm(
+        result = self._coerce_result_dict(self._call_llm(
             messages, self.cfg["llm"]["max_tokens_judge"], "judge",
             model=self.model_quality,
-        )
+        ))
         decision = decide_accept_or_override(result, classifier_output)
         result["computed_decision"] = decision
 
@@ -457,6 +524,7 @@ class HierarchicalLLMClassifier:
             "clf_confidence": clf_result.get("confidence"),
             "clf_evidence": clf_result.get("evidence", ""),
             "clf_nlp_attack_type": clf_nlp_attack_type,
+            "clf_token_logprobs": clf_result.get("_token_logprobs"),
         }
         # Judge stage (None if judge was not run)
         if judge_result is not None:
@@ -468,6 +536,7 @@ class HierarchicalLLMClassifier:
             result["judge_computed_decision"] = judge_result.get("computed_decision")
             result["judge_benign_task_override"] = judge_result.get("judge_benign_task_override", False)
             result["judge_override_reason"] = judge_result.get("judge_override_reason")
+            result["judge_token_logprobs"] = judge_result.get("_token_logprobs")
         else:
             result["judge_independent_label"] = None
             result["judge_category"] = None
@@ -476,6 +545,7 @@ class HierarchicalLLMClassifier:
             result["judge_computed_decision"] = None
             result["judge_benign_task_override"] = None
             result["judge_override_reason"] = None
+            result["judge_token_logprobs"] = None
 
         return result
 
@@ -583,7 +653,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run hierarchical LLM classifier")
     parser.add_argument("--config", default=None)
     parser.add_argument("--split", default="test", help="Which split to evaluate on")
-    parser.add_argument("--limit", type=int, default=100, help="Max samples to classify")
+    parser.add_argument("--limit", type=int, default=None, help="Max samples to classify (default: full split)")
     parser.add_argument("--output", default=None, help="Output predictions CSV path")
     parser.add_argument("--no-wandb", action="store_true", help="Disable wandb logging")
     parser.add_argument("--dynamic", action="store_true", help="Use dynamic few-shot retrieval")
@@ -665,6 +735,7 @@ def main():
                 "clf_confidence": r.get("clf_confidence"),
                 "clf_evidence": r.get("clf_evidence", ""),
                 "clf_nlp_attack_type": r.get("clf_nlp_attack_type", "none"),
+                "clf_token_logprobs": json.dumps(r.get("clf_token_logprobs")),
                 # Judge stage (None if not run)
                 "judge_independent_label": r.get("judge_independent_label"),
                 "judge_category": r.get("judge_category"),
@@ -673,6 +744,7 @@ def main():
                 "judge_computed_decision": r.get("judge_computed_decision"),
                 "judge_benign_task_override": r.get("judge_benign_task_override"),
                 "judge_override_reason": r.get("judge_override_reason"),
+                "judge_token_logprobs": json.dumps(r.get("judge_token_logprobs")),
             })
         llm_df = pd.DataFrame(research_rows)
 

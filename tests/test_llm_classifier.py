@@ -14,6 +14,7 @@ from src.llm_classifier.llm_classifier import (
     UsageStats,
     build_few_shot_examples,
 )
+import src.llm_classifier.llm_classifier as llm_classifier_module
 from src.llm_classifier.constants import UNICODE_TYPES, NLP_TYPES
 from src.llm_classifier.utils import decide_accept_or_override
 from src.llm_classifier.prompts import build_classifier_messages, build_judge_messages
@@ -455,9 +456,10 @@ class TestPredict:
             "label", "label_binary", "label_category", "label_type",
             "confidence", "evidence", "llm_stages_run",
             "clf_label", "clf_category", "clf_confidence", "clf_evidence", "clf_nlp_attack_type",
+            "clf_token_logprobs",
             "judge_independent_label", "judge_category", "judge_independent_confidence",
             "judge_independent_evidence", "judge_computed_decision",
-            "judge_benign_task_override", "judge_override_reason",
+            "judge_benign_task_override", "judge_override_reason", "judge_token_logprobs",
         }
         assert required_keys.issubset(set(result.keys()))
 
@@ -1170,12 +1172,14 @@ class TestDecideAcceptOrOverrideNlpEvidence:
 class TestCallLlmRetry:
     """Tests for expanded retry logic in _call_llm()."""
 
-    def _make_response(self, content: str):
+    def _make_response(self, content: str, logprobs_content=None):
         """Build a minimal mock ChatCompletion response."""
         msg = MagicMock()
         msg.content = content
         choice = MagicMock()
         choice.message = msg
+        choice.logprobs = MagicMock()
+        choice.logprobs.content = logprobs_content
         resp = MagicMock()
         resp.choices = [choice]
         resp.usage = None
@@ -1225,3 +1229,108 @@ class TestCallLlmRetry:
         with patch("src.llm_classifier.llm_classifier.time.sleep"):
             result = clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
         assert result.get("label") == "adversarial"
+
+    def test_call_llm_handles_double_encoded_json(self, sample_config):
+        """Provider may return JSON-encoded JSON string; parser should unwrap to dict."""
+        clf = _make_classifier(sample_config)
+        wrapped = self._make_response('"{\\"label\\": \\"benign\\", \\"confidence\\": 90}"')
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = MagicMock(return_value=wrapped)
+        clf._get_client = MagicMock(return_value=mock_client)
+        result = clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
+        assert result.get("label") == "benign"
+
+    def test_call_llm_includes_token_logprobs_when_present(self, sample_config):
+        clf = _make_classifier(sample_config)
+        token = MagicMock()
+        token.token = "benign"
+        token.logprob = -0.2
+        alt = MagicMock()
+        alt.token = "adversarial"
+        alt.logprob = -1.7
+        token.top_logprobs = [alt]
+        response = self._make_response('{"label": "benign", "confidence": 90}', logprobs_content=[token])
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = MagicMock(return_value=response)
+        clf._get_client = MagicMock(return_value=mock_client)
+
+        result = clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
+
+        assert result["_token_logprobs"] == [
+            {
+                "token": "benign",
+                "logprob": -0.2,
+                "top_logprobs": [{"token": "adversarial", "logprob": -1.7}],
+            }
+        ]
+
+    def test_call_llm_requests_logprobs_when_enabled(self, sample_config):
+        sample_config["llm"]["capture_logprobs"] = True
+        sample_config["llm"]["top_logprobs"] = 4
+        clf = _make_classifier(sample_config)
+        response = self._make_response('{"label": "benign", "confidence": 90}')
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = MagicMock(return_value=response)
+        clf._get_client = MagicMock(return_value=mock_client)
+
+        clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
+
+        _, kwargs = mock_client.chat.completions.create.call_args
+        assert kwargs["logprobs"] is True
+        assert kwargs["top_logprobs"] == 4
+
+
+class TestCliLimitDefault:
+    """Tests for llm_classifier CLI defaults."""
+
+    def test_cli_default_limit_covers_full_split(self, sample_config, sample_dataframe):
+        with (
+            patch("sys.argv", ["llm_classifier.py", "--split", "test", "--research", "--no-wandb"]),
+            patch("src.llm_classifier.llm_classifier.load_config", return_value=sample_config),
+            patch("src.llm_classifier.llm_classifier.pd.read_parquet", side_effect=[sample_dataframe, sample_dataframe]),
+            patch("src.llm_classifier.llm_classifier.HierarchicalLLMClassifier") as classifier_cls,
+            patch("src.llm_classifier.llm_classifier.build_few_shot_examples", return_value=([], [])),
+            patch("src.llm_classifier.llm_classifier.PREDICTIONS_DIR"),
+            patch("pandas.DataFrame.to_parquet"),
+        ):
+            classifier = MagicMock()
+            classifier.predict_batch.return_value = [
+                {
+                    "label": "benign",
+                    "label_binary": "benign",
+                    "label_category": "benign",
+                    "confidence": 0.9,
+                    "evidence": "",
+                    "llm_stages_run": 1,
+                    "clf_label": "benign",
+                    "clf_category": "benign",
+                    "clf_confidence": 0.9,
+                    "clf_evidence": "",
+                    "clf_nlp_attack_type": "none",
+                    "clf_token_logprobs": None,
+                    "judge_independent_label": None,
+                    "judge_category": None,
+                    "judge_independent_confidence": None,
+                    "judge_independent_evidence": None,
+                    "judge_computed_decision": None,
+                    "judge_benign_task_override": None,
+                    "judge_override_reason": None,
+                    "judge_token_logprobs": None,
+                }
+                for _ in range(len(sample_dataframe))
+            ]
+            classifier.usage.to_dict.return_value = {}
+            classifier_cls.return_value = classifier
+
+            llm_classifier_module.main()
+
+            texts = classifier.predict_batch.call_args.args[0]
+            assert len(texts) == len(sample_dataframe)
+
+    def test_classify_handles_non_dict_call_result(self, sample_config):
+        """classify() should not crash when _call_llm returns a non-dict payload."""
+        clf = _make_classifier(sample_config)
+        clf._call_llm = MagicMock(return_value="not a dict")
+        result = clf.classify("text")
+        assert result["label"] == "adversarial"
+        assert result["confidence"] == pytest.approx(0.5)

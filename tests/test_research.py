@@ -446,6 +446,7 @@ class TestHybridReportDiagnostics:
         out = tmp_path / "hybrid_report.md"
         generate_hybrid_report(df, str(out))
         text = out.read_text()
+        assert "# Hybrid Router Evaluation Report (Strict LLM Coverage)" in text
         assert "## Routing Diagnostics" in text
         assert "| ml_pred_label | routed_ml | routed_llm | routed_abstain | escalation_rate |" in text
         assert "| unicode_lane | total | fastpath_ml | escalated_llm_or_abstain |" in text

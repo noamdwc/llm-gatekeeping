@@ -20,7 +20,7 @@ Metrics change based on split, sample limit, thresholds, and whether LLM stages 
 The canonical latest outputs are:
 
 - `reports/research/eval_report_ml.md`
-- `reports/research/eval_report_hybrid.md`
+- `reports/research/eval_report_hybrid.md` (strict LLM coverage only)
 - `reports/research/eval_report_llm.md`
 - `reports/research_external/research_external_<dataset>.md`
 
@@ -51,7 +51,7 @@ This is the canonical way to run the project. It produces **research parquets** 
 # ML-only research run (LLM stage frozen by default)
 dvc repro
 
-# Full research run (unfreezes LLM stage, runs, re-freezes)
+# Full research run (unfreezes LLM stage, runs, re-freezes; required for strict hybrid)
 ./run_llm.sh
 ```
 
@@ -59,7 +59,8 @@ dvc repro
 
 - **Stage graph**:
   - `preprocess` → `build_splits` → `ml_model` → `research` → `eval_new`
-  - `llm_classifier` is **frozen by default** (API cost); when unfrozen it produces `data/processed/predictions/llm_predictions_{split}.parquet` and `research` will include LLM metrics/report.
+  - `llm_classifier` is **frozen by default** (API cost); when unfrozen it produces `data/processed/predictions/llm_predictions_{split}.parquet`.
+  - `research` now generates the canonical hybrid report in strict mode and requires LLM coverage for every escalated sample.
   - `research_external@{dataset}` stages run via DVC `foreach`.
   - `eval_new_external@{dataset}` is a dynamic `foreach` stage (from `external_datasets`) that writes external markdown reports.
 
@@ -76,7 +77,7 @@ dvc repro eval_new_external@deepset
 `eval_new` writes:
 - `reports/research/eval_report_ml.md`
 - `reports/research/eval_report_llm.md`
-- `reports/research/eval_report_hybrid.md`
+- `reports/research/eval_report_hybrid.md` (strict LLM coverage only)
 - `reports/research/summary_report.md` (includes combined unseen-external progress metrics)
 
 `eval_new_external@{dataset}` writes:
@@ -126,7 +127,7 @@ python -m src.build_splits
 python -m src.ml_classifier.ml_baseline --research
 
 # 4. Run LLM classifier (requires NVIDIA API key)
-python -m src.llm_classifier.llm_classifier --split test --limit 100 --research
+python -m src.llm_classifier.llm_classifier --split test --research
 
 # 5. Merge predictions + hybrid routing + reports (research stage)
 python -m src.research --split test

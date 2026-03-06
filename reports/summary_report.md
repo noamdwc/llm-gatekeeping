@@ -1,5 +1,8 @@
 # LLM Gatekeeping — Summary Report
 
+> Warning: the tracked hybrid metrics in this historical summary were generated from a partial-coverage artifact.
+> Canonical `reports/research/eval_report_hybrid.md` is now reserved for strict hybrid runs with full LLM coverage on all escalations.
+
 ## Overview
 
 Three classifier backends evaluated on the Mindgard in-distribution test set and four external datasets.
@@ -98,7 +101,7 @@ All external datasets share benign samples that look superficially similar to ad
 | Report | Path |
 |--------|------|
 | ML evaluation | `reports/research/eval_report_ml.md` |
-| Hybrid evaluation | `reports/research/eval_report_hybrid.md` |
+| Hybrid evaluation (historical partial coverage) | `reports/research/eval_report_hybrid_partial_coverage.md` |
 | LLM evaluation | `reports/research/eval_report_llm.md` |
 | External — deepset | `reports/research_external/research_external_deepset.md` |
 | External — jackhhao | `reports/research_external/research_external_jackhhao.md` |

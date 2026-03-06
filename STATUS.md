@@ -15,7 +15,7 @@ The repo is functioning as a research/evaluation pipeline for hierarchical promp
 | **Grouped splits + held-out generalization split** | `python -m src.build_splits` | `data/processed/splits/{train,val,test,test_unseen}.parquet` |
 | **ML baseline train + research predictions** | `python -m src.ml_classifier.ml_baseline --research --no-wandb` | `data/processed/models/ml_baseline.pkl`, `data/processed/predictions/ml_predictions_{val,test,test_unseen}.parquet` |
 | **LLM classifier (classifier+judge, frozen by default)** | `python -m src.llm_classifier.llm_classifier --split test --research --no-wandb` | `data/processed/predictions/llm_predictions_test.parquet` |
-| **Research merge + hybrid routing** | `python -m src.research --split test` | `data/processed/research/research_test.parquet` |
+| **Research merge + strict hybrid routing** | `python -m src.research --split test` | `data/processed/research/research_test.parquet` |
 | **Main eval markdowns** | `python -m src.cli.eval_new --split test --only-main` | `reports/research/eval_report_{ml,llm,hybrid}.md`, `reports/research/summary_report.md` |
 | **External per-dataset research parquet** | `python -m src.cli.research_external --dataset <key>` | `data/processed/research_external/research_external_<key>.parquet` |
 | **External per-dataset markdowns (from research parquets)** | `python -m src.cli.eval_new --only-external --dataset <key>` | `reports/research_external/research_external_<key>.md` |
@@ -26,6 +26,7 @@ The repo is functioning as a research/evaluation pipeline for hierarchical promp
 
 ## Current metrics (from tracked report artifacts)
 Source: `reports/research/summary_report.md` and `reports/research/eval_report_*.md`.
+The checked-in hybrid markdown was previously a partial-coverage artifact; canonical hybrid reports are now strict and require full LLM coverage for all escalations.
 
 | Mode | Rows | Accuracy | Adv F1 | Benign F1 | FNR | Notes |
 |---|---:|---:|---:|---:|---:|---|
@@ -40,7 +41,7 @@ External combined (ML on current research parquets): **accuracy 0.1556**, **FNR 
 |---|---:|---|
 | **Step 1 — Benign set + proper splits** | ✅ Completed | `src/preprocess.py`, `src/build_splits.py`, DVC stages + split outputs |
 | **Step 2 — Hierarchical LLM classifier** | ✅ Completed | `src/llm_classifier/llm_classifier.py`, `reports/research/eval_report_llm.md` |
-| **Step 3 — ML baseline + hybrid router** | ✅ Completed | `src/ml_classifier/ml_baseline.py`, `src/hybrid_router.py`, `reports/research/eval_report_hybrid.md` |
+| **Step 3 — ML baseline + hybrid router** | ✅ Completed | `src/ml_classifier/ml_baseline.py`, `src/hybrid_router.py`, `reports/research/eval_report_hybrid.md` (strict) |
 | **Step 4 — Dynamic few-shot + error analysis** | 🟡 Partially complete | `--dynamic` + exemplar bank implemented (`src/embeddings.py`), but no consolidated `reports/error_analysis.md` |
 | **Step 5 — Reporting + polish** | 🟡 Partially complete | Eval report flow is standardized via `src.cli.eval_new`; polish gaps remain |
 
