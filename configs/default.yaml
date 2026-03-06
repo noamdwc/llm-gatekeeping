@@ -55,7 +55,7 @@ benign:
   paraphrases_per_prompt: 2
   # Synthetic benign generation (off by default; run src/cli/generate_synthetic_benign.py first)
   synthetic:
-    enabled: false
+    enabled: true
     generation_model: "meta/llama-3.1-8b-instruct"
     quotas:           # target samples per category
       A: 1000         # General QA / task prompts
@@ -77,7 +77,9 @@ llm:
   resume: true
   max_tokens_classifier: 200
   max_tokens_judge: 500
-  judge_confidence_threshold: 0.7
+  judge_confidence_threshold: 0.9
+  capture_logprobs: false
+  top_logprobs: 5
   few_shot:
     unicode: 2
     nlp: 5
@@ -107,7 +109,7 @@ ml:
 # Hybrid router
 hybrid:
   ml_confidence_threshold: 0.85
-  llm_confidence_threshold: 0.7
+  llm_confidence_threshold: 0.9
 
 # Evaluation
 evaluation:

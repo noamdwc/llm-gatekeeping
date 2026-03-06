@@ -103,6 +103,46 @@ def binary_metrics(
     }
 
 
+def compute_fpr_views(
+    y_true: pd.Series,
+    y_pred: pd.Series,
+    routed_to: pd.Series | None = None,
+) -> dict:
+    """Compute multi-view FPR to separate policy artifacts from true model errors.
+
+    Returns dict with:
+      - fpr_standard: FPR over all samples (abstain→adversarial)
+      - fpr_abstain_excluded: FPR after removing abstain-routed samples
+      - abstain_rate: fraction of samples routed to abstain
+      - n_abstain: number of abstain-routed samples
+      - n_total: total sample count
+    """
+    standard = binary_metrics(y_true, y_pred)
+    n_total = len(y_true)
+
+    if routed_to is not None:
+        abstain_mask = routed_to == "abstain"
+        n_abstain = int(abstain_mask.sum())
+    else:
+        n_abstain = 0
+        abstain_mask = pd.Series(False, index=y_true.index)
+
+    if n_abstain > 0:
+        keep = ~abstain_mask
+        excluded = binary_metrics(y_true[keep], y_pred[keep])
+        fpr_excluded = excluded["false_positive_rate"]
+    else:
+        fpr_excluded = standard["false_positive_rate"]
+
+    return {
+        "fpr_standard": standard["false_positive_rate"],
+        "fpr_abstain_excluded": fpr_excluded,
+        "abstain_rate": n_abstain / n_total if n_total else 0.0,
+        "n_abstain": n_abstain,
+        "n_total": n_total,
+    }
+
+
 def category_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
     """Compute category-level metrics (unicode_attack vs nlp_attack)."""
     # Filter to adversarial ground truth only; keep FNs (adv predicted as benign) as errors

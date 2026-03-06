@@ -24,7 +24,7 @@ from src.utils import (
 )
 from src.evaluate import (
     binary_metrics, category_metrics, type_metrics,
-    calibration_metrics, generate_report,
+    calibration_metrics, generate_report, compute_fpr_views,
 )
 
 
@@ -451,9 +451,34 @@ def generate_hybrid_report(
         "ml_pred_adversarial_routed_abstain": routing_diag["ml_pred_adversarial_routed_abstain"],
     }
 
-    report = generate_report(research_df, binary, cat, types, cal, usage,
-                             title="Hybrid Router Evaluation Report")
+    report = generate_report(
+        research_df,
+        binary,
+        cat,
+        types,
+        cal,
+        usage,
+        title="Hybrid Router Evaluation Report (Strict LLM Coverage)",
+    )
     report = f"{report}\n{render_routing_diagnostics_markdown(routing_diag)}"
+
+    fpr_views = compute_fpr_views(
+        research_df["label_binary"],
+        research_df["hybrid_pred_binary"],
+        routed_to=research_df.get("hybrid_routed_to"),
+    )
+    fpr_section = "\n".join([
+        "## FPR Diagnostic Views",
+        "",
+        "| View | FPR | Notes |",
+        "|------|-----|-------|",
+        f"| Standard | {fpr_views['fpr_standard']:.4f} | All samples, abstain=adversarial |",
+        f"| Abstain-excluded | {fpr_views['fpr_abstain_excluded']:.4f} | {fpr_views['n_abstain']} abstain samples removed |",
+        f"| Abstain rate | {fpr_views['abstain_rate']:.4f} | {fpr_views['n_abstain']}/{fpr_views['n_total']} samples |",
+        "",
+    ])
+    report = f"{report}\n{fpr_section}"
+
     with open(output_path, "w") as f:
         f.write(report)
     print(f"  Hybrid report saved → {output_path}")
@@ -511,14 +536,14 @@ def main():
     ml_df = pd.read_parquet(ml_path)
     print(f"Loaded ML predictions: {ml_path} ({len(ml_df)} samples)")
 
-    # ── Read pre-computed LLM predictions (optional) ─────────────────────────
+    # ── Read pre-computed LLM predictions (required for strict hybrid) ───────
     llm_path = PREDICTIONS_DIR / f"llm_predictions_{args.split}.parquet"
     llm_df = None
     if llm_path.exists():
         llm_df = pd.read_parquet(llm_path)
         print(f"Loaded LLM predictions: {llm_path} ({len(llm_df)} samples)")
     else:
-        print(f"No LLM predictions found at {llm_path} — using ML-only hybrid routing")
+        print(f"No LLM predictions found at {llm_path} — strict hybrid report cannot be generated")
 
     # ── Compute hybrid routing ───────────────────────────────────────────────
     print(f"Computing hybrid routing (threshold={threshold})...")
@@ -528,6 +553,9 @@ def main():
         threshold,
         llm_conf_threshold=llm_threshold,
         unicode_types=unicode_types,
+        require_llm_for_escalations=True,
+        llm_required_path=str(llm_path),
+        llm_generation_hint=f"dvc repro llm_classifier research eval_new --force",
     )
 
     # ── Build wide research DataFrame ────────────────────────────────────────

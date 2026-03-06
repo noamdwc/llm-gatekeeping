@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.evaluate import binary_metrics, calibration_metrics
+from src.evaluate import binary_metrics, calibration_metrics, compute_fpr_views
 from src.research import generate_ml_report, generate_hybrid_report, generate_llm_report
 from src.cli.research_external import generate_research_report
 from src.utils import (
@@ -130,6 +130,22 @@ def _render_summary_markdown(
         routing = main_df["hybrid_routed_to"].value_counts().to_dict()
         routing_parts = [f"{k}={v}" for k, v in sorted(routing.items())]
         lines.extend(["", f"- routing: {', '.join(routing_parts)}"])
+
+        fpr_views = compute_fpr_views(
+            main_df["label_binary"],
+            main_df["hybrid_pred_binary"],
+            routed_to=main_df["hybrid_routed_to"],
+        )
+        lines.extend([
+            "",
+            "## FPR Diagnostic Views (Hybrid)",
+            "",
+            "| View | FPR | Notes |",
+            "|------|-----|-------|",
+            f"| Standard | {fpr_views['fpr_standard']:.4f} | All samples, abstain=adversarial |",
+            f"| Abstain-excluded | {fpr_views['fpr_abstain_excluded']:.4f} | {fpr_views['n_abstain']} abstain samples removed |",
+            f"| Abstain rate | {fpr_views['abstain_rate']:.4f} | {fpr_views['n_abstain']}/{fpr_views['n_total']} samples |",
+        ])
 
     if external_frames:
         combined_df = pd.concat(list(external_frames.values()), ignore_index=True)
