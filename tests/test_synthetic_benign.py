@@ -4,11 +4,13 @@ All tests use mocked LLM clients to avoid real API calls.
 """
 
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
 
+import src.llm_cache as llm_cache_module
 from src.synthetic_benign import SyntheticBenignGenerator, _CATEGORY_META, _build_prompt_hash
 
 
@@ -29,6 +31,11 @@ def cfg():
             }
         },
     }
+
+
+@pytest.fixture(autouse=True)
+def _isolated_llm_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(llm_cache_module, "LLM_CACHE_DIR", tmp_path / "llm-cache")
 
 
 def _make_generator(cfg, mock_prompts: list[str] | None = None):
@@ -151,6 +158,29 @@ class TestSyntheticBenignGeneration:
         result = gen.generate_category("A", n=3)
         assert isinstance(result, list)
         assert all(isinstance(t, str) for t in result)
+
+    def test_generate_category_uses_cache_for_identical_request(self, cfg, tmp_path, monkeypatch):
+        prompts = [
+            "What is machine learning and how does it work?",
+            "Can you help me summarize this article about space?",
+        ]
+        gen = _make_generator(cfg, mock_prompts=prompts)
+
+        first = gen.generate_category("A", n=2)
+        second = gen.generate_category("A", n=2)
+
+        assert first == second
+        assert gen.client.chat.completions.create.call_count == 1
+
+    def test_generate_category_cache_is_provider_scoped(self, cfg, tmp_path, monkeypatch):
+        prompts = ["What is machine learning and how does it work?"]
+        gen = _make_generator(cfg, mock_prompts=prompts)
+
+        gen.generate_category("A", n=1)
+        gen.provider = SimpleNamespace(name="nim")
+        gen.generate_category("A", n=1)
+
+        assert gen.client.chat.completions.create.call_count == 2
 
     def test_generate_category_respects_limit(self, cfg):
         """generate_category() returns at most n samples."""

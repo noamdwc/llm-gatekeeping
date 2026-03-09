@@ -30,6 +30,7 @@ import dotenv
 import openai
 import pandas as pd
 
+from src.llm_cache import extract_message_content, get_or_create_chat_completion
 from src.llm_provider import get_provider, make_client, resolve_model
 
 dotenv.load_dotenv()
@@ -161,6 +162,7 @@ class SyntheticBenignGenerator:
         self.cfg = cfg
         synth_cfg = cfg.get("benign", {}).get("synthetic", {})
         provider = get_provider()
+        self.provider = provider
         self.generation_model = resolve_model(
             synth_cfg.get("generation_model", cfg.get("llm", {}).get("model", "meta/llama-3.1-8b-instruct")),
             provider,
@@ -190,13 +192,18 @@ class SyntheticBenignGenerator:
 
         for attempt in range(max_retries):
             try:
-                response = self.client.chat.completions.create(
-                    model=model or self.generation_model,
-                    messages=messages,
-                    temperature=0.9,  # Higher temperature for diversity
-                    max_tokens=2048,
+                request_kwargs = {
+                    "model": model or self.generation_model,
+                    "messages": messages,
+                    "temperature": 0.9,
+                    "max_tokens": 2048,
+                }
+                cached = get_or_create_chat_completion(
+                    provider_name=self.provider.name,
+                    request_kwargs=request_kwargs,
+                    create_fn=lambda: self.client.chat.completions.create(**request_kwargs),
                 )
-                raw = response.choices[0].message.content
+                raw = extract_message_content(cached.payload) or ""
                 # Try direct parse first, then extract from code blocks
                 try:
                     parsed = json.loads(raw)

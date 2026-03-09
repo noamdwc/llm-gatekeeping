@@ -9,6 +9,7 @@ import openai
 import pandas as pd
 import pytest
 
+import src.llm_cache as llm_cache_module
 from src.llm_classifier.llm_classifier import (
     HierarchicalLLMClassifier,
     UsageStats,
@@ -18,6 +19,11 @@ import src.llm_classifier.llm_classifier as llm_classifier_module
 from src.llm_classifier.constants import UNICODE_TYPES, NLP_TYPES
 from src.llm_classifier.utils import decide_accept_or_override
 from src.llm_classifier.prompts import build_classifier_messages, build_judge_messages
+
+
+@pytest.fixture(autouse=True)
+def _isolated_llm_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(llm_cache_module, "LLM_CACHE_DIR", tmp_path / "llm-cache")
 
 
 # ---------------------------------------------------------------------------
@@ -1172,7 +1178,7 @@ class TestDecideAcceptOrOverrideNlpEvidence:
 class TestCallLlmRetry:
     """Tests for expanded retry logic in _call_llm()."""
 
-    def _make_response(self, content: str, logprobs_content=None):
+    def _make_response(self, content: str, logprobs_content=None, prompt_tokens=None, completion_tokens=None):
         """Build a minimal mock ChatCompletion response."""
         msg = MagicMock()
         msg.content = content
@@ -1183,7 +1189,47 @@ class TestCallLlmRetry:
         resp = MagicMock()
         resp.choices = [choice]
         resp.usage = None
+        if prompt_tokens is not None or completion_tokens is not None:
+            resp.usage = MagicMock()
+            resp.usage.prompt_tokens = prompt_tokens or 0
+            resp.usage.completion_tokens = completion_tokens or 0
         return resp
+
+    def test_call_llm_uses_cache_for_identical_request(self, sample_config, tmp_path, monkeypatch):
+        monkeypatch.setattr(llm_cache_module, "LLM_CACHE_DIR", tmp_path)
+        clf = _make_classifier(sample_config)
+        response = self._make_response('{"label": "benign", "confidence": 90}')
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = MagicMock(return_value=response)
+        clf._get_client = MagicMock(return_value=mock_client)
+
+        first = clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
+        second = clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
+
+        assert first["label"] == "benign"
+        assert second["label"] == "benign"
+        assert mock_client.chat.completions.create.call_count == 1
+
+    def test_call_llm_cache_hit_does_not_change_usage_stats(self, sample_config, tmp_path, monkeypatch):
+        monkeypatch.setattr(llm_cache_module, "LLM_CACHE_DIR", tmp_path)
+        clf = _make_classifier(sample_config)
+        response = self._make_response(
+            '{"label": "benign", "confidence": 90}',
+            prompt_tokens=11,
+            completion_tokens=7,
+        )
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = MagicMock(return_value=response)
+        clf._get_client = MagicMock(return_value=mock_client)
+
+        clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
+        usage_after_first = clf.usage.to_dict()
+        clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
+
+        assert clf.usage.to_dict() == usage_after_first
+        assert usage_after_first["total_calls"] == 1
+        assert usage_after_first["prompt_tokens"] == 11
+        assert usage_after_first["completion_tokens"] == 7
 
     def test_retries_on_api_connection_error(self, sample_config):
         """APIConnectionError on first 2 attempts, success on 3rd → returns parsed result."""

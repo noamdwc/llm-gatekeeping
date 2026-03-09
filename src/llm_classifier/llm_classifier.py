@@ -32,6 +32,7 @@ from src.llm_classifier.constants import (
     BYPASS_INTENT_PATTERNS,
 )
 from src.embeddings import ExemplarBank, get_embeddings
+from src.llm_cache import get_or_create_chat_completion
 from src.llm_provider import get_provider, make_client, resolve_model
 
 # ---------------------------------------------------------------------------
@@ -156,6 +157,7 @@ class HierarchicalLLMClassifier:
     ) -> dict:
         """Make one LLM call, track usage, return parsed JSON."""
         response = None
+        cached = None
         latency = 0.0
         for attempt in range(max_retries):
             try:
@@ -172,10 +174,14 @@ class HierarchicalLLMClassifier:
                     request_kwargs["logprobs"] = True
                     if self.top_logprobs > 0:
                         request_kwargs["top_logprobs"] = self.top_logprobs
-                response = client.chat.completions.create(
-                    **request_kwargs,
+                cached = get_or_create_chat_completion(
+                    provider_name=self._provider.name,
+                    request_kwargs=request_kwargs,
+                    create_fn=lambda: client.chat.completions.create(**request_kwargs),
                 )
-                latency = time.time() - t0
+                response = cached.payload
+                if not cached.cache_hit:
+                    latency = time.time() - t0
                 break
             except openai.RateLimitError:
                 if attempt == max_retries - 1:
@@ -192,15 +198,16 @@ class HierarchicalLLMClassifier:
 
         prompt_tokens = 0
         completion_tokens = 0
-        if response is not None and response.usage:
-            prompt_tokens = response.usage.prompt_tokens
-            completion_tokens = response.usage.completion_tokens
-        self.usage.record_call(stage, latency, prompt_tokens, completion_tokens)
+        if response is not None and cached is not None and not cached.cache_hit:
+            usage = response.get("usage") or {}
+            prompt_tokens = usage.get("prompt_tokens") or 0
+            completion_tokens = usage.get("completion_tokens") or 0
+            self.usage.record_call(stage, latency, prompt_tokens, completion_tokens)
 
         if response is None:
             return {}
         try:
-            parsed = json.loads(response.choices[0].message.content)
+            parsed = json.loads(response["choices"][0]["message"]["content"])
             # Some providers occasionally return JSON-encoded JSON strings.
             if isinstance(parsed, str):
                 try:
@@ -211,35 +218,35 @@ class HierarchicalLLMClassifier:
                 return {}
             parsed["_token_logprobs"] = self._extract_completion_logprobs(response)
             return parsed
-        except (json.JSONDecodeError, IndexError):
+        except (json.JSONDecodeError, IndexError, KeyError, TypeError):
             return {}
 
     @staticmethod
     def _extract_completion_logprobs(response) -> list[dict] | None:
         """Extract per-token completion logprobs from OpenAI-compatible responses."""
         try:
-            choice = response.choices[0]
-            logprobs = getattr(choice, "logprobs", None)
-            content = getattr(logprobs, "content", None)
+            choice = response["choices"][0]
+            logprobs = choice.get("logprobs")
+            content = (logprobs or {}).get("content")
             if not content:
                 return None
-        except (AttributeError, IndexError, TypeError):
+        except (AttributeError, IndexError, KeyError, TypeError):
             return None
 
         extracted: list[dict] = []
         for item in content:
-            token = getattr(item, "token", None)
-            logprob = getattr(item, "logprob", None)
-            top_items = getattr(item, "top_logprobs", None) or []
+            token = item.get("token")
+            logprob = item.get("logprob")
+            top_items = item.get("top_logprobs") or []
             token_payload = {
                 "token": token,
                 "logprob": float(logprob) if logprob is not None else None,
                 "top_logprobs": [
                     {
-                        "token": getattr(alt, "token", None),
+                        "token": alt.get("token"),
                         "logprob": (
-                            float(getattr(alt, "logprob", None))
-                            if getattr(alt, "logprob", None) is not None
+                            float(alt.get("logprob"))
+                            if alt.get("logprob") is not None
                             else None
                         ),
                     }
