@@ -19,7 +19,8 @@ import pandas as pd
 
 from src.utils import (
     load_config,
-    PREDICTIONS_DIR, RESEARCH_DIR,
+    build_sample_id,
+    SPLITS_DIR, PREDICTIONS_DIR, RESEARCH_DIR,
     REPORTS_RESEARCH_DIR,
 )
 from src.evaluate import (
@@ -382,17 +383,30 @@ def build_research_dataframe(
     ml_df: pd.DataFrame,
     hybrid_df: pd.DataFrame,
     llm_df: pd.DataFrame | None = None,
+    split_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Merge ML predictions, LLM predictions, and hybrid results into one wide DataFrame.
 
     All DataFrames are joined on ``sample_id`` so row order doesn't matter.
     The ML predictions parquet already contains ground-truth columns, so we
     don't need the original split parquet.
+
+    If ``split_df`` is provided, ``synth_*`` metadata columns are joined from it.
     """
     result = ml_df.merge(hybrid_df, on="sample_id", validate="one_to_one")
     if llm_df is not None:
         llm_cols = ["sample_id"] + [c for c in llm_df.columns if c.startswith("llm_")]
         result = result.merge(llm_df[llm_cols], on="sample_id", how="left", validate="one_to_one")
+    # Preserve synth_* metadata from split parquet
+    if split_df is not None:
+        synth_cols = [c for c in split_df.columns if c.startswith("synth_")]
+        if synth_cols:
+            split_synth = split_df[["modified_sample"] + synth_cols].copy()
+            split_synth["sample_id"] = split_synth["modified_sample"].apply(build_sample_id)
+            result = result.merge(
+                split_synth[["sample_id"] + synth_cols],
+                on="sample_id", how="left", validate="one_to_one",
+            )
     return result
 
 
@@ -462,12 +476,18 @@ def generate_hybrid_report(
     )
     report = f"{report}\n{render_routing_diagnostics_markdown(routing_diag)}"
 
+    is_clean = research_df.get("synth_validated")
+    is_clean_benign = (
+        is_clean.fillna(False).astype(bool)
+        if is_clean is not None else None
+    )
     fpr_views = compute_fpr_views(
         research_df["label_binary"],
         research_df["hybrid_pred_binary"],
         routed_to=research_df.get("hybrid_routed_to"),
+        is_clean_benign=is_clean_benign,
     )
-    fpr_section = "\n".join([
+    fpr_rows = [
         "## FPR Diagnostic Views",
         "",
         "| View | FPR | Notes |",
@@ -475,8 +495,17 @@ def generate_hybrid_report(
         f"| Standard | {fpr_views['fpr_standard']:.4f} | All samples, abstain=adversarial |",
         f"| Abstain-excluded | {fpr_views['fpr_abstain_excluded']:.4f} | {fpr_views['n_abstain']} abstain samples removed |",
         f"| Abstain rate | {fpr_views['abstain_rate']:.4f} | {fpr_views['n_abstain']}/{fpr_views['n_total']} samples |",
-        "",
-    ])
+    ]
+    if fpr_views["fpr_clean_benign"] is not None:
+        n_cb = fpr_views["n_clean_benign"]
+        n_cb_abs = fpr_views["n_clean_benign_abstain"]
+        fpr_rows.extend([
+            f"| Clean-benign | {fpr_views['fpr_clean_benign']:.4f} | {n_cb} validated synthetic benigns only |",
+            f"| Clean-benign + abstain-excluded | {fpr_views['fpr_clean_benign_abstain_excluded']:.4f} | Clean benigns, {n_cb_abs} abstain removed |",
+            f"| Clean-benign abstain rate | {fpr_views['clean_benign_abstain_rate']:.4f} | {n_cb_abs}/{n_cb} clean benign samples abstained |",
+        ])
+    fpr_rows.append("")
+    fpr_section = "\n".join(fpr_rows)
     report = f"{report}\n{fpr_section}"
 
     with open(output_path, "w") as f:
@@ -558,8 +587,12 @@ def main():
         llm_generation_hint=f"dvc repro llm_classifier research eval_new --force",
     )
 
+    # ── Load split parquet for synth_* metadata ──────────────────────────────
+    split_path = SPLITS_DIR / f"{args.split}.parquet"
+    split_df = pd.read_parquet(split_path) if split_path.exists() else None
+
     # ── Build wide research DataFrame ────────────────────────────────────────
-    research_df = build_research_dataframe(ml_df, hybrid_df, llm_df)
+    research_df = build_research_dataframe(ml_df, hybrid_df, llm_df, split_df=split_df)
 
     # ── Save research parquet ────────────────────────────────────────────────
     RESEARCH_DIR.mkdir(parents=True, exist_ok=True)

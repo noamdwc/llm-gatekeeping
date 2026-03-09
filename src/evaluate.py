@@ -103,19 +103,34 @@ def binary_metrics(
     }
 
 
+def _fpr_on_benign(y_true: pd.Series, y_pred: pd.Series) -> float:
+    """FPR computed purely on benign negatives. No adversarial rows needed."""
+    ben_mask = y_true == "benign"
+    if ben_mask.sum() == 0:
+        return float("nan")
+    return float((y_pred[ben_mask] != "benign").mean())
+
+
 def compute_fpr_views(
     y_true: pd.Series,
     y_pred: pd.Series,
     routed_to: pd.Series | None = None,
+    is_clean_benign: pd.Series | None = None,
+    min_clean_benign: int = 200,
 ) -> dict:
     """Compute multi-view FPR to separate policy artifacts from true model errors.
 
     Returns dict with:
-      - fpr_standard: FPR over all samples (abstain→adversarial)
+      - fpr_standard: FPR over all samples (abstain->adversarial)
       - fpr_abstain_excluded: FPR after removing abstain-routed samples
       - abstain_rate: fraction of samples routed to abstain
       - n_abstain: number of abstain-routed samples
       - n_total: total sample count
+      - fpr_clean_benign: FPR on validated synthetic benign only (None if < min_clean_benign)
+      - fpr_clean_benign_abstain_excluded: same with abstain removed
+      - n_clean_benign: count of clean benign samples in eval split
+      - n_clean_benign_abstain: clean benign samples routed to abstain
+      - clean_benign_abstain_rate: fraction of clean benign routed to abstain
     """
     standard = binary_metrics(y_true, y_pred)
     n_total = len(y_true)
@@ -134,12 +149,36 @@ def compute_fpr_views(
     else:
         fpr_excluded = standard["false_positive_rate"]
 
+    # Clean-benign views
+    if is_clean_benign is not None:
+        n_clean = int(is_clean_benign.sum())
+    else:
+        n_clean = 0
+
+    if n_clean >= min_clean_benign:
+        fpr_clean = _fpr_on_benign(y_true[is_clean_benign], y_pred[is_clean_benign])
+        n_clean_abstain = int((is_clean_benign & abstain_mask).sum()) if n_abstain > 0 else 0
+        if n_abstain > 0:
+            clean_no_abstain = is_clean_benign & ~abstain_mask
+            fpr_clean_excl = _fpr_on_benign(y_true[clean_no_abstain], y_pred[clean_no_abstain])
+        else:
+            fpr_clean_excl = fpr_clean
+    else:
+        fpr_clean = None
+        fpr_clean_excl = None
+        n_clean_abstain = 0
+
     return {
         "fpr_standard": standard["false_positive_rate"],
         "fpr_abstain_excluded": fpr_excluded,
         "abstain_rate": n_abstain / n_total if n_total else 0.0,
         "n_abstain": n_abstain,
         "n_total": n_total,
+        "fpr_clean_benign": fpr_clean,
+        "fpr_clean_benign_abstain_excluded": fpr_clean_excl,
+        "n_clean_benign": n_clean,
+        "n_clean_benign_abstain": n_clean_abstain,
+        "clean_benign_abstain_rate": n_clean_abstain / n_clean if n_clean > 0 else 0.0,
     }
 
 

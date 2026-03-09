@@ -131,12 +131,18 @@ def _render_summary_markdown(
         routing_parts = [f"{k}={v}" for k, v in sorted(routing.items())]
         lines.extend(["", f"- routing: {', '.join(routing_parts)}"])
 
+        is_clean = main_df.get("synth_validated")
+        is_clean_benign = (
+            is_clean.fillna(False).astype(bool)
+            if is_clean is not None else None
+        )
         fpr_views = compute_fpr_views(
             main_df["label_binary"],
             main_df["hybrid_pred_binary"],
             routed_to=main_df["hybrid_routed_to"],
+            is_clean_benign=is_clean_benign,
         )
-        lines.extend([
+        fpr_lines = [
             "",
             "## FPR Diagnostic Views (Hybrid)",
             "",
@@ -145,7 +151,16 @@ def _render_summary_markdown(
             f"| Standard | {fpr_views['fpr_standard']:.4f} | All samples, abstain=adversarial |",
             f"| Abstain-excluded | {fpr_views['fpr_abstain_excluded']:.4f} | {fpr_views['n_abstain']} abstain samples removed |",
             f"| Abstain rate | {fpr_views['abstain_rate']:.4f} | {fpr_views['n_abstain']}/{fpr_views['n_total']} samples |",
-        ])
+        ]
+        if fpr_views["fpr_clean_benign"] is not None:
+            n_cb = fpr_views["n_clean_benign"]
+            n_cb_abs = fpr_views["n_clean_benign_abstain"]
+            fpr_lines.extend([
+                f"| Clean-benign | {fpr_views['fpr_clean_benign']:.4f} | {n_cb} validated synthetic benigns only |",
+                f"| Clean-benign + abstain-excluded | {fpr_views['fpr_clean_benign_abstain_excluded']:.4f} | Clean benigns, {n_cb_abs} abstain removed |",
+                f"| Clean-benign abstain rate | {fpr_views['clean_benign_abstain_rate']:.4f} | {n_cb_abs}/{n_cb} clean benign samples abstained |",
+            ])
+        lines.extend(fpr_lines)
 
     if external_frames:
         combined_df = pd.concat(list(external_frames.values()), ignore_index=True)

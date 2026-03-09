@@ -1,27 +1,18 @@
 #!/usr/bin/env bash
 #
-# run_synth.sh — Run the frozen synthetic_benign DVC stage.
+# run_synth.sh — Generate synthetic benign prompts (requires NVIDIA_API_KEY).
 #
-# Unfreezes the stage, runs dvc repro, then re-freezes on exit.
-# After completion, run `dvc repro` to propagate through the pipeline.
+# This is a standalone script, not a DVC stage, because it requires API tokens
+# and should only run on demand. After generation, run `dvc repro` to propagate
+# the new benign data through the pipeline.
 #
 # Usage:
-#   ./run_synth.sh            # normal run
-#   ./run_synth.sh --force    # force re-run
+#   ./run_synth.sh                        # generate all categories (config quotas)
+#   ./run_synth.sh --category C --limit 50  # single category, limited
 #
 set -euo pipefail
 
-DVC_FLAGS=""
-if [[ "${1:-}" == "--force" ]]; then
-    DVC_FLAGS="--force"
-fi
-
-echo "Unfreezing synthetic_benign stage..."
-dvc unfreeze synthetic_benign
-
-trap 'echo "Re-freezing synthetic_benign..."; dvc freeze synthetic_benign' EXIT
-
 echo "Running synthetic benign generation..."
-dvc repro $DVC_FLAGS synthetic_benign
+python -m src.cli.generate_synthetic_benign "$@"
 
 echo "Done. Run 'dvc repro' to propagate through pipeline."

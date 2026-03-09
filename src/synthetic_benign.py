@@ -22,6 +22,7 @@ Usage:
 import hashlib
 import json
 import os
+import re
 import time
 from typing import Optional
 
@@ -193,16 +194,39 @@ class SyntheticBenignGenerator:
                     messages=messages,
                     temperature=0.9,  # Higher temperature for diversity
                     max_tokens=2048,
-                    response_format={"type": "json_object"},
                 )
                 raw = response.choices[0].message.content
-                parsed = json.loads(raw)
+                # Try direct parse first, then extract from code blocks
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError:
+                    # Extract all JSON code blocks and merge prompts
+                    all_prompts = []
+                    for block_match in re.finditer(
+                        r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL
+                    ):
+                        try:
+                            block = json.loads(block_match.group(1))
+                            all_prompts.extend(block.get("prompts", []))
+                        except json.JSONDecodeError:
+                            continue
+                    if all_prompts:
+                        return all_prompts
+                    # Fallback: find first JSON object with "prompts" key
+                    match = re.search(
+                        r'\{"prompts"\s*:\s*\[.*?\]\s*\}', raw, re.DOTALL
+                    )
+                    if match:
+                        parsed = json.loads(match.group())
+                    else:
+                        return []
                 return parsed.get("prompts", [])
-            except (openai.RateLimitError,):
+            except (openai.RateLimitError, openai.InternalServerError):
                 if attempt == max_retries - 1:
-                    raise
+                    print(f"  API error after {max_retries} retries, skipping batch")
+                    return []
                 wait = min(2 ** attempt * 5, 60)
-                print(f"  Rate limit, retrying in {wait}s...")
+                print(f"  API error, retrying in {wait}s...")
                 time.sleep(wait)
             except (json.JSONDecodeError, KeyError, IndexError):
                 return []

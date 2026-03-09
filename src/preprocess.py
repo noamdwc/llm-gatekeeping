@@ -122,7 +122,10 @@ def build_benign_set(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
                 benign = pd.concat([benign, synth_rows], ignore_index=True)
                 print(f"  Integrated {synth_rows.shape[0]} synthetic benign samples")
         else:
-            print(f"  Warning: benign.synthetic.enabled=True but {synth_path} not found")
+            raise FileNotFoundError(
+                f"benign.synthetic.enabled=True but {synth_path} not found.\n"
+                "Generate it first: python -m src.cli.generate_synthetic_benign --category all"
+            )
 
     # Resample with replacement if still below target
     if len(benign) < target:

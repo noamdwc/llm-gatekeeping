@@ -2,18 +2,6 @@ vars:
 - configs/default.yaml
 
 stages:
-  # ── Stage 0: Synthetic Benign Generation (frozen — costs API tokens) ────
-  synthetic_benign:
-    cmd: python -m src.cli.generate_synthetic_benign --category all --skip-judge-validation
-    deps:
-    - src/cli/generate_synthetic_benign.py
-    - src/synthetic_benign.py
-    - src/validators.py
-    params:
-    - configs/default.yaml:
-      - benign.synthetic
-    # frozen: true
-
   # ── Stage 1: Preprocess ──────────────────────────────────────────────────
   preprocess:
     cmd: python -m src.preprocess
