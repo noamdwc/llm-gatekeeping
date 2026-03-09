@@ -68,6 +68,8 @@ benign:
     output_path: "data/processed/synthetic_benign.parquet"
 
 # LLM classifier
+# Provider: set LLM_PROVIDER env var to "nim" (default) or "openai".
+# NIM model names below are auto-translated to OpenAI equivalents when LLM_PROVIDER=openai.
 llm:
   model: "meta/llama-3.1-8b-instruct"
   model_quality: "meta/llama-3.1-70b-instruct"

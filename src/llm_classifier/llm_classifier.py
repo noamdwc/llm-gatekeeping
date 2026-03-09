@@ -32,6 +32,7 @@ from src.llm_classifier.constants import (
     BYPASS_INTENT_PATTERNS,
 )
 from src.embeddings import ExemplarBank, get_embeddings
+from src.llm_provider import get_provider, make_client, resolve_model
 
 # ---------------------------------------------------------------------------
 # Hard benign static examples (Patch 11)
@@ -123,11 +124,10 @@ class HierarchicalLLMClassifier:
         exemplar_bank: ExemplarBank | None = None,
     ):
         self.cfg = cfg
-        self._client_base_url = "https://integrate.api.nvidia.com/v1"
-        self._client_api_key = os.environ["NVIDIA_API_KEY"]
+        self._provider = get_provider()
         self._thread_local = threading.local()
-        self.model = cfg["llm"]["model"]
-        self.model_quality = cfg["llm"].get("model_quality", self.model)
+        self.model = resolve_model(cfg["llm"]["model"], self._provider)
+        self.model_quality = resolve_model(cfg["llm"].get("model_quality", cfg["llm"]["model"]), self._provider)
         self.temperature = cfg["llm"]["temperature"]
         self.max_concurrency = int(cfg.get("llm", {}).get("max_concurrency", 8))
         self.capture_logprobs = bool(cfg.get("llm", {}).get("capture_logprobs", False))
@@ -145,10 +145,7 @@ class HierarchicalLLMClassifier:
     def _get_client(self):
         client = getattr(self._thread_local, "client", None)
         if client is None:
-            client = openai.OpenAI(
-                base_url=self._client_base_url,
-                api_key=self._client_api_key,
-            )
+            client = make_client(self._provider)
             self._thread_local.client = client
         return client
 

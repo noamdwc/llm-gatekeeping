@@ -7,7 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Python environment**: `/Users/noamc/miniconda3/envs/llm_gate/bin/python` (Python 3.14)
 - **Activate**: `conda activate llm_gate`
 - **Dependencies**: `pip install -r requirements.txt`
-- **NVIDIA API key**: Required for LLM and hybrid modes; stored in `.env` as `NVIDIA_API_KEY` (gitignored). Get one at https://integrate.api.nvidia.com
+- **LLM provider**: Set `LLM_PROVIDER` env var to `nim` (default) or `openai`. NIM model names in config are auto-translated to OpenAI equivalents.
+- **NVIDIA API key**: Required when `LLM_PROVIDER=nim` (default); stored in `.env` as `NVIDIA_API_KEY` (gitignored). Get one at https://integrate.api.nvidia.com
+- **OpenAI API key**: Required when `LLM_PROVIDER=openai`; stored in `.env` as `OPENAI_API_KEY` (gitignored).
 - **HuggingFace auth**: `huggingface-cli login` (dataset requires access approval)
 - **Experiment tracking**: wandb (optional, disable with `--no-wandb`)
 

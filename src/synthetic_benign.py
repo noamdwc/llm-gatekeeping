@@ -30,6 +30,8 @@ import dotenv
 import openai
 import pandas as pd
 
+from src.llm_provider import get_provider, make_client, resolve_model
+
 dotenv.load_dotenv()
 
 # ---------------------------------------------------------------------------
@@ -158,14 +160,13 @@ class SyntheticBenignGenerator:
     def __init__(self, cfg: dict, client: Optional[openai.OpenAI] = None):
         self.cfg = cfg
         synth_cfg = cfg.get("benign", {}).get("synthetic", {})
-        self.generation_model = synth_cfg.get(
-            "generation_model", cfg.get("llm", {}).get("model", "meta/llama-3.1-8b-instruct")
+        provider = get_provider()
+        self.generation_model = resolve_model(
+            synth_cfg.get("generation_model", cfg.get("llm", {}).get("model", "meta/llama-3.1-8b-instruct")),
+            provider,
         )
         self.batch_size = synth_cfg.get("batch_size", 20)
-        self.client = client or openai.OpenAI(
-            base_url="https://integrate.api.nvidia.com/v1",
-            api_key=os.environ["NVIDIA_API_KEY"],
-        )
+        self.client = client or make_client(provider)
 
     # -- LLM interaction ---------------------------------------------------
 

@@ -27,6 +27,8 @@ import dotenv
 import numpy as np
 import openai
 import pandas as pd
+
+from src.llm_provider import get_provider, make_client, resolve_model
 from tqdm import tqdm
 
 from src.llm_classifier.constants import ATTACK_TYPES
@@ -53,13 +55,12 @@ def get_embeddings(
     Returns:
         numpy array of shape (len(texts), embedding_dim)
     """
-    client = openai.OpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=os.environ.get("NVIDIA_API_KEY", ""),
-    )
+    provider = get_provider()
+    client = make_client(provider)
+    model = resolve_model(model, provider)
     all_embeddings = []
 
-    extra = {"extra_body": {"input_type": input_type}} if input_type else {}
+    extra = {"extra_body": {"input_type": input_type}} if input_type and provider.supports_input_type else {}
     max_retries = 5
 
     for i in range(0, len(texts), batch_size):
