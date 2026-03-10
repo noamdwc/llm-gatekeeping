@@ -131,7 +131,7 @@ class HierarchicalLLMClassifier:
         self.model_quality = resolve_model(cfg["llm"].get("model_quality", cfg["llm"]["model"]), self._provider)
         self.temperature = cfg["llm"]["temperature"]
         self.max_concurrency = int(cfg.get("llm", {}).get("max_concurrency", 8))
-        self.capture_logprobs = bool(cfg.get("llm", {}).get("capture_logprobs", False))
+        self.capture_logprobs = bool(cfg.get("llm", {}).get("capture_logprobs", True))
         self.top_logprobs = max(0, int(cfg.get("llm", {}).get("top_logprobs", 5)))
         self.few_shot = few_shot_examples or []
         self.usage = UsageStats()

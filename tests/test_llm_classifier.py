@@ -1310,8 +1310,7 @@ class TestCallLlmRetry:
             }
         ]
 
-    def test_call_llm_requests_logprobs_when_enabled(self, sample_config):
-        sample_config["llm"]["capture_logprobs"] = True
+    def test_call_llm_requests_logprobs_by_default(self, sample_config):
         sample_config["llm"]["top_logprobs"] = 4
         clf = _make_classifier(sample_config)
         response = self._make_response('{"label": "benign", "confidence": 90}')
@@ -1324,6 +1323,20 @@ class TestCallLlmRetry:
         _, kwargs = mock_client.chat.completions.create.call_args
         assert kwargs["logprobs"] is True
         assert kwargs["top_logprobs"] == 4
+
+    def test_call_llm_can_disable_logprobs_explicitly(self, sample_config):
+        sample_config["llm"]["capture_logprobs"] = False
+        clf = _make_classifier(sample_config)
+        response = self._make_response('{"label": "benign", "confidence": 90}')
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = MagicMock(return_value=response)
+        clf._get_client = MagicMock(return_value=mock_client)
+
+        clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
+
+        _, kwargs = mock_client.chat.completions.create.call_args
+        assert "logprobs" not in kwargs
+        assert "top_logprobs" not in kwargs
 
 
 class TestCliLimitDefault:

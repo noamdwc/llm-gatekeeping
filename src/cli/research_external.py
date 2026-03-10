@@ -63,11 +63,13 @@ LLM_OUTPUT_COLUMNS = [
     "clf_confidence",
     "clf_evidence",
     "clf_nlp_attack_type",
+    "clf_token_logprobs",
     "judge_independent_label",
     "judge_category",
     "judge_independent_confidence",
     "judge_independent_evidence",
     "judge_computed_decision",
+    "judge_token_logprobs",
 ]
 
 
@@ -123,11 +125,13 @@ def _llm_result_to_row(result: dict, sample_id: str) -> dict:
         "clf_confidence": result.get("clf_confidence"),
         "clf_evidence": result.get("clf_evidence", ""),
         "clf_nlp_attack_type": result.get("clf_nlp_attack_type", "none"),
+        "clf_token_logprobs": result.get("clf_token_logprobs"),
         "judge_independent_label": result.get("judge_independent_label"),
         "judge_category": result.get("judge_category"),
         "judge_independent_confidence": result.get("judge_independent_confidence"),
         "judge_independent_evidence": result.get("judge_independent_evidence"),
         "judge_computed_decision": result.get("judge_computed_decision"),
+        "judge_token_logprobs": result.get("judge_token_logprobs"),
     }
 
 

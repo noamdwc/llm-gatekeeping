@@ -80,7 +80,7 @@ llm:
   max_tokens_classifier: 200
   max_tokens_judge: 500
   judge_confidence_threshold: 0.9
-  capture_logprobs: false
+  capture_logprobs: true
   top_logprobs: 5
   few_shot:
     unicode: 2
@@ -143,11 +143,11 @@ external_datasets:
     label_map:
       1: "adversarial"
       0: "benign"
-  spml:
-    name: "reshabhs/SPML_Chatbot_Prompt_Injection"
-    split: "train"
-    text_col: "User Prompt"
-    label_col: "Prompt injection"
-    label_map:
-      1: "adversarial"
-      0: "benign"
+  # spml:
+  #   name: "reshabhs/SPML_Chatbot_Prompt_Injection"
+  #   split: "train"
+  #   text_col: "User Prompt"
+  #   label_col: "Prompt injection"
+  #   label_map:
+  #     1: "adversarial"
+  #     0: "benign"

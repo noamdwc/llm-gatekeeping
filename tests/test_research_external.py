@@ -8,11 +8,14 @@ import pytest
 
 from src.cli.research_external import (
     EXTERNAL_GT_COLS,
+    LLM_OUTPUT_COLUMNS,
     build_external_research_df,
     build_predictions_df,
     default_llm_predictions_path,
     generate_research_report,
     load_llm_predictions_required,
+    _llm_result_to_row,
+    _normalize_existing_llm_df,
     run_llm_full,
     resolve_skip_llm,
 )
@@ -115,6 +118,62 @@ class TestBuildExternalResearchDf:
         result = build_external_research_df(df, ml_df, hybrid_df)
         for col in ["original_sample", "attack_name", "prompt_hash"]:
             assert col not in result.columns
+
+
+class TestExternalLlmArtifactSchema:
+    def test_llm_result_to_row_persists_token_logprobs(self):
+        row = _llm_result_to_row(
+            {
+                "label_binary": "benign",
+                "label": "benign",
+                "label_category": "benign",
+                "confidence": 0.9,
+                "evidence": "",
+                "llm_stages_run": 2,
+                "clf_label": "benign",
+                "clf_category": "benign",
+                "clf_confidence": 0.9,
+                "clf_evidence": "",
+                "clf_nlp_attack_type": "none",
+                "clf_token_logprobs": [{"token": "benign", "logprob": -0.2, "top_logprobs": []}],
+                "judge_independent_label": "benign",
+                "judge_category": "benign",
+                "judge_independent_confidence": 0.95,
+                "judge_independent_evidence": "",
+                "judge_computed_decision": "override_candidate",
+                "judge_token_logprobs": [{"token": "benign", "logprob": -0.1, "top_logprobs": []}],
+            },
+            sample_id="abc123",
+        )
+        assert row["clf_token_logprobs"] == [{"token": "benign", "logprob": -0.2, "top_logprobs": []}]
+        assert row["judge_token_logprobs"] == [{"token": "benign", "logprob": -0.1, "top_logprobs": []}]
+
+    def test_normalize_existing_llm_df_backfills_new_logprob_columns(self):
+        llm_df = pd.DataFrame(
+            {
+                "sample_id": ["a1"],
+                "llm_pred_binary": ["benign"],
+                "llm_pred_raw": ["benign"],
+                "llm_pred_category": ["benign"],
+                "llm_conf_binary": [0.9],
+                "llm_evidence": [""],
+                "llm_stages_run": [1],
+                "clf_label": ["benign"],
+                "clf_category": ["benign"],
+                "clf_confidence": [0.9],
+                "clf_evidence": [""],
+                "clf_nlp_attack_type": ["none"],
+                "judge_independent_label": [None],
+                "judge_category": [None],
+                "judge_independent_confidence": [None],
+                "judge_independent_evidence": [None],
+                "judge_computed_decision": [None],
+            }
+        )
+        normalized = _normalize_existing_llm_df(llm_df)
+        assert list(normalized.columns) == LLM_OUTPUT_COLUMNS
+        assert pd.isna(normalized.loc[0, "clf_token_logprobs"])
+        assert pd.isna(normalized.loc[0, "judge_token_logprobs"])
 
 
 # ---------------------------------------------------------------------------
