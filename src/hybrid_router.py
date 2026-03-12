@@ -24,6 +24,12 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+from src.logprob_margin import (
+    apply_margin_policy,
+    extract_preferred_margin_features_from_result,
+    infer_route_bucket,
+    resolve_margin_policy_config,
+)
 from src.utils import load_config, SPLITS_DIR, MODELS_DIR, REPORTS_RESEARCH_DIR
 from src.ml_classifier.ml_baseline import MLBaseline
 from src.llm_classifier.llm_classifier import HierarchicalLLMClassifier, build_few_shot_examples
@@ -43,49 +49,6 @@ ADVERSARIAL_LABEL_ALIASES = {
     "prompt injection",
     "injection",
 }
-
-
-def _extract_label_logprob_margin(token_logprobs: list[dict] | None, mode: str = "clf") -> float | None:
-    """Extract the rank-1 vs rank-2 logprob margin at the label-start token.
-
-    The LLM JSON output splits labels across sub-word tokens (e.g. "ad" + "vers" + "arial").
-    The label-start token carries the discriminative signal: its top_logprobs margin
-    indicates how certain the model was at the decision point.
-
-    Args:
-        token_logprobs: Per-token logprob list from the LLM response.
-        mode: "clf" for classifier (fixed position 4) or "judge" (find _label key).
-
-    Returns:
-        Margin in nats (positive = confident), or None if not extractable.
-    """
-    if not token_logprobs or not isinstance(token_logprobs, list):
-        return None
-
-    label_idx = None
-    if mode == "clf":
-        label_idx = 4 if len(token_logprobs) > 4 else None
-    else:
-        for i, tok in enumerate(token_logprobs):
-            if tok.get("token") == "_label":
-                candidate = i + 3  # skip '":' and ' "' to reach value
-                if candidate < len(token_logprobs):
-                    label_idx = candidate
-                break
-
-    if label_idx is None or label_idx >= len(token_logprobs):
-        return None
-
-    top = token_logprobs[label_idx].get("top_logprobs") or []
-    top_lps = sorted(
-        [float(t["logprob"]) for t in top if isinstance(t.get("logprob"), (int, float))],
-        reverse=True,
-    )
-    if len(top_lps) >= 2:
-        return top_lps[0] - top_lps[1]
-    return None
-
-
 def _normalize_binary_label(label) -> str:
     return str(label).strip().lower().replace("-", "_")
 
@@ -139,6 +102,7 @@ class HybridRouter:
         self.ml_threshold = cfg["hybrid"]["ml_confidence_threshold"]
         self.llm_threshold = cfg["hybrid"]["llm_confidence_threshold"]
         self.logprob_margin_threshold = cfg["hybrid"].get("logprob_margin_threshold")
+        self.margin_policy_cfg = resolve_margin_policy_config(cfg)
         self.stats = RouterStats()
         self._ml_conf_source_logged = False
         self._benign_escalations = 0
@@ -232,25 +196,28 @@ class HybridRouter:
             if final_binary not in ("benign", "adversarial"):
                 final_binary = "benign" if final_label == "benign" else "adversarial"
 
-        # Extract logprob margin from raw token logprobs (router owns this logic)
-        judge_logprobs = llm_result.get("judge_token_logprobs")
-        clf_logprobs = llm_result.get("clf_token_logprobs")
-        judge_margin = _extract_label_logprob_margin(judge_logprobs, mode="judge")
-        clf_margin = _extract_label_logprob_margin(clf_logprobs, mode="clf")
-        logprob_margin = judge_margin if judge_margin is not None else clf_margin
-
-        # Margin gate: override low-margin benign predictions to adversarial
-        margin_gated = False
-        if (
-            self.logprob_margin_threshold is not None
-            and final_binary == "benign"
-            and routed_to == "llm"
-        ):
-            if logprob_margin is not None and logprob_margin < self.logprob_margin_threshold:
-                final_binary = "adversarial"
-                final_label = "adversarial"
-                margin_gated = True
-                self._margin_gate_overrides += 1
+        margin_features = extract_preferred_margin_features_from_result(llm_result)
+        route_bucket = infer_route_bucket({
+            "routed_to": routed_to,
+            "llm_stages_run": llm_result.get("llm_stages_run"),
+        })
+        policy_result = apply_margin_policy(
+            current_route=routed_to,
+            predicted_binary=final_binary,
+            predicted_label=final_label,
+            margin=margin_features.margin,
+            policy_cfg=self.margin_policy_cfg,
+            route_bucket=route_bucket,
+        )
+        margin_gated = bool(policy_result["override_applied"])
+        routed_to = policy_result["route"]
+        final_binary = policy_result["final_binary"]
+        final_label = policy_result["final_label"]
+        if margin_gated and routed_to == "abstain":
+            self.stats.llm_escalated = max(self.stats.llm_escalated - 1, 0)
+            self.stats.abstained += 1
+        if margin_gated and policy_result["policy_outcome"] == "forced_adversarial":
+            self._margin_gate_overrides += 1
 
         llm_category = llm_result.get("label_category")
         ml_category = self._get_ml_category(ml_pred)
@@ -271,7 +238,18 @@ class HybridRouter:
             "ml_conf_binary": ml_conf,
             "unicode_lane": unicode_lane,
             "margin_gated": margin_gated,
-            "logprob_margin": logprob_margin,
+            "logprob_margin": margin_features.margin,
+            "margin_source_stage": margin_features.source_stage,
+            "label_start_position": margin_features.label_start_position,
+            "top1_logprob": margin_features.top1_logprob,
+            "top2_logprob": margin_features.top2_logprob,
+            "top_logprobs_raw": margin_features.top_k_tokens,
+            "token_names_missing": margin_features.token_names_missing,
+            "token_strings_available": margin_features.token_strings_available,
+            "margin_policy": policy_result["policy_name"],
+            "policy_outcome": policy_result["policy_outcome"],
+            "override_applied": policy_result["override_applied"],
+            "override_reason": policy_result["override_reason"],
         }
 
     def predict_single(self, text: str, ml_pred: dict) -> dict:

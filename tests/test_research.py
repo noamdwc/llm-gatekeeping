@@ -275,7 +275,14 @@ class TestComputeHybridRouting:
         """Output has exactly the expected columns."""
         ml_df = self._make_ml_df([0.5])
         result = compute_hybrid_routing(ml_df, None, threshold=0.85)
-        expected = {"sample_id", "hybrid_routed_to", "hybrid_pred_binary", "hybrid_pred_category", "hybrid_pred_type"}
+        expected = {
+            "sample_id", "hybrid_routed_to", "hybrid_pred_binary", "hybrid_pred_category", "hybrid_pred_type",
+            "hybrid_llm_pred_binary_pre_policy", "hybrid_margin", "hybrid_margin_source_stage",
+            "hybrid_label_start_position", "hybrid_top1_logprob", "hybrid_top2_logprob",
+            "hybrid_top_logprobs_raw", "hybrid_token_names_missing", "hybrid_token_strings_available",
+            "hybrid_margin_policy", "hybrid_policy_outcome", "hybrid_override_applied",
+            "hybrid_override_reason", "hybrid_route_bucket",
+        }
         assert set(result.columns) == expected
 
     def test_benign_predictions_always_escalate_when_llm_available(self):
@@ -311,6 +318,24 @@ class TestComputeHybridRouting:
         result = compute_hybrid_routing(ml_df, llm_df, threshold=0.85, llm_conf_threshold=0.7)
         assert result.iloc[0]["hybrid_routed_to"] == "abstain"
         assert result.iloc[0]["hybrid_pred_binary"] == "adversarial"
+
+    def test_margin_policy_records_override_metadata(self):
+        ml_df = self._make_ml_df([0.20], preds_binary=["adversarial"])
+        llm_df = self._make_llm_df(1)
+        llm_df["llm_pred_binary"] = ["benign"]
+        llm_df["clf_token_logprobs"] = [[
+            {}, {}, {}, {},
+            {"top_logprobs": [{"token": "ben", "logprob": -0.1}, {"token": "adv", "logprob": -0.3}]},
+        ]]
+        result = compute_hybrid_routing(
+            ml_df,
+            llm_df,
+            threshold=0.85,
+            logprob_margin_threshold=1.0,
+        )
+        assert result.iloc[0]["hybrid_pred_binary"] == "adversarial"
+        assert bool(result.iloc[0]["hybrid_override_applied"]) is True
+        assert result.iloc[0]["hybrid_override_reason"] == "low_margin_force_adversarial"
 
     def test_strict_mode_requires_llm_df(self):
         """Strict hybrid mode should fail when llm_df is missing."""

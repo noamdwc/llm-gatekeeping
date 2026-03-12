@@ -58,17 +58,29 @@ LLM_OUTPUT_COLUMNS = [
     "llm_conf_binary",
     "llm_evidence",
     "llm_stages_run",
+    "llm_provider_name",
+    "llm_model_name",
+    "llm_raw_response_text",
+    "llm_parse_success",
     "clf_label",
     "clf_category",
     "clf_confidence",
     "clf_evidence",
     "clf_nlp_attack_type",
+    "clf_provider_name",
+    "clf_model_name",
+    "clf_raw_response_text",
+    "clf_parse_success",
     "clf_token_logprobs",
     "judge_independent_label",
     "judge_category",
     "judge_independent_confidence",
     "judge_independent_evidence",
     "judge_computed_decision",
+    "judge_provider_name",
+    "judge_model_name",
+    "judge_raw_response_text",
+    "judge_parse_success",
     "judge_token_logprobs",
 ]
 
@@ -120,17 +132,37 @@ def _llm_result_to_row(result: dict, sample_id: str) -> dict:
         "llm_conf_binary": result["confidence"],
         "llm_evidence": result.get("evidence", ""),
         "llm_stages_run": result.get("llm_stages_run"),
+        "llm_provider_name": result.get("llm_provider_name"),
+        "llm_model_name": result.get("llm_model_name"),
+        "llm_raw_response_text": (
+            result.get("judge_raw_response_text")
+            if result.get("llm_stages_run") == 2
+            else result.get("clf_raw_response_text")
+        ),
+        "llm_parse_success": (
+            result.get("judge_parse_success")
+            if result.get("llm_stages_run") == 2
+            else result.get("clf_parse_success")
+        ),
         "clf_label": result.get("clf_label"),
         "clf_category": result.get("clf_category"),
         "clf_confidence": result.get("clf_confidence"),
         "clf_evidence": result.get("clf_evidence", ""),
         "clf_nlp_attack_type": result.get("clf_nlp_attack_type", "none"),
+        "clf_provider_name": result.get("clf_provider_name"),
+        "clf_model_name": result.get("clf_model_name"),
+        "clf_raw_response_text": result.get("clf_raw_response_text"),
+        "clf_parse_success": result.get("clf_parse_success"),
         "clf_token_logprobs": result.get("clf_token_logprobs"),
         "judge_independent_label": result.get("judge_independent_label"),
         "judge_category": result.get("judge_category"),
         "judge_independent_confidence": result.get("judge_independent_confidence"),
         "judge_independent_evidence": result.get("judge_independent_evidence"),
         "judge_computed_decision": result.get("judge_computed_decision"),
+        "judge_provider_name": result.get("judge_provider_name"),
+        "judge_model_name": result.get("judge_model_name"),
+        "judge_raw_response_text": result.get("judge_raw_response_text"),
+        "judge_parse_success": result.get("judge_parse_success"),
         "judge_token_logprobs": result.get("judge_token_logprobs"),
     }
 

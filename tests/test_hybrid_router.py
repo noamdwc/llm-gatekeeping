@@ -98,6 +98,7 @@ class TestPredictSingle:
             "label": "adversarial",
             "label_category": "nlp_attack",
             "confidence": 0.9,
+            "llm_stages_run": 1,
         }
 
         result = router.predict_single("text", ml_pred)
@@ -118,6 +119,7 @@ class TestPredictSingle:
         router.llm.predict.return_value = {
             "label": "benign",
             "confidence": 0.3,  # below 0.7 threshold
+            "llm_stages_run": 1,
         }
 
         result = router.predict_single("text", ml_pred)
@@ -136,6 +138,7 @@ class TestPredictSingle:
         router.llm.predict.return_value = {
             "label_binary": "benign",
             "confidence": 0.92,
+            "llm_stages_run": 1,
         }
 
         result = router.predict_single("text", ml_pred)
@@ -149,6 +152,7 @@ class TestPredictSingle:
         router.llm.predict.return_value = {
             "label": "benign",
             "confidence": 0.9,
+            "llm_stages_run": 1,
         }
         # Benign prediction escalates to LLM
         router.predict_single("t1", {
@@ -160,6 +164,7 @@ class TestPredictSingle:
         router.llm.predict.return_value = {
             "label": "adversarial",
             "confidence": 0.9,
+            "llm_stages_run": 1,
         }
         router.predict_single("t2", {
             "pred_label_binary": "adversarial",
@@ -192,6 +197,7 @@ class TestPredictSingle:
         router.llm.predict.return_value = {
             "label_binary": "adversarial",
             "confidence": 0.9,
+            "llm_stages_run": 1,
         }
         result = router.predict_single("text", ml_pred)
         assert result["routed_to"] == "llm"
@@ -208,6 +214,7 @@ class TestPredictSingle:
         router.llm.predict.return_value = {
             "label_binary": "adversarial",
             "confidence": 0.95,
+            "llm_stages_run": 1,
         }
         result = router.predict_single("text", ml_pred)
         assert result["routed_to"] == "llm"
@@ -222,6 +229,7 @@ class TestPredictSingle:
         router.llm.predict.return_value = {
             "label_binary": "adversarial",
             "confidence": 0.95,
+            "llm_stages_run": 1,
         }
         result = router.predict_single("text", ml_pred)
         assert result["routed_to"] == "llm"
@@ -242,6 +250,28 @@ class TestPredictSingle:
         assert result["label_binary"] == "adversarial"
         assert result["label_category"] == "unicode_attack"
         assert result["label_type"] == "Diacritcs"
+
+    def test_baseline_margin_policy_forces_low_margin_benign(self, router):
+        ml_pred = {
+            "pred_label_binary": "benign",
+            "confidence_label_binary": 0.99,
+        }
+        router.llm.predict.return_value = {
+            "label": "benign",
+            "label_binary": "benign",
+            "confidence": 0.95,
+            "llm_stages_run": 1,
+            "clf_token_logprobs": [
+                {}, {}, {}, {},
+                {"top_logprobs": [{"token": "ben", "logprob": -0.2}, {"token": "adv", "logprob": -2.8}]},
+            ],
+        }
+        result = router.predict_single("text", ml_pred)
+        assert result["label_binary"] == "benign"
+        router.llm.predict.return_value["clf_token_logprobs"][4]["top_logprobs"][1]["logprob"] = -0.6
+        result = router.predict_single("text2", ml_pred)
+        assert result["label_binary"] == "adversarial"
+        assert result["override_applied"] is True
 
 
 # ---------------------------------------------------------------------------

@@ -204,22 +204,54 @@ class HierarchicalLLMClassifier:
             completion_tokens = usage.get("completion_tokens") or 0
             self.usage.record_call(stage, latency, prompt_tokens, completion_tokens)
 
+        resolved_model = model or self.model
         if response is None:
-            return {}
+            return {
+                "_provider_name": self._provider.name,
+                "_model_name": resolved_model,
+                "_raw_response_text": None,
+                "_parse_success": False,
+            }
+
+        raw_response_text = None
         try:
-            parsed = json.loads(response["choices"][0]["message"]["content"])
+            raw_response_text = response["choices"][0]["message"]["content"]
+        except (IndexError, KeyError, TypeError):
+            raw_response_text = None
+
+        try:
+            parsed = json.loads(raw_response_text)
             # Some providers occasionally return JSON-encoded JSON strings.
             if isinstance(parsed, str):
                 try:
                     parsed = json.loads(parsed)
                 except json.JSONDecodeError:
-                    return {}
+                    return {
+                        "_provider_name": self._provider.name,
+                        "_model_name": resolved_model,
+                        "_raw_response_text": raw_response_text,
+                        "_parse_success": False,
+                    }
             if not isinstance(parsed, dict):
-                return {}
+                return {
+                    "_provider_name": self._provider.name,
+                    "_model_name": resolved_model,
+                    "_raw_response_text": raw_response_text,
+                    "_parse_success": False,
+                }
             parsed["_token_logprobs"] = self._extract_completion_logprobs(response)
+            parsed["_provider_name"] = self._provider.name
+            parsed["_model_name"] = resolved_model
+            parsed["_raw_response_text"] = raw_response_text
+            parsed["_parse_success"] = True
             return parsed
         except (json.JSONDecodeError, IndexError, KeyError, TypeError):
-            return {}
+            return {
+                "_provider_name": self._provider.name,
+                "_model_name": resolved_model,
+                "_raw_response_text": raw_response_text,
+                "_parse_success": False,
+            }
 
     @staticmethod
     def _extract_completion_logprobs(response) -> list[dict] | None:
@@ -522,6 +554,8 @@ class HierarchicalLLMClassifier:
             "confidence": confidence,
             "evidence": evidence,
             "llm_stages_run": stages_run,
+            "llm_provider_name": self._provider.name,
+            "llm_model_name": self.model_quality if judge_result is not None else self.model,
             # Classifier stage
             "clf_label": clf_result.get("label"),
             "clf_category": clf_category,
@@ -529,6 +563,10 @@ class HierarchicalLLMClassifier:
             "clf_evidence": clf_result.get("evidence", ""),
             "clf_nlp_attack_type": clf_nlp_attack_type,
             "clf_token_logprobs": clf_result.get("_token_logprobs"),
+            "clf_provider_name": clf_result.get("_provider_name"),
+            "clf_model_name": clf_result.get("_model_name"),
+            "clf_raw_response_text": clf_result.get("_raw_response_text"),
+            "clf_parse_success": clf_result.get("_parse_success", False),
         }
         # Judge stage (None if judge was not run)
         if judge_result is not None:
@@ -541,6 +579,10 @@ class HierarchicalLLMClassifier:
             result["judge_benign_task_override"] = judge_result.get("judge_benign_task_override", False)
             result["judge_override_reason"] = judge_result.get("judge_override_reason")
             result["judge_token_logprobs"] = judge_result.get("_token_logprobs")
+            result["judge_provider_name"] = judge_result.get("_provider_name")
+            result["judge_model_name"] = judge_result.get("_model_name")
+            result["judge_raw_response_text"] = judge_result.get("_raw_response_text")
+            result["judge_parse_success"] = judge_result.get("_parse_success", False)
         else:
             result["judge_independent_label"] = None
             result["judge_category"] = None
@@ -550,6 +592,10 @@ class HierarchicalLLMClassifier:
             result["judge_benign_task_override"] = None
             result["judge_override_reason"] = None
             result["judge_token_logprobs"] = None
+            result["judge_provider_name"] = None
+            result["judge_model_name"] = None
+            result["judge_raw_response_text"] = None
+            result["judge_parse_success"] = None
 
         return result
 
@@ -733,12 +779,28 @@ def main():
                 "llm_conf_binary": r["confidence"],
                 "llm_evidence": r.get("evidence", ""),
                 "llm_stages_run": r.get("llm_stages_run"),
+                "llm_provider_name": r.get("llm_provider_name"),
+                "llm_model_name": r.get("llm_model_name"),
+                "llm_raw_response_text": (
+                    r.get("judge_raw_response_text")
+                    if r.get("llm_stages_run") == 2
+                    else r.get("clf_raw_response_text")
+                ),
+                "llm_parse_success": (
+                    r.get("judge_parse_success")
+                    if r.get("llm_stages_run") == 2
+                    else r.get("clf_parse_success")
+                ),
                 # Classifier stage
                 "clf_label": r.get("clf_label"),
                 "clf_category": r.get("clf_category"),
                 "clf_confidence": r.get("clf_confidence"),
                 "clf_evidence": r.get("clf_evidence", ""),
                 "clf_nlp_attack_type": r.get("clf_nlp_attack_type", "none"),
+                "clf_provider_name": r.get("clf_provider_name"),
+                "clf_model_name": r.get("clf_model_name"),
+                "clf_raw_response_text": r.get("clf_raw_response_text"),
+                "clf_parse_success": r.get("clf_parse_success"),
                 "clf_token_logprobs": json.dumps(r.get("clf_token_logprobs")),
                 # Judge stage (None if not run)
                 "judge_independent_label": r.get("judge_independent_label"),
@@ -748,6 +810,10 @@ def main():
                 "judge_computed_decision": r.get("judge_computed_decision"),
                 "judge_benign_task_override": r.get("judge_benign_task_override"),
                 "judge_override_reason": r.get("judge_override_reason"),
+                "judge_provider_name": r.get("judge_provider_name"),
+                "judge_model_name": r.get("judge_model_name"),
+                "judge_raw_response_text": r.get("judge_raw_response_text"),
+                "judge_parse_success": r.get("judge_parse_success"),
                 "judge_token_logprobs": json.dumps(r.get("judge_token_logprobs")),
             })
         llm_df = pd.DataFrame(research_rows)

@@ -67,6 +67,13 @@ def sample_config():
         "hybrid": {
             "ml_confidence_threshold": 0.85,
             "llm_confidence_threshold": 0.7,
+            "margin_policy": "baseline",
+            "logprob_margin_threshold": 2.0,
+            "margin_low_threshold": 1.0,
+            "margin_high_threshold": 2.5,
+            "margin_threshold_classifier_only": 2.5,
+            "margin_threshold_judge": 1.5,
+            "production_adversarial_prior": 0.1,
         },
         "evaluation": {
             "calibration_bins": 10,

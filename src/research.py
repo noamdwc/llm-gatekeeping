@@ -17,11 +17,18 @@ import argparse
 import numpy as np
 import pandas as pd
 
+from src.logprob_margin import (
+    apply_margin_policy,
+    extract_preferred_margin_features_from_row,
+    infer_route_bucket,
+    resolve_margin_policy_config,
+)
+from src.margin_trace import build_margin_trace, write_margin_trace
 from src.utils import (
     load_config,
     build_sample_id,
-    SPLITS_DIR, PREDICTIONS_DIR, RESEARCH_DIR,
-    REPORTS_RESEARCH_DIR,
+    SPLITS_DIR, PREDICTIONS_DIR, RESEARCH_DIR, REPORTS_DIR,
+    REPORTS_RESEARCH_DIR, REPORTS_ARTIFACTS_DIR,
 )
 from src.evaluate import (
     binary_metrics, category_metrics, type_metrics,
@@ -227,12 +234,13 @@ def render_routing_diagnostics_markdown(diag: dict) -> str:
     ]
     return "\n".join(lines)
 
-
 def compute_hybrid_routing(
     ml_df: pd.DataFrame,
     llm_df: pd.DataFrame | None,
     threshold: float,
     llm_conf_threshold: float = 0.7,
+    logprob_margin_threshold: float | None = None,
+    margin_policy_cfg: dict | None = None,
     unicode_types: list[str] | set[str] | None = None,
     require_llm_for_escalations: bool = False,
     llm_required_path: str | None = None,
@@ -300,7 +308,29 @@ def compute_hybrid_routing(
         "hybrid_pred_binary": ml_df["ml_pred_binary"].values,
         "hybrid_pred_category": ml_df["ml_pred_category"].values,
         "hybrid_pred_type": ml_df["ml_pred_type"].values,
+        "hybrid_llm_pred_binary_pre_policy": pd.Series([None] * len(ml_df), dtype=object),
+        "hybrid_margin": pd.Series([None] * len(ml_df), dtype=object),
+        "hybrid_margin_source_stage": pd.Series([None] * len(ml_df), dtype=object),
+        "hybrid_label_start_position": pd.Series([None] * len(ml_df), dtype=object),
+        "hybrid_top1_logprob": pd.Series([None] * len(ml_df), dtype=object),
+        "hybrid_top2_logprob": pd.Series([None] * len(ml_df), dtype=object),
+        "hybrid_top_logprobs_raw": pd.Series([None] * len(ml_df), dtype=object),
+        "hybrid_token_names_missing": pd.Series([None] * len(ml_df), dtype=object),
+        "hybrid_token_strings_available": pd.Series([None] * len(ml_df), dtype=object),
+        "hybrid_margin_policy": pd.Series([None] * len(ml_df), dtype=object),
+        "hybrid_policy_outcome": pd.Series([None] * len(ml_df), dtype=object),
+        "hybrid_override_applied": False,
+        "hybrid_override_reason": pd.Series([None] * len(ml_df), dtype=object),
+        "hybrid_route_bucket": pd.Series([None] * len(ml_df), dtype=object),
     })
+    effective_policy_cfg = margin_policy_cfg or {
+        "policy": "baseline",
+        "threshold": logprob_margin_threshold,
+        "low_threshold": logprob_margin_threshold,
+        "high_threshold": logprob_margin_threshold,
+        "classifier_only_threshold": logprob_margin_threshold,
+        "judge_threshold": logprob_margin_threshold,
+    }
 
     if llm_df is not None:
         escalated = ~confident
@@ -315,6 +345,7 @@ def compute_hybrid_routing(
         if len(override_idx) > 0:
             matched_ids = result.loc[override_idx, "sample_id"]
             llm_rows = llm_indexed.loc[matched_ids]
+            result.loc[override_idx, "hybrid_llm_pred_binary_pre_policy"] = llm_rows["llm_pred_binary"].values
             result.loc[override_idx, "hybrid_pred_binary"] = llm_rows["llm_pred_binary"].values
             # Override category if LLM provides it (llm_pred_category exists when LLM derives category)
             if "llm_pred_category" in llm_indexed.columns:
@@ -327,6 +358,53 @@ def compute_hybrid_routing(
                     result.loc[abstain_idx, "hybrid_routed_to"] = "abstain"
                     result.loc[abstain_idx, "hybrid_pred_binary"] = "adversarial"
             # LLM does not provide type-level predictions; hybrid_pred_type stays as ML's prediction
+
+            for idx in override_idx:
+                sample_id = result.at[idx, "sample_id"]
+                llm_row = llm_indexed.loc[sample_id]
+                margin = extract_preferred_margin_features_from_row(llm_row)
+                route_bucket = infer_route_bucket({
+                    "hybrid_routed_to": result.at[idx, "hybrid_routed_to"],
+                    "llm_stages_run": llm_row.get("llm_stages_run"),
+                })
+                policy_result = apply_margin_policy(
+                    current_route=result.at[idx, "hybrid_routed_to"],
+                    predicted_binary=result.at[idx, "hybrid_pred_binary"],
+                    predicted_label=(
+                        llm_row.get("llm_pred_raw")
+                        if llm_row.get("llm_pred_raw") in ("benign", "adversarial", "uncertain")
+                        else result.at[idx, "hybrid_pred_binary"]
+                    ),
+                    margin=margin.margin,
+                    policy_cfg=effective_policy_cfg,
+                    route_bucket=route_bucket,
+                )
+                result.at[idx, "hybrid_margin"] = margin.margin
+                result.at[idx, "hybrid_margin_source_stage"] = margin.source_stage
+                result.at[idx, "hybrid_label_start_position"] = margin.label_start_position
+                result.at[idx, "hybrid_top1_logprob"] = margin.top1_logprob
+                result.at[idx, "hybrid_top2_logprob"] = margin.top2_logprob
+                result.at[idx, "hybrid_top_logprobs_raw"] = margin.top_k_tokens
+                result.at[idx, "hybrid_token_names_missing"] = margin.token_names_missing
+                result.at[idx, "hybrid_token_strings_available"] = margin.token_strings_available
+                result.at[idx, "hybrid_margin_policy"] = policy_result["policy_name"]
+                result.at[idx, "hybrid_policy_outcome"] = policy_result["policy_outcome"]
+                result.at[idx, "hybrid_override_applied"] = bool(policy_result["override_applied"])
+                result.at[idx, "hybrid_override_reason"] = policy_result["override_reason"]
+                result.at[idx, "hybrid_route_bucket"] = route_bucket
+                result.at[idx, "hybrid_routed_to"] = policy_result["route"]
+                result.at[idx, "hybrid_pred_binary"] = policy_result["final_binary"]
+
+            n_overrides = int(result.loc[override_idx, "hybrid_override_applied"].sum())
+            n_candidates = int(len(override_idx))
+            if n_candidates > 0 and effective_policy_cfg.get("threshold") is not None:
+                print(
+                    "  [research routing] margin policy | "
+                    f"policy={effective_policy_cfg['policy']} | "
+                    f"threshold={effective_policy_cfg.get('threshold')} | "
+                    f"candidates={n_candidates} | "
+                    f"overrides={n_overrides}"
+                )
 
         # Escalated rows without LLM fall back to ML (predictions already set);
         # correct routing label from "llm" → "ml"
@@ -355,6 +433,8 @@ def compute_hybrid_routing(
         # No LLM at all — everything routes to ML
         result["hybrid_routed_to"] = "ml"
         print("  [research routing] llm_df missing -> ML fallback for all rows")
+
+    result.loc[result["hybrid_routed_to"] == "ml", "hybrid_route_bucket"] = "ml_fastpath"
 
     route_diag = compute_routing_diagnostics(
         result.assign(
@@ -395,7 +475,17 @@ def build_research_dataframe(
     """
     result = ml_df.merge(hybrid_df, on="sample_id", validate="one_to_one")
     if llm_df is not None:
-        llm_cols = ["sample_id"] + [c for c in llm_df.columns if c.startswith("llm_")]
+        gt_cols = {
+            "sample_id",
+            "modified_sample",
+            "original_sample",
+            "attack_name",
+            "label_binary",
+            "label_category",
+            "label_type",
+            "prompt_hash",
+        }
+        llm_cols = ["sample_id"] + [c for c in llm_df.columns if c not in gt_cols and c != "sample_id"]
         result = result.merge(llm_df[llm_cols], on="sample_id", how="left", validate="one_to_one")
     # Preserve synth_* metadata from split parquet
     if split_df is not None:
@@ -542,6 +632,34 @@ def generate_llm_report(research_df: pd.DataFrame, output_path: str):
     return binary
 
 
+def write_margin_code_path_note(path, *, split: str) -> None:
+    """Document the verified executed margin/routing code path for experiments."""
+    lines = [
+        "# Margin Calibration Code Path",
+        "",
+        f"- Split: `{split}`",
+        "- Canonical experiment entrypoint: `python -m src.llm_classifier.llm_classifier --split test --research`",
+        "- Canonical hybrid routing entrypoint: `python -m src.research --split test`",
+        "- Canonical report entrypoint: `python -m src.cli.eval_new --split test`",
+        "",
+        "## Verified Executed Path",
+        "",
+        "1. `src.llm_classifier.llm_classifier.HierarchicalLLMClassifier._call_llm()` performs the API call and captures raw response text, parse status, and token logprobs.",
+        "2. `src.llm_classifier.llm_classifier.HierarchicalLLMClassifier.predict()` normalizes classifier/judge output and emits persisted LLM prediction rows.",
+        "3. `src.research.compute_hybrid_routing()` is the code path used by the current DVC research experiments. It applies ML fast-path routing, LLM abstain handling, and the configured margin policy.",
+        "4. `src.logprob_margin.extract_preferred_margin_features_from_row()` selects the label-start token position and computes the preferred margin (judge first, classifier fallback).",
+        "5. `src.margin_trace.build_margin_trace()` writes row-level margin traces for downstream calibration analysis.",
+        "6. `src.cli.eval_new` consumes `data/processed/research/research_{split}.parquet` for markdown reports; notebook-only sweeps are no longer the primary analysis path.",
+        "",
+        "## Duplicate / Secondary Paths",
+        "",
+        "- `src.hybrid_router.HybridRouter` is still used for live CLI prediction and some external evaluation flows, but it is not the canonical code path for the current DVC threshold experiments.",
+        "- Margin extraction and policy logic are shared through `src.logprob_margin` to avoid stale duplicate implementations.",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Research stage: merge predictions, compute hybrid routing, generate reports"
@@ -553,6 +671,8 @@ def main():
     cfg = load_config(args.config)
     threshold = cfg["hybrid"]["ml_confidence_threshold"]
     llm_threshold = cfg["hybrid"]["llm_confidence_threshold"]
+    logprob_margin_threshold = cfg["hybrid"].get("logprob_margin_threshold")
+    margin_policy_cfg = resolve_margin_policy_config(cfg)
     unicode_types = cfg.get("labels", {}).get("unicode_attacks", [])
 
     # ── Read pre-computed ML predictions ─────────────────────────────────────
@@ -581,6 +701,8 @@ def main():
         llm_df,
         threshold,
         llm_conf_threshold=llm_threshold,
+        logprob_margin_threshold=logprob_margin_threshold,
+        margin_policy_cfg=margin_policy_cfg,
         unicode_types=unicode_types,
         require_llm_for_escalations=True,
         llm_required_path=str(llm_path),
@@ -601,6 +723,20 @@ def main():
     print(f"\nResearch parquet saved → {out_path}")
     print(f"Shape: {research_df.shape}")
     print(f"Columns: {research_df.columns.tolist()}")
+
+    trace_df = build_margin_trace(
+        research_df,
+        dataset=cfg["dataset"]["name"],
+        split=args.split,
+    )
+    trace_parquet_path = RESEARCH_DIR / f"hybrid_margin_trace_{args.split}.parquet"
+    trace_csv_path = RESEARCH_DIR / f"hybrid_margin_trace_{args.split}.csv"
+    write_margin_trace(trace_df, trace_parquet_path, trace_csv_path)
+    print(f"Margin trace saved → {trace_parquet_path}")
+
+    code_path_note = REPORTS_DIR / "margin_code_path.md"
+    write_margin_code_path_note(code_path_note, split=args.split)
+    print(f"Margin code path note saved → {code_path_note}")
 
     # ── Generate evaluation reports ──────────────────────────────────────────
     REPORTS_RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
