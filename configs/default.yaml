@@ -112,6 +112,10 @@ ml:
 hybrid:
   ml_confidence_threshold: 0.85
   llm_confidence_threshold: 0.9
+  # Logprob margin gate: override LLM benign predictions when the label-start
+  # token margin (rank-1 vs rank-2 logprob delta, in nats) is below this value.
+  # Set to null to disable. Recommended range: 2.0-3.0 nats.
+  logprob_margin_threshold: 2.0
 
 # Evaluation
 evaluation:

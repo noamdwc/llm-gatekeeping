@@ -97,6 +97,7 @@ class HybridRouter:
         self.llm = llm_classifier
         self.ml_threshold = cfg["hybrid"]["ml_confidence_threshold"]
         self.llm_threshold = cfg["hybrid"]["llm_confidence_threshold"]
+        self.logprob_margin_threshold = cfg["hybrid"].get("logprob_margin_threshold")
         self.stats = RouterStats()
         self._ml_conf_source_logged = False
         self._benign_escalations = 0
@@ -104,6 +105,7 @@ class HybridRouter:
         self._adv_low_conf_escalations = 0
         self._adv_non_unicode_escalations = 0
         self._adv_unknown_lane_escalations = 0
+        self._margin_gate_overrides = 0
         unicode_types = cfg.get("labels", {}).get("unicode_attacks", [])
         self._unicode_types = {_normalize_attack_token(v) for v in unicode_types}
 
@@ -189,6 +191,20 @@ class HybridRouter:
             if final_binary not in ("benign", "adversarial"):
                 final_binary = "benign" if final_label == "benign" else "adversarial"
 
+        # Margin gate: override low-margin benign predictions to adversarial
+        margin_gated = False
+        if (
+            self.logprob_margin_threshold is not None
+            and final_binary == "benign"
+            and routed_to == "llm"
+        ):
+            margin = llm_result.get("logprob_margin")
+            if margin is not None and margin < self.logprob_margin_threshold:
+                final_binary = "adversarial"
+                final_label = "adversarial"
+                margin_gated = True
+                self._margin_gate_overrides += 1
+
         llm_category = llm_result.get("label_category")
         ml_category = self._get_ml_category(ml_pred)
         ml_type = self._get_ml_type(ml_pred)
@@ -207,6 +223,8 @@ class HybridRouter:
             "ml_pred_type": ml_type,
             "ml_conf_binary": ml_conf,
             "unicode_lane": unicode_lane,
+            "margin_gated": margin_gated,
+            "logprob_margin": llm_result.get("logprob_margin"),
         }
 
     def predict_single(self, text: str, ml_pred: dict) -> dict:
@@ -293,6 +311,9 @@ class HybridRouter:
             results.append(result)
 
         if self.stats.total > 0:
+            margin_info = ""
+            if self.logprob_margin_threshold is not None:
+                margin_info = f" | margin_gate_overrides={self._margin_gate_overrides} (threshold={self.logprob_margin_threshold})"
             print(
                 "  [HybridRouter] route summary | "
                 f"ml_benign_escalate={self._benign_escalations} | "
@@ -300,6 +321,7 @@ class HybridRouter:
                 f"ml_adv_low_conf_escalate={self._adv_low_conf_escalations} | "
                 f"ml_adv_non_unicode_escalate={self._adv_non_unicode_escalations} | "
                 f"ml_adv_unknown_lane_escalate={self._adv_unknown_lane_escalations}"
+                f"{margin_info}"
             )
 
         return results
