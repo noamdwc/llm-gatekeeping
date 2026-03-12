@@ -1,0 +1,170 @@
+vars:
+- configs/default.yaml
+
+stages:
+  # ── Stage 1: Preprocess ──────────────────────────────────────────────────
+  preprocess:
+    cmd: python -m src.preprocess
+    deps:
+    - src/preprocess.py
+    - src/utils.py
+    params:
+    - configs/default.yaml:
+      - dataset
+      - labels
+      - benign
+    outs:
+    - data/processed/full_dataset.parquet
+
+  # ── Stage 2: Build Splits ────────────────────────────────────────────────
+  build_splits:
+    cmd: python -m src.build_splits
+    deps:
+    - src/build_splits.py
+    - src/utils.py
+    - data/processed/full_dataset.parquet
+    params:
+    - configs/default.yaml:
+      - splits
+      - labels.held_out_attacks
+    outs:
+    - data/processed/splits/train.parquet
+    - data/processed/splits/val.parquet
+    - data/processed/splits/test.parquet
+    - data/processed/splits/test_unseen.parquet
+
+  # ── Stage 3: ML Model (train + research predictions) ─────────────────────
+  ml_model:
+    cmd: python -m src.ml_classifier.ml_baseline --research --no-wandb
+    deps:
+    - src/ml_classifier/
+    - src/utils.py
+    - data/processed/splits/train.parquet
+    - data/processed/splits/val.parquet
+    - data/processed/splits/test.parquet
+    - data/processed/splits/test_unseen.parquet
+    params:
+    - configs/default.yaml:
+      - ml
+    outs:
+    - data/processed/models/ml_baseline.pkl
+    - data/processed/predictions/ml_predictions_test.parquet
+    - data/processed/predictions/ml_predictions_val.parquet
+    - data/processed/predictions/ml_predictions_test_unseen.parquet
+
+  # ── Stage 4: LLM Classifier (frozen by default — costs API tokens) ──────
+  llm_classifier:
+    cmd: python -m src.llm_classifier.llm_classifier --split test --research --no-wandb
+    deps:
+    - data/processed/splits/test.parquet
+    - data/processed/splits/train.parquet
+    - src/embeddings.py
+    - src/llm_classifier/
+    - src/utils.py
+    params:
+    - configs/default.yaml:
+      - llm
+    outs:
+    - data/processed/predictions/llm_predictions_test.parquet
+
+  # ── Stage 5: Research (merge predictions + hybrid routing + reports) ─────
+  research:
+    cmd: python -m src.research --split test
+    deps:
+    - src/research.py
+    - src/evaluate.py
+    - src/utils.py
+    - data/processed/predictions/
+    - data/processed/splits/test.parquet
+    params:
+    - configs/default.yaml:
+      - hybrid.ml_confidence_threshold
+    outs:
+    - data/processed/research/research_test.parquet
+
+  # ── Stage 6: External LLM Predictions (one stage per dataset) ────────────
+  research_external_llm:
+    foreach: ${external_datasets}
+    do:
+      cmd: python -m src.cli.research_external --dataset ${key} --mode llm --llm-predictions-path
+        data/processed/predictions_external/llm_predictions_external_${key}.parquet
+      deps:
+      - src/cli/research_external.py
+      - src/eval_external.py
+      - src/embeddings.py
+      - src/llm_classifier/
+      - src/utils.py
+      - data/processed/splits/train.parquet
+      params:
+      - configs/default.yaml:
+        - external_datasets.${key}
+        - llm
+      outs:
+      - data/processed/predictions_external/llm_predictions_external_${key}.parquet
+
+  # ── Stage 7: External Dataset Research (strict hybrid; one stage per dataset) ───────────
+  research_external:
+    foreach: ${external_datasets}
+    do:
+      cmd: python -m src.cli.research_external --dataset ${key} --mode hybrid --llm-predictions-path
+        data/processed/predictions_external/llm_predictions_external_${key}.parquet
+      deps:
+      - src/cli/research_external.py
+      - src/eval_external.py
+      - src/ml_classifier/
+      - src/embeddings.py
+      - src/llm_classifier/
+      - src/utils.py
+      - data/processed/models/ml_baseline.pkl
+      - data/processed/splits/train.parquet
+      - data/processed/predictions_external/llm_predictions_external_${key}.parquet
+      params:
+      - configs/default.yaml:
+        - external_datasets.${key}
+        - hybrid.ml_confidence_threshold
+      outs:
+      - data/processed/research_external/research_external_${key}.parquet
+
+  # ── Stage 8: Eval Reports (post-router-patch evaluation markdowns) ───────
+  eval_new:
+    cmd: python -m src.cli.eval_new --split test --config configs/default.yaml --only-main
+    deps:
+    - src/cli/eval_new.py
+    - src/research.py
+    - src/evaluate.py
+    - src/utils.py
+    - data/processed/research/research_test.parquet
+    - data/processed/research_external/
+    params:
+    - configs/default.yaml:
+      - llm
+      - external_datasets
+    outs:
+    - reports/research/eval_report_ml.md:
+        cache: false
+    - reports/research/eval_report_llm.md:
+        cache: false
+    - reports/research/eval_report_hybrid.md:
+        cache: false
+    - reports/research/summary_report.md:
+        cache: false
+
+  # ── Stage 9: External Eval Reports (dynamic foreach from config) ─────────
+  eval_new_external:
+    foreach: ${external_datasets}
+    do:
+      cmd: python -m src.cli.eval_new --config configs/default.yaml --only-external
+        --dataset ${key}
+      deps:
+      - src/cli/eval_new.py
+      - src/cli/research_external.py
+      - src/evaluate.py
+      - src/utils.py
+      - data/processed/research_external/research_external_${key}.parquet
+      params:
+      - configs/default.yaml:
+        - external_datasets.${key}
+        - hybrid.ml_confidence_threshold
+      outs:
+      - reports/research_external/research_external_${key}.md:
+          cache: false
