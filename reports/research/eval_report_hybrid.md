@@ -4,15 +4,15 @@
 
 | Metric | Value |
 |--------|-------|
-| accuracy | 0.7367 |
-| adversarial_precision | 0.9755 |
-| adversarial_recall | 0.7337 |
-| adversarial_f1 | 0.8375 |
-| benign_precision | 0.1913 |
-| benign_recall | 0.7737 |
-| benign_f1 | 0.3068 |
-| false_positive_rate | 0.2263 |
-| false_negative_rate | 0.2663 |
+| accuracy | 0.8395 |
+| adversarial_precision | 0.9609 |
+| adversarial_recall | 0.8615 |
+| adversarial_f1 | 0.9085 |
+| benign_precision | 0.2508 |
+| benign_recall | 0.5693 |
+| benign_f1 | 0.3482 |
+| false_positive_rate | 0.4307 |
+| false_negative_rate | 0.1385 |
 | uncertain_rate | 0.0000 |
 | judge_override_rate | N/A |
 | support_adversarial | 1682 |
@@ -20,13 +20,13 @@
 
 ## Category Classification (Unicode vs NLP)
 
-- Accuracy: 0.5606
-- Macro F1: 0.4402
+- Accuracy: 0.5595
+- Macro F1: 0.4356
 
 Confusion matrix (rows=true, cols=pred):
 Labels: ['unicode_attack', 'nlp_attack']
-  [937, 1]
-  [275, 6]
+  [938, 0]
+  [279, 3]
 
 ## Per-Type Classification (Unicode Sub-Types)
 
@@ -54,36 +54,36 @@ Labels: ['unicode_attack', 'nlp_attack']
 
 | Bin | Count | Avg Confidence | Accuracy |
 |-----|-------|----------------|----------|
-| 0.5-0.6 | 18 | 0.544 | 0.611 |
-| 0.6-0.7 | 40 | 0.651 | 0.500 |
-| 0.7-0.8 | 40 | 0.754 | 0.550 |
-| 0.8-0.9 | 74 | 0.856 | 0.541 |
-| 0.9-1.0 | 1647 | 0.989 | 0.757 |
+| 0.5-0.6 | 18 | 0.544 | 0.722 |
+| 0.6-0.7 | 40 | 0.651 | 0.875 |
+| 0.7-0.8 | 40 | 0.754 | 0.750 |
+| 0.8-0.9 | 74 | 0.856 | 0.757 |
+| 0.9-1.0 | 1647 | 0.989 | 0.846 |
 
 ## Cost / Usage
 
 - routed_ml: 928
-- routed_llm: 868
-- routed_abstain: 23
+- routed_llm: 872
+- routed_abstain: 19
 - ml_pred_benign_routed_ml: 0
-- ml_pred_benign_routed_llm: 836
-- ml_pred_benign_routed_abstain: 21
+- ml_pred_benign_routed_llm: 838
+- ml_pred_benign_routed_abstain: 19
 - ml_pred_adversarial_routed_ml: 928
-- ml_pred_adversarial_routed_llm: 32
-- ml_pred_adversarial_routed_abstain: 2
+- ml_pred_adversarial_routed_llm: 34
+- ml_pred_adversarial_routed_abstain: 0
 
 ## Routing Diagnostics
 
 - total_samples: 1819
 - routed_ml: 928 (0.5102)
-- routed_llm: 868 (0.4772)
-- routed_abstain: 23 (0.0126)
+- routed_llm: 872 (0.4794)
+- routed_abstain: 19 (0.0104)
 - unicode_lane_unknown_total: 0
 
 | ml_pred_label | routed_ml | routed_llm | routed_abstain | escalation_rate |
 |---------------|-----------|------------|----------------|-----------------|
-| benign | 0 | 836 | 21 | 1.0000 |
-| adversarial | 928 | 32 | 2 | 0.0353 |
+| benign | 0 | 838 | 19 | 1.0000 |
+| adversarial | 928 | 34 | 0 | 0.0353 |
 
 | unicode_lane | total | fastpath_ml | escalated_llm_or_abstain |
 |--------------|-------|-------------|---------------------------|
@@ -94,6 +94,6 @@ Labels: ['unicode_attack', 'nlp_attack']
 
 | View | FPR | Notes |
 |------|-----|-------|
-| Standard | 0.2263 | All samples, abstain=adversarial |
-| Abstain-excluded | 0.2263 | 23 abstain samples removed |
-| Abstain rate | 0.0126 | 23/1819 samples |
+| Standard | 0.4307 | All samples, abstain=adversarial |
+| Abstain-excluded | 0.4265 | 19 abstain samples removed |
+| Abstain rate | 0.0104 | 19/1819 samples |

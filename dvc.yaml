@@ -52,7 +52,9 @@ stages:
     - data/processed/predictions/ml_predictions_val.parquet
     - data/processed/predictions/ml_predictions_test_unseen.parquet
 
+  # ── Stage 4: LLM Classifier (frozen by default — costs API tokens) ──────
   llm_classifier:
+    frozen: true
     cmd: python -m src.llm_classifier.llm_classifier --split test --research --no-wandb
     deps:
     - data/processed/splits/test.parquet
@@ -66,7 +68,9 @@ stages:
     outs:
     - data/processed/predictions/llm_predictions_test.parquet
 
+  # ── Stage 4b: LLM Classifier on val (frozen — costs API tokens) ────────
   llm_classifier_val:
+    frozen: true
     cmd: python -m src.llm_classifier.llm_classifier --split val --research --no-wandb
     deps:
     - data/processed/splits/val.parquet
@@ -95,8 +99,11 @@ stages:
       - hybrid
     outs:
     - data/processed/research/research_test.parquet
+    - data/processed/research/hybrid_margin_trace_test.parquet
 
+  # ── Stage 5b: Research on val (frozen — costs API tokens) ──────────────
   research_val:
+    frozen: true
     cmd: python -m src.research --split val
     deps:
     - src/research.py
@@ -110,6 +117,7 @@ stages:
       - hybrid
     outs:
     - data/processed/research/research_val.parquet
+    - data/processed/research/hybrid_margin_trace_val.parquet
 
   # ── Stage 6: External LLM Predictions (one stage per dataset) ────────────
   research_external_llm:
@@ -186,6 +194,7 @@ stages:
     - src/evaluate.py
     - src/utils.py
     - data/processed/research/research_test.parquet
+    - data/processed/research/posthoc_benign_risk_summary.csv
     - data/processed/research_external/
     params:
     - configs/default.yaml:

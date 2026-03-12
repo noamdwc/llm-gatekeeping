@@ -33,8 +33,8 @@
 
 ### By Prediction Correctness
 
-- **Correct** (199 samples): mean=0.9639, median=0.9952
-- **Wrong** (63 samples): mean=0.9665, median=0.9965
+- **Correct** (199 samples): mean=0.9641, median=0.9964
+- **Wrong** (63 samples): mean=0.9660, median=0.9945
 
 ## Calibration
 
@@ -52,20 +52,20 @@
 
 ## Hybrid Routing Analysis
 
-- **llm**: 258 samples (98.5%), accuracy=0.7558
-- **abstain**: 4 samples (1.5%), accuracy=1.0000
+- **llm**: 257 samples (98.1%), accuracy=0.7549
+- **abstain**: 5 samples (1.9%), accuracy=1.0000
 
 ## Routing Diagnostics
 
 - total_samples: 262
 - routed_ml: 0 (0.0000)
-- routed_llm: 258 (0.9847)
-- routed_abstain: 4 (0.0153)
+- routed_llm: 257 (0.9809)
+- routed_abstain: 5 (0.0191)
 - unicode_lane_unknown_total: 0
 
 | ml_pred_label | routed_ml | routed_llm | routed_abstain | escalation_rate |
 |---------------|-----------|------------|----------------|-----------------|
-| benign | 0 | 254 | 4 | 1.0000 |
+| benign | 0 | 253 | 5 | 1.0000 |
 | adversarial | 0 | 4 | 0 | 1.0000 |
 
 | unicode_lane | total | fastpath_ml | escalated_llm_or_abstain |

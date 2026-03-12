@@ -21,6 +21,8 @@ from src.utils import (
     REPORTS_EXTERNAL_DIR,
 )
 
+_RISK_SUMMARY_PATH = RESEARCH_DIR / "posthoc_benign_risk_summary.csv"
+
 
 def _fmt_metric(value: float | None) -> str:
     if value is None:
@@ -161,6 +163,24 @@ def _render_summary_markdown(
                 f"| Clean-benign abstain rate | {fpr_views['clean_benign_abstain_rate']:.4f} | {n_cb_abs}/{n_cb} clean benign samples abstained |",
             ])
         lines.extend(fpr_lines)
+
+    # Risk model summary
+    if _RISK_SUMMARY_PATH.exists():
+        risk_df = pd.read_csv(_RISK_SUMMARY_PATH)
+        lines.extend([
+            "",
+            "## Benign Risk Model (train-on-val, eval-on-test)",
+            "",
+            "| Model | ROC-AUC | PR-AUC | Brier |",
+            "|-------|---------|--------|-------|",
+        ])
+        for _, row in risk_df.iterrows():
+            lines.append(
+                f"| {row['model']} | "
+                f"{row['roc_auc_mean']:.4f} | "
+                f"{row['pr_auc_mean']:.4f} | "
+                f"{row['brier_mean']:.4f} |"
+            )
 
     if external_frames:
         combined_df = pd.concat(list(external_frames.values()), ignore_index=True)
