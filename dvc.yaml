@@ -86,7 +86,8 @@ stages:
   research_external_llm:
     foreach: ${external_datasets}
     do:
-      cmd: python -m src.cli.research_external --dataset ${key} --mode llm --llm-predictions-path data/processed/predictions_external/llm_predictions_external_${key}.parquet
+      cmd: python -m src.cli.research_external --dataset ${key} --mode llm --llm-predictions-path
+        data/processed/predictions_external/llm_predictions_external_${key}.parquet
       deps:
       - src/cli/research_external.py
       - src/eval_external.py
@@ -105,7 +106,8 @@ stages:
   research_external:
     foreach: ${external_datasets}
     do:
-      cmd: python -m src.cli.research_external --dataset ${key} --mode hybrid --llm-predictions-path data/processed/predictions_external/llm_predictions_external_${key}.parquet
+      cmd: python -m src.cli.research_external --dataset ${key} --mode hybrid --llm-predictions-path
+        data/processed/predictions_external/llm_predictions_external_${key}.parquet
       deps:
       - src/cli/research_external.py
       - src/eval_external.py
@@ -151,7 +153,8 @@ stages:
   eval_new_external:
     foreach: ${external_datasets}
     do:
-      cmd: python -m src.cli.eval_new --config configs/default.yaml --only-external --dataset ${key}
+      cmd: python -m src.cli.eval_new --config configs/default.yaml --only-external
+        --dataset ${key}
       deps:
       - src/cli/eval_new.py
       - src/cli/research_external.py

@@ -37,6 +37,7 @@ def get_provider() -> ProviderConfig:
     """Return provider config based on LLM_PROVIDER env var (default: nim)."""
     name = os.environ.get("LLM_PROVIDER", "nim").lower()
     if name == "nim":
+        print('using *nim* provider api')
         return ProviderConfig(
             name="nim",
             base_url="https://integrate.api.nvidia.com/v1",
@@ -44,6 +45,7 @@ def get_provider() -> ProviderConfig:
             supports_input_type=True,
         )
     if name == "openai":
+        print('using *openai* provider api')
         return ProviderConfig(
             name="openai",
             base_url=None,
