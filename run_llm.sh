@@ -17,7 +17,7 @@ if [[ "${1:-}" == "--force" ]]; then
     DVC_FLAGS="--force"
 fi
 
-LLM_STAGES="llm_classifier"
+LLM_STAGES="llm_classifier llm_classifier_val research_val"
 
 echo "Unfreezing LLM stages..."
 dvc unfreeze $LLM_STAGES

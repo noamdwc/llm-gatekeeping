@@ -52,7 +52,6 @@ stages:
     - data/processed/predictions/ml_predictions_val.parquet
     - data/processed/predictions/ml_predictions_test_unseen.parquet
 
-  # ── Stage 4: LLM Classifier (frozen by default — costs API tokens) ──────
   llm_classifier:
     cmd: python -m src.llm_classifier.llm_classifier --split test --research --no-wandb
     deps:
@@ -67,20 +66,50 @@ stages:
     outs:
     - data/processed/predictions/llm_predictions_test.parquet
 
+  llm_classifier_val:
+    cmd: python -m src.llm_classifier.llm_classifier --split val --research --no-wandb
+    deps:
+    - data/processed/splits/val.parquet
+    - data/processed/splits/train.parquet
+    - src/embeddings.py
+    - src/llm_classifier/
+    - src/utils.py
+    params:
+    - configs/default.yaml:
+      - llm
+    outs:
+    - data/processed/predictions/llm_predictions_val.parquet
+
   # ── Stage 5: Research (merge predictions + hybrid routing + reports) ─────
   research:
     cmd: python -m src.research --split test
     deps:
     - src/research.py
+    - src/hybrid_router.py
     - src/evaluate.py
     - src/utils.py
     - data/processed/predictions/
     - data/processed/splits/test.parquet
     params:
     - configs/default.yaml:
-      - hybrid.ml_confidence_threshold
+      - hybrid
     outs:
     - data/processed/research/research_test.parquet
+
+  research_val:
+    cmd: python -m src.research --split val
+    deps:
+    - src/research.py
+    - src/hybrid_router.py
+    - src/evaluate.py
+    - src/utils.py
+    - data/processed/predictions/
+    - data/processed/splits/val.parquet
+    params:
+    - configs/default.yaml:
+      - hybrid
+    outs:
+    - data/processed/research/research_val.parquet
 
   # ── Stage 6: External LLM Predictions (one stage per dataset) ────────────
   research_external_llm:
@@ -124,6 +153,29 @@ stages:
         - hybrid.ml_confidence_threshold
       outs:
       - data/processed/research_external/research_external_${key}.parquet
+
+  # ── Stage 7b: Post-hoc Benign Risk Model ──────────────────────────────────
+  risk_model:
+    cmd: python -m src.cli.benign_risk_model
+      --train-trace data/processed/research/hybrid_margin_trace_val.parquet
+      --trace data/processed/research/hybrid_margin_trace_test.parquet
+      --split test
+    deps:
+    - src/benign_risk_model.py
+    - src/cli/benign_risk_model.py
+    - data/processed/research/hybrid_margin_trace_val.parquet
+    - data/processed/research/hybrid_margin_trace_test.parquet
+    outs:
+    - data/processed/research/posthoc_benign_risk_predictions.parquet
+    - data/processed/research/posthoc_benign_risk_summary.csv
+    - reports/posthoc_benign_risk_model.md:
+        cache: false
+    - reports/artifacts/benign_risk_roc.png:
+        cache: false
+    - reports/artifacts/benign_risk_pr.png:
+        cache: false
+    - reports/artifacts/benign_risk_calibration.png:
+        cache: false
 
   # ── Stage 8: Eval Reports (post-router-patch evaluation markdowns) ───────
   eval_new:
