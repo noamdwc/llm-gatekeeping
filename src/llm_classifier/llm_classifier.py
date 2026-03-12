@@ -257,44 +257,6 @@ class HierarchicalLLMClassifier:
         return extracted or None
 
     @staticmethod
-    def _extract_label_logprob_margin(token_logprobs: list[dict] | None, mode: str = "clf") -> float | None:
-        """Extract the rank-1 vs rank-2 logprob margin at the label-start token.
-
-        Args:
-            token_logprobs: Per-token logprob list from _extract_completion_logprobs.
-            mode: "clf" for classifier (fixed position 4) or "judge" (find _label key).
-
-        Returns:
-            Margin in nats (positive = confident), or None if not extractable.
-        """
-        if not token_logprobs or not isinstance(token_logprobs, list):
-            return None
-
-        # Find label-start token index
-        label_idx = None
-        if mode == "clf":
-            label_idx = 4 if len(token_logprobs) > 4 else None
-        else:
-            for i, tok in enumerate(token_logprobs):
-                if tok.get("token") == "_label":
-                    candidate = i + 3  # skip '":' and ' "' to reach value
-                    if candidate < len(token_logprobs):
-                        label_idx = candidate
-                    break
-
-        if label_idx is None or label_idx >= len(token_logprobs):
-            return None
-
-        top = token_logprobs[label_idx].get("top_logprobs") or []
-        top_lps = sorted(
-            [float(t["logprob"]) for t in top if isinstance(t.get("logprob"), (int, float))],
-            reverse=True,
-        )
-        if len(top_lps) >= 2:
-            return top_lps[0] - top_lps[1]
-        return None
-
-    @staticmethod
     def _coerce_result_dict(result: object) -> dict:
         if isinstance(result, dict):
             return result
@@ -552,18 +514,6 @@ class HierarchicalLLMClassifier:
         else:
             label_category = clf_category
 
-        # Extract logprob margins
-        clf_logprob_margin = self._extract_label_logprob_margin(
-            clf_result.get("_token_logprobs"), mode="clf"
-        )
-        judge_logprob_margin = None
-        if judge_result is not None:
-            judge_logprob_margin = self._extract_label_logprob_margin(
-                judge_result.get("_token_logprobs"), mode="judge"
-            )
-        # Preferred margin: use judge when available (ran on low-confidence cases)
-        logprob_margin = judge_logprob_margin if judge_logprob_margin is not None else clf_logprob_margin
-
         result = {
             "label": label,              # 3-way: benign|adversarial|uncertain
             "label_binary": label_binary, # always binary: benign|adversarial
@@ -572,7 +522,6 @@ class HierarchicalLLMClassifier:
             "confidence": confidence,
             "evidence": evidence,
             "llm_stages_run": stages_run,
-            "logprob_margin": logprob_margin,
             # Classifier stage
             "clf_label": clf_result.get("label"),
             "clf_category": clf_category,
@@ -580,7 +529,6 @@ class HierarchicalLLMClassifier:
             "clf_evidence": clf_result.get("evidence", ""),
             "clf_nlp_attack_type": clf_nlp_attack_type,
             "clf_token_logprobs": clf_result.get("_token_logprobs"),
-            "clf_logprob_margin": clf_logprob_margin,
         }
         # Judge stage (None if judge was not run)
         if judge_result is not None:
@@ -593,7 +541,6 @@ class HierarchicalLLMClassifier:
             result["judge_benign_task_override"] = judge_result.get("judge_benign_task_override", False)
             result["judge_override_reason"] = judge_result.get("judge_override_reason")
             result["judge_token_logprobs"] = judge_result.get("_token_logprobs")
-            result["judge_logprob_margin"] = judge_logprob_margin
         else:
             result["judge_independent_label"] = None
             result["judge_category"] = None
@@ -603,7 +550,6 @@ class HierarchicalLLMClassifier:
             result["judge_benign_task_override"] = None
             result["judge_override_reason"] = None
             result["judge_token_logprobs"] = None
-            result["judge_logprob_margin"] = None
 
         return result
 
@@ -794,7 +740,6 @@ def main():
                 "clf_evidence": r.get("clf_evidence", ""),
                 "clf_nlp_attack_type": r.get("clf_nlp_attack_type", "none"),
                 "clf_token_logprobs": json.dumps(r.get("clf_token_logprobs")),
-                "clf_logprob_margin": r.get("clf_logprob_margin"),
                 # Judge stage (None if not run)
                 "judge_independent_label": r.get("judge_independent_label"),
                 "judge_category": r.get("judge_category"),
@@ -804,8 +749,6 @@ def main():
                 "judge_benign_task_override": r.get("judge_benign_task_override"),
                 "judge_override_reason": r.get("judge_override_reason"),
                 "judge_token_logprobs": json.dumps(r.get("judge_token_logprobs")),
-                "judge_logprob_margin": r.get("judge_logprob_margin"),
-                "logprob_margin": r.get("logprob_margin"),
             })
         llm_df = pd.DataFrame(research_rows)
 
