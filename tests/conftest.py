@@ -78,6 +78,45 @@ def sample_config():
         "evaluation": {
             "calibration_bins": 10,
         },
+        "baselines": {
+            "sentinel_v2": {
+                "model_id": "qualifire/prompt-injection-jailbreak-sentinel-v2",
+                "batch_size": 32,
+                "default_threshold": 0.5,
+                "positive_label": "INJECTION",
+                "max_length": 512,
+            },
+            "protectai_v2": {
+                "model_id": "protectai/deberta-v3-base-prompt-injection-v2",
+                "batch_size": 32,
+                "default_threshold": 0.5,
+                "positive_label": "INJECTION",
+                "max_length": 512,
+            },
+        },
+        "external_datasets": {
+            "deepset": {
+                "name": "deepset/prompt-injections",
+                "split": "test",
+                "text_col": "text",
+                "label_col": "label",
+                "label_map": {1: "adversarial", 0: "benign"},
+            },
+            "jackhhao": {
+                "name": "jackhhao/jailbreak-classification",
+                "split": "test",
+                "text_col": "prompt",
+                "label_col": "type",
+                "label_map": {"jailbreak": "adversarial", "benign": "benign"},
+            },
+            "safeguard": {
+                "name": "xTRam1/safe-guard-prompt-injection",
+                "split": "test",
+                "text_col": "text",
+                "label_col": "label",
+                "label_map": {1: "adversarial", 0: "benign"},
+            },
+        },
     }
 
 

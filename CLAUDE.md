@@ -52,6 +52,9 @@ python -m src.llm_classifier.llm_classifier --split test --research --dynamic  #
 python -m src.research --split test                         # Merge predictions + hybrid routing + reports
 python -m src.cli.research_external --dataset deepset             # External dataset research (SKIP_LLM=1 by default)
 SKIP_LLM=0 python -m src.cli.research_external --dataset deepset  # Include LLM predictions
+python -m src.cli.run_baseline --baseline sentinel_v2 --split test      # Run HF baseline on internal split
+python -m src.cli.run_baseline --baseline all --external all            # Run all HF baselines on all external sets
+python -m src.cli.eval_baselines                                         # Compare HF baselines vs ML/hybrid
 python -m src.cli.generate_synthetic_benign --category all --limit 100  # Generate synthetic benign prompts
 ```
 
@@ -78,12 +81,16 @@ data/processed/
     research_{split}.parquet
   research_external/             # research_external@{dataset}
     research_external_{dataset}.parquet
+  baselines/                     # HF baseline predictions
+    {baseline_key}_{dataset_key}.parquet
 
 reports/
   research/                      # research stage
     eval_report_ml.md, eval_report_hybrid.md, eval_report_llm.md
   research_external/             # research_external@{dataset}
     research_external_{dataset}.md
+  baselines/
+    comparison_report.md
 ```
 
 ## Adding a New External Dataset

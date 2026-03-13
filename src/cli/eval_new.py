@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.cli.eval_baselines import generate_report as generate_baseline_report
 from src.evaluate import binary_metrics, calibration_metrics, compute_fpr_views
 from src.research import generate_ml_report, generate_hybrid_report, generate_llm_report
 from src.cli.research_external import generate_research_report
@@ -100,10 +101,26 @@ def _load_external_research_frames(cfg: dict) -> dict[str, pd.DataFrame]:
     return frames
 
 
+def _render_baseline_comparison_section(cfg: dict) -> str:
+    """Render the external-baseline comparison section when artifacts exist."""
+    try:
+        baseline_md = generate_baseline_report(cfg).strip()
+    except FileNotFoundError:
+        return "## External Baseline Comparison\n\nBaseline prediction artifacts are not available.\n"
+
+    title = "# External Baseline Comparison"
+    if baseline_md == title:
+        return "## External Baseline Comparison\n\nBaseline prediction artifacts are not available.\n"
+    if baseline_md.startswith(f"{title}\n\n"):
+        baseline_md = baseline_md[len(title) + 2:]
+    return "## External Baseline Comparison\n\n" + baseline_md + "\n"
+
+
 def _render_summary_markdown(
     split: str,
     main_df: pd.DataFrame,
     external_frames: dict[str, pd.DataFrame],
+    cfg: dict,
 ) -> str:
     lines = [
         "# Summary Report",
@@ -232,6 +249,11 @@ def _render_summary_markdown(
             "No external datasets configured.",
         ])
 
+    lines.extend([
+        "",
+        _render_baseline_comparison_section(cfg).rstrip(),
+    ])
+
     return "\n".join(lines) + "\n"
 
 
@@ -248,7 +270,7 @@ def generate_summary_report(split: str, cfg: dict):
 
     REPORTS_RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
     summary_path = REPORTS_RESEARCH_DIR / "summary_report.md"
-    summary_md = _render_summary_markdown(split, main_df, external_frames)
+    summary_md = _render_summary_markdown(split, main_df, external_frames, cfg)
     summary_path.write_text(summary_md)
     print(f"  Summary report saved -> {summary_path}")
 

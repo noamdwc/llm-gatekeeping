@@ -190,6 +190,8 @@ stages:
     cmd: python -m src.cli.eval_new --split test --config configs/default.yaml --only-main
     deps:
     - src/cli/eval_new.py
+    - src/cli/eval_baselines.py
+    - src/baselines/threshold.py
     - src/research.py
     - src/evaluate.py
     - src/utils.py

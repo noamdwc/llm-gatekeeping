@@ -11,6 +11,8 @@ wandb>=0.16
 scipy>=1.10
 matplotlib>=3.8
 dvc>=3.50
+transformers>=4.36
+torch>=2.1
 
 # Testing
 pytest>=8.0

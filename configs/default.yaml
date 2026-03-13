@@ -128,6 +128,20 @@ hybrid:
 evaluation:
   calibration_bins: 10
 
+baselines:
+  sentinel_v2:
+    model_id: "qualifire/prompt-injection-jailbreak-sentinel-v2"
+    batch_size: 32
+    default_threshold: 0.5
+    positive_label: "INJECTION"
+    max_length: 512
+  protectai_v2:
+    model_id: "protectai/deberta-v3-base-prompt-injection-v2"
+    batch_size: 32
+    default_threshold: 0.5
+    positive_label: "INJECTION"
+    max_length: 512
+
 # External datasets for generalization evaluation (binary-only)
 external_datasets:
   deepset:

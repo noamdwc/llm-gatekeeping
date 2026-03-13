@@ -9,8 +9,8 @@ stages:
       size: 7126
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: f80e070a2f3a6149572a221c0e3887b7
+      size: 1676
     params:
       configs/default.yaml:
         benign:
@@ -80,8 +80,8 @@ stages:
       size: 3041
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: f80e070a2f3a6149572a221c0e3887b7
+      size: 1676
     params:
       configs/default.yaml:
         labels.held_out_attacks:
@@ -135,8 +135,8 @@ stages:
       nfiles: 12
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: f80e070a2f3a6149572a221c0e3887b7
+      size: 1676
     params:
       configs/default.yaml:
         ml:
@@ -252,8 +252,8 @@ stages:
       size: 36020
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: f80e070a2f3a6149572a221c0e3887b7
+      size: 1676
     params:
       configs/default.yaml:
         hybrid:
@@ -315,8 +315,8 @@ stages:
       nfiles: 12
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: f80e070a2f3a6149572a221c0e3887b7
+      size: 1676
     params:
       configs/default.yaml:
         external_datasets.deepset:
@@ -373,8 +373,8 @@ stages:
       nfiles: 12
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: f80e070a2f3a6149572a221c0e3887b7
+      size: 1676
     params:
       configs/default.yaml:
         external_datasets.jackhhao:
@@ -431,8 +431,8 @@ stages:
       nfiles: 12
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: f80e070a2f3a6149572a221c0e3887b7
+      size: 1676
     params:
       configs/default.yaml:
         external_datasets.safeguard:
@@ -559,10 +559,18 @@ stages:
       md5: 5357acebf869f5dff290306dd09a95e7.dir
       size: 14027082
       nfiles: 4
+    - path: src/baselines/threshold.py
+      hash: md5
+      md5: dadec0a8a0b73fb28122b4b19bc3a016
+      size: 4639
+    - path: src/cli/eval_baselines.py
+      hash: md5
+      md5: 2a0c31f5d8ec5922e747de037c6bbf52
+      size: 8693
     - path: src/cli/eval_new.py
       hash: md5
-      md5: 1c94c03c3d86a727d4ab283161515d2b
-      size: 13778
+      md5: dbeeb12f7ab4a65375685347cf8b6baa
+      size: 14664
     - path: src/evaluate.py
       hash: md5
       md5: b905cf93ebfed6d3833a199a7a37437b
@@ -573,8 +581,8 @@ stages:
       size: 36020
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: f80e070a2f3a6149572a221c0e3887b7
+      size: 1676
     params:
       configs/default.yaml:
         external_datasets:
@@ -636,8 +644,8 @@ stages:
       size: 1833
     - path: reports/research/summary_report.md
       hash: md5
-      md5: c4d4bdae629776e4ba8fac3c9e804ca0
-      size: 1595
+      md5: b761050bde083c45de1dd06a097a9e6f
+      size: 1678
   eval_new_external@deepset:
     cmd: python -m src.cli.eval_new --config configs/default.yaml --only-external
       --dataset deepset
@@ -648,8 +656,8 @@ stages:
       size: 254724
     - path: src/cli/eval_new.py
       hash: md5
-      md5: 1c94c03c3d86a727d4ab283161515d2b
-      size: 13778
+      md5: dbeeb12f7ab4a65375685347cf8b6baa
+      size: 14664
     - path: src/cli/research_external.py
       hash: md5
       md5: b5e274a7ec80f3cc4d433ef4889c2e39
@@ -660,8 +668,8 @@ stages:
       size: 15498
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: f80e070a2f3a6149572a221c0e3887b7
+      size: 1676
     params:
       configs/default.yaml:
         external_datasets.deepset:
@@ -688,8 +696,8 @@ stages:
       size: 1122327
     - path: src/cli/eval_new.py
       hash: md5
-      md5: 1c94c03c3d86a727d4ab283161515d2b
-      size: 13778
+      md5: dbeeb12f7ab4a65375685347cf8b6baa
+      size: 14664
     - path: src/cli/research_external.py
       hash: md5
       md5: b5e274a7ec80f3cc4d433ef4889c2e39
@@ -700,8 +708,8 @@ stages:
       size: 15498
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: f80e070a2f3a6149572a221c0e3887b7
+      size: 1676
     params:
       configs/default.yaml:
         external_datasets.jackhhao:
@@ -728,8 +736,8 @@ stages:
       size: 3631317
     - path: src/cli/eval_new.py
       hash: md5
-      md5: 1c94c03c3d86a727d4ab283161515d2b
-      size: 13778
+      md5: dbeeb12f7ab4a65375685347cf8b6baa
+      size: 14664
     - path: src/cli/research_external.py
       hash: md5
       md5: b5e274a7ec80f3cc4d433ef4889c2e39
@@ -740,8 +748,8 @@ stages:
       size: 15498
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: f80e070a2f3a6149572a221c0e3887b7
+      size: 1676
     params:
       configs/default.yaml:
         external_datasets.safeguard:
@@ -825,8 +833,8 @@ stages:
       nfiles: 17
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: f80e070a2f3a6149572a221c0e3887b7
+      size: 1676
     params:
       configs/default.yaml:
         external_datasets.deepset:
@@ -888,8 +896,8 @@ stages:
       nfiles: 17
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: f80e070a2f3a6149572a221c0e3887b7
+      size: 1676
     params:
       configs/default.yaml:
         external_datasets.jackhhao:
@@ -951,8 +959,8 @@ stages:
       nfiles: 17
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: f80e070a2f3a6149572a221c0e3887b7
+      size: 1676
     params:
       configs/default.yaml:
         external_datasets.safeguard:
