@@ -20,6 +20,7 @@ import logging
 import sys
 
 import pandas as pd
+import wandb
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
@@ -64,7 +65,7 @@ def compute_split_metrics(df: pd.DataFrame, label_col: str = "label_binary") -> 
     y_pred = df["deberta_pred_binary"]
     y_prob = df["deberta_proba_binary_adversarial"]
 
-    return {
+    metrics = {
         "accuracy": accuracy_score(y_true, y_pred),
         "precision": precision_score(y_true, y_pred, pos_label="adversarial", zero_division=0),
         "recall": recall_score(y_true, y_pred, pos_label="adversarial", zero_division=0),
@@ -74,6 +75,9 @@ def compute_split_metrics(df: pd.DataFrame, label_col: str = "label_binary") -> 
         "benign_recall": recall_score(y_true, y_pred, pos_label="benign", zero_division=0),
         "n_samples": len(df),
     }
+    for label in sorted(set(y_true) | set(y_pred)):
+        metrics[f"f1_{label}"] = f1_score(y_true, y_pred, pos_label=label, zero_division=0)
+    return metrics
 
 
 def save_predictions(df_split: pd.DataFrame, preds: pd.DataFrame,
@@ -142,6 +146,33 @@ def main():
     text_col = cfg["dataset"]["text_col"]
     ensure_dirs()
 
+    dcfg = cfg["deberta"]
+
+    if not args.no_wandb:
+        wandb.init(
+            project="llm-gatekeeping",
+            name="deberta-classifier",
+            config={
+                "model_name": dcfg["model_name"],
+                "max_length": dcfg["max_length"],
+                "num_epochs": dcfg["num_epochs"],
+                "batch_size": dcfg["batch_size"],
+                "eval_batch_size": dcfg.get("eval_batch_size", 8),
+                "learning_rate": dcfg["learning_rate"],
+                "warmup_ratio": dcfg["warmup_ratio"],
+                "weight_decay": dcfg["weight_decay"],
+                "early_stopping_patience": dcfg["early_stopping_patience"],
+                "max_grad_norm": dcfg.get("max_grad_norm", 0.5),
+                "label_order": dcfg.get("label_order", ["benign", "adversarial"]),
+                "research": args.research,
+                "train_only": args.train_only,
+                "predict_only": args.predict_only,
+                "force_cpu": args.cpu,
+                "debug_numerics": args.debug_numerics,
+                "sanity_forward_only": args.sanity_forward_only,
+            },
+        )
+
     # Build DebugConfig
     debug = DebugConfig(
         enabled=args.debug_numerics,
@@ -164,11 +195,48 @@ def main():
         df_val = pd.read_parquet(SPLITS_DIR / "val.parquet")
         logger.info(f"Train: {len(df_train)}, Val: {len(df_val)}")
 
+        if wandb.run is not None:
+            wandb.log({
+                "train_samples": len(df_train),
+                "val_samples": len(df_val),
+            })
+
         clf = DeBERTaClassifier(cfg)
         result = clf.train(df_train, df_val, text_col=text_col, label_col="label_binary",
                            force_cpu=args.cpu, debug=debug)
 
+        if wandb.run is not None and result.train_history:
+            for epoch_metrics in result.train_history:
+                log_payload = {
+                    "epoch": epoch_metrics["epoch"],
+                    "train_loss": epoch_metrics["train_loss"],
+                    "eval/accuracy": epoch_metrics["eval_accuracy"],
+                    "eval/f1": epoch_metrics["eval_f1"],
+                    "eval/macro_f1": epoch_metrics["eval_macro_f1"],
+                    "eval/precision": epoch_metrics["eval_precision"],
+                    "eval/recall": epoch_metrics["eval_recall"],
+                }
+                for metric_name, metric_value in epoch_metrics.items():
+                    if metric_name.startswith("eval_f1_"):
+                        log_payload[f"eval/{metric_name.removeprefix('eval_')}"] = metric_value
+                wandb.log(log_payload, step=epoch_metrics["epoch"])
+            wandb.log({
+                "best_epoch": result.best_epoch,
+                "best_metric_name": result.best_metric_name,
+                "best_metric_value": result.best_metric_value,
+                "stopped_early": int(result.stopped_early),
+            })
+
         if not result.success:
+            if wandb.run is not None:
+                wandb.log({
+                    "training_success": 0,
+                    "failed_epoch": result.first_bad_epoch,
+                    "failed_step": result.first_bad_step,
+                    "failed_stage": result.first_bad_stage,
+                    "failed_param": result.first_bad_param,
+                })
+                wandb.finish(exit_code=1)
             logger.error(f"Training failed: {result.failed_reason}")
             logger.error(f"  epoch={result.first_bad_epoch}, step={result.first_bad_step}, "
                          f"stage={result.first_bad_stage}, param={result.first_bad_param}")
@@ -178,6 +246,9 @@ def main():
 
         clf.save(DEBERTA_ARTIFACTS_DIR)
         logger.info(f"Model saved to {DEBERTA_ARTIFACTS_DIR}")
+
+        if wandb.run is not None:
+            wandb.log({"training_success": 1})
 
     # ── Predict + Evaluate ────────────────────────────────────────────────
     if should_predict:
@@ -203,6 +274,9 @@ def main():
             metrics = compute_split_metrics(merged)
             all_metrics[split] = metrics
 
+            if wandb.run is not None:
+                wandb.log({f"{split}/{metric}": value for metric, value in metrics.items()})
+
             report = classification_report(
                 merged["label_binary"], merged["deberta_pred_binary"], zero_division=0,
             )
@@ -226,6 +300,9 @@ def main():
         (DEBERTA_REPORTS_DIR / "summary.md").write_text(summary)
 
         logger.info(f"Reports saved to {DEBERTA_REPORTS_DIR}")
+
+    if wandb.run is not None:
+        wandb.finish()
 
 
 if __name__ == "__main__":

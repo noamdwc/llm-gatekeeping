@@ -112,14 +112,15 @@ ml:
 deberta:
   model_name: "microsoft/deberta-v3-base"
   max_length: 128
-  num_epochs: 1
-  batch_size: 8
-  eval_batch_size: 8
+  num_epochs: 15
+  batch_size: 16
+  eval_batch_size: 16
   max_grad_norm: 0.5
-  learning_rate: 5.0e-6
+  learning_rate: 1.0e-6
   warmup_ratio: 0.1
   weight_decay: 0.01
-  early_stopping_patience: 2
+  logging_steps: 50
+  early_stopping_patience: 3
   metric_for_best_model: "f1"
   fp16: false
   label_order:

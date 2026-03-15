@@ -6,6 +6,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -49,6 +50,10 @@ class TrainingResult:
     first_bad_param: str | None = None
     debug_artifact_paths: list[str] = field(default_factory=list)
     train_history: list[dict] | None = None
+    best_epoch: int | None = None
+    best_metric_name: str | None = None
+    best_metric_value: float | None = None
+    stopped_early: bool = False
 
 
 # ── Dataset ──────────────────────────────────────────────────────────────────
@@ -89,7 +94,9 @@ class DeBERTaClassifier:
         self.learning_rate = dcfg["learning_rate"]
         self.warmup_ratio = dcfg["warmup_ratio"]
         self.weight_decay = dcfg["weight_decay"]
+        self.logging_steps = max(int(dcfg.get("logging_steps", 50)), 1)
         self.early_stopping_patience = dcfg["early_stopping_patience"]
+        self.metric_for_best_model = dcfg.get("metric_for_best_model", "f1")
         self.max_grad_norm = dcfg.get("max_grad_norm", 0.5)
         self.label_order = dcfg.get("label_order", ["benign", "adversarial"])
 
@@ -98,6 +105,34 @@ class DeBERTaClassifier:
         self.label2id = None
         self.id2label = None
         self.train_history = None
+        self.best_checkpoint = None
+
+    def _snapshot_model_state(self) -> dict[str, torch.Tensor]:
+        """Capture a CPU copy of the current model weights."""
+        return {
+            name: tensor.detach().cpu().clone()
+            for name, tensor in self.model.state_dict().items()
+        }
+
+    def _update_best_checkpoint(self, epoch: int, metric_value: float):
+        """Store best-model weights and metadata in memory."""
+        self.best_checkpoint = {
+            "epoch": epoch,
+            "metric_name": self.metric_for_best_model,
+            "metric_value": float(metric_value),
+            "model_state_dict": self._snapshot_model_state(),
+        }
+
+    def _restore_best_checkpoint(self):
+        """Load the best observed model weights back into the active model."""
+        if self.best_checkpoint is None:
+            return
+        device = next(self.model.parameters()).device
+        state_dict = {
+            name: tensor.to(device)
+            for name, tensor in self.best_checkpoint["model_state_dict"].items()
+        }
+        self.model.load_state_dict(state_dict)
 
     # ── Training ──────────────────────────────────────────────────────────────
 
@@ -222,9 +257,10 @@ class DeBERTaClassifier:
             log_param_stats(self.model, logger)
 
         self.train_history = []
-        best_f1 = -1.0
+        best_metric = float("-inf")
         patience_counter = 0
         failure_result = None
+        stopped_early = False
 
         for epoch in range(self.num_epochs):
             self.model.train()
@@ -348,7 +384,7 @@ class DeBERTaClassifier:
                 epoch_loss += loss.item()
                 n_batches += 1
 
-                if step % 50 == 0:
+                if step % self.logging_steps == 0:
                     lr = scheduler.get_last_lr()[0]
                     logger.info(f"  epoch {epoch} step {step}/{len(train_loader)} "
                                 f"loss={loss.item():.4f} lr={lr:.2e}")
@@ -368,25 +404,42 @@ class DeBERTaClassifier:
                 **{f"eval_{k}": v for k, v in val_metrics.items()},
             })
 
+            current_metric = val_metrics[self.metric_for_best_model]
+
             logger.info(
                 f"Epoch {epoch + 1}/{self.num_epochs} — "
                 f"train_loss={avg_loss:.4f} | "
-                f"val_acc={val_metrics['accuracy']:.4f} val_f1={val_metrics['f1']:.4f} "
-                f"val_prec={val_metrics['precision']:.4f} val_rec={val_metrics['recall']:.4f}"
+                f"val_acc={val_metrics['accuracy']:.4f} "
+                f"val_f1={val_metrics['f1']:.4f} "
+                f"val_macro_f1={val_metrics['macro_f1']:.4f} "
+                f"val_f1_benign={val_metrics['f1_benign']:.4f} "
+                f"val_f1_adversarial={val_metrics['f1_adversarial']:.4f} "
+                f"val_prec={val_metrics['precision']:.4f} "
+                f"val_rec={val_metrics['recall']:.4f}"
             )
 
-            # Early stopping on F1
-            if val_metrics["f1"] > best_f1:
-                best_f1 = val_metrics["f1"]
+            # Early stopping and best checkpointing on the configured metric
+            if current_metric > best_metric:
+                best_metric = current_metric
                 patience_counter = 0
+                self._update_best_checkpoint(epoch + 1, current_metric)
             else:
                 patience_counter += 1
                 if self.early_stopping_patience > 0 and patience_counter >= self.early_stopping_patience:
                     logger.info(f"Early stopping at epoch {epoch + 1} (patience={self.early_stopping_patience})")
+                    stopped_early = True
                     break
 
+        self._restore_best_checkpoint()
         logger.info("Training complete.")
-        return TrainingResult(success=True, train_history=self.train_history)
+        return TrainingResult(
+            success=True,
+            train_history=self.train_history,
+            best_epoch=self.best_checkpoint["epoch"] if self.best_checkpoint else None,
+            best_metric_name=self.metric_for_best_model,
+            best_metric_value=self.best_checkpoint["metric_value"] if self.best_checkpoint else None,
+            stopped_early=stopped_early,
+        )
 
     def _evaluate(self, val_loader, device):
         self.model.eval()
@@ -405,14 +458,24 @@ class DeBERTaClassifier:
         all_preds = torch.cat(all_preds).numpy()
         all_labels = torch.cat(all_labels).numpy()
 
-        return {
+        metrics = {
             "accuracy": accuracy_score(all_labels, all_preds),
             "f1": f1_score(all_labels, all_preds, average="binary", pos_label=1),
+            "macro_f1": f1_score(all_labels, all_preds, average="macro", zero_division=0),
             "precision": precision_score(all_labels, all_preds, average="binary",
                                          pos_label=1, zero_division=0),
             "recall": recall_score(all_labels, all_preds, average="binary",
                                     pos_label=1, zero_division=0),
         }
+        for label_id, label_name in self.id2label.items():
+            metrics[f"f1_{label_name}"] = f1_score(
+                all_labels,
+                all_preds,
+                labels=[label_id],
+                average=None,
+                zero_division=0,
+            )[0]
+        return metrics
 
     # ── Prediction ────────────────────────────────────────────────────────────
 
@@ -499,6 +562,25 @@ class DeBERTaClassifier:
 
         if self.train_history is not None:
             (output_dir / "train_history.json").write_text(json.dumps(self.train_history, indent=2))
+
+        if self.best_checkpoint is not None:
+            torch.save(
+                {
+                    "epoch": self.best_checkpoint["epoch"],
+                    "metric_name": self.best_checkpoint["metric_name"],
+                    "metric_value": self.best_checkpoint["metric_value"],
+                    "model_state_dict": self.best_checkpoint["model_state_dict"],
+                    "label2id": self.label2id,
+                    "id2label": self.id2label,
+                },
+                output_dir / "best_checkpoint.pt",
+            )
+            checkpoint_metadata: dict[str, Any] = {
+                "epoch": self.best_checkpoint["epoch"],
+                "metric_name": self.best_checkpoint["metric_name"],
+                "metric_value": self.best_checkpoint["metric_value"],
+            }
+            (output_dir / "best_checkpoint.json").write_text(json.dumps(checkpoint_metadata, indent=2))
 
         logger.info(f"Model saved to {output_dir}")
 

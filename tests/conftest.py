@@ -196,6 +196,7 @@ def sample_config_with_deberta(sample_config):
         "learning_rate": 2e-5,
         "warmup_ratio": 0.1,
         "weight_decay": 0.01,
+        "logging_steps": 1,
         "early_stopping_patience": 3,
         "max_grad_norm": 0.5,
         "label_order": ["benign", "adversarial"],
