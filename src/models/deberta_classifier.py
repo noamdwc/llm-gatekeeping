@@ -1,7 +1,11 @@
 """DeBERTa-v3-base fine-tuned classifier for adversarial prompt detection."""
 
+from __future__ import annotations
+
 import json
 import logging
+from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -16,9 +20,38 @@ from transformers import (
     get_linear_schedule_with_warmup,
 )
 
+from src.models.debug_numerics import (
+    DebugConfig,
+    check_tensor_finite,
+    dump_bad_batch,
+    find_nonfinite_grads,
+    find_nonfinite_params,
+    log_label_distribution,
+    log_param_stats,
+    summarize_tensor,
+    validate_labels,
+)
 from src.utils import build_sample_id
 
 logger = logging.getLogger(__name__)
+
+
+# ── Training result ──────────────────────────────────────────────────────────
+
+
+@dataclass
+class TrainingResult:
+    success: bool
+    failed_reason: str | None = None
+    first_bad_epoch: int | None = None
+    first_bad_step: int | None = None
+    first_bad_stage: str | None = None  # "forward" / "backward" / "optimizer_step" / "post_step"
+    first_bad_param: str | None = None
+    debug_artifact_paths: list[str] = field(default_factory=list)
+    train_history: list[dict] | None = None
+
+
+# ── Dataset ──────────────────────────────────────────────────────────────────
 
 
 class PromptDataset(Dataset):
@@ -36,8 +69,11 @@ class PromptDataset(Dataset):
     def __getitem__(self, idx):
         item = {k: v[idx] for k, v in self.encodings.items()}
         if self.labels is not None:
-            item["labels"] = self.labels[idx]
+            item["labels"] = torch.tensor(self.labels[idx], dtype=torch.long)
         return item
+
+
+# ── Classifier ───────────────────────────────────────────────────────────────
 
 
 class DeBERTaClassifier:
@@ -65,8 +101,74 @@ class DeBERTaClassifier:
 
     # ── Training ──────────────────────────────────────────────────────────────
 
+    def _select_device(self, force_cpu: bool = False) -> torch.device:
+        if force_cpu:
+            return torch.device("cpu")
+        return torch.device("mps" if torch.backends.mps.is_available() else
+                            "cuda" if torch.cuda.is_available() else "cpu")
+
+    def _assert_finite_model(self):
+        """Raise ValueError if model contains non-finite parameters."""
+        bad = find_nonfinite_params(self.model)
+        if bad:
+            names = [name for name, _ in bad[:5]]
+            raise ValueError(
+                f"Model contains non-finite parameters ({len(bad)} total): {names}"
+            )
+
+    def _sanity_forward(self, train_loader, device, debug: DebugConfig,
+                        train_texts: list[str]) -> TrainingResult:
+        """Run forward-only passes to check for NaN without backward/optimizer."""
+        logger.info(f"Running sanity forward on {debug.sanity_batches} batches...")
+        self.model.eval()
+
+        with torch.no_grad():
+            for step, batch in enumerate(train_loader):
+                if step >= debug.sanity_batches:
+                    break
+
+                batch = {k: v.to(device) for k, v in batch.items()}
+
+                if debug.log_batch_text:
+                    # Decode input_ids back to text for logging
+                    texts = self.tokenizer.batch_decode(batch["input_ids"],
+                                                        skip_special_tokens=True)
+                    logger.info(f"Sanity batch {step} texts: {texts[:3]}")
+
+                outputs = self.model(**batch)
+                loss = outputs.loss
+                logits = outputs.logits
+
+                logger.info(f"Sanity batch {step}: loss={loss.item():.6f}")
+                loss_summary = summarize_tensor("loss", loss)
+                logits_summary = summarize_tensor("logits", logits)
+                logger.info(f"  loss: {loss_summary}")
+                logger.info(f"  logits: min={logits_summary.min:.4f} max={logits_summary.max:.4f} "
+                            f"nan={logits_summary.has_nan} inf={logits_summary.has_inf}")
+
+                problems = check_tensor_finite("loss", loss)
+                problems.extend(check_tensor_finite("logits", logits))
+                if problems:
+                    reason = f"Sanity forward NaN at batch {step}: {problems}"
+                    logger.error(reason)
+                    return TrainingResult(
+                        success=False,
+                        failed_reason=reason,
+                        first_bad_epoch=0,
+                        first_bad_step=step,
+                        first_bad_stage="forward",
+                    )
+
+        logger.info("Sanity forward passed — no NaN detected.")
+        return TrainingResult(success=True)
+
     def train(self, df_train: pd.DataFrame, df_val: pd.DataFrame,
-              text_col: str, label_col: str = "label_binary"):
+              text_col: str, label_col: str = "label_binary",
+              force_cpu: bool = False,
+              debug: DebugConfig | None = None) -> TrainingResult:
+        if debug is None:
+            debug = DebugConfig()
+
         self.label2id = {lbl: i for i, lbl in enumerate(self.label_order)}
         self.id2label = {i: lbl for lbl, i in self.label2id.items()}
 
@@ -76,17 +178,27 @@ class DeBERTaClassifier:
             num_labels=len(self.label_order),
             id2label=self.id2label,
             label2id=self.label2id,
+            dtype=torch.float32,
         )
 
-        device = torch.device("mps" if torch.backends.mps.is_available() else
-                              "cuda" if torch.cuda.is_available() else "cpu")
+        device = self._select_device(force_cpu)
         self.model.to(device)
         logger.info(f"Training on device: {device}")
 
         train_labels = [self.label2id[l] for l in df_train[label_col]]
         val_labels = [self.label2id[l] for l in df_val[label_col]]
 
-        train_ds = PromptDataset(self.tokenizer, df_train[text_col].tolist(), train_labels, self.max_length)
+        # Validate labels
+        label_problems = validate_labels(train_labels, len(self.label_order))
+        if label_problems:
+            reason = f"Invalid training labels: {label_problems[:5]}"
+            logger.error(reason)
+            return TrainingResult(success=False, failed_reason=reason)
+
+        log_label_distribution(train_labels, self.id2label, logger)
+
+        train_texts = df_train[text_col].tolist()
+        train_ds = PromptDataset(self.tokenizer, train_texts, train_labels, self.max_length)
         val_ds = PromptDataset(self.tokenizer, df_val[text_col].tolist(), val_labels, self.max_length)
 
         collator = DataCollatorWithPadding(tokenizer=self.tokenizer)
@@ -95,6 +207,10 @@ class DeBERTaClassifier:
         val_loader = DataLoader(val_ds, batch_size=self.eval_batch_size, shuffle=False,
                                 collate_fn=collator, pin_memory=False)
 
+        # Sanity forward-only mode
+        if debug.sanity_forward_only:
+            return self._sanity_forward(train_loader, device, debug, train_texts)
+
         total_steps = len(train_loader) * self.num_epochs
         warmup_steps = int(total_steps * self.warmup_ratio)
 
@@ -102,44 +218,132 @@ class DeBERTaClassifier:
                           weight_decay=self.weight_decay)
         scheduler = get_linear_schedule_with_warmup(optimizer, warmup_steps, total_steps)
 
+        if debug.enabled and debug.log_param_stats:
+            log_param_stats(self.model, logger)
+
         self.train_history = []
         best_f1 = -1.0
         patience_counter = 0
+        failure_result = None
 
         for epoch in range(self.num_epochs):
             self.model.train()
             epoch_loss = 0.0
             n_batches = 0
-            nan_hit = False
 
             for step, batch in enumerate(train_loader):
                 batch = {k: v.to(device) for k, v in batch.items()}
+                verbose = debug.enabled and step < debug.first_n_batches
+
+                # [A] PRE-FORWARD
+                if verbose:
+                    for k, v in batch.items():
+                        if isinstance(v, torch.Tensor):
+                            problems = check_tensor_finite(f"input.{k}", v)
+                            if problems:
+                                logger.warning(f"Pre-forward: {problems}")
+                    if debug.log_batch_text:
+                        texts = self.tokenizer.batch_decode(
+                            batch["input_ids"], skip_special_tokens=True)
+                        logger.info(f"Batch {step} texts: {texts[:3]}")
 
                 optimizer.zero_grad()
                 outputs = self.model(**batch)
                 loss = outputs.loss
+                logits = outputs.logits
 
-                if not torch.isfinite(loss):
-                    logger.error(f"Non-finite loss at epoch {epoch} step {step}, "
-                                 f"loss={loss.item()}")
-                    nan_hit = True
+                # [B] POST-FORWARD
+                loss_problems = check_tensor_finite("loss", loss)
+                logits_problems = check_tensor_finite("logits", logits)
+                forward_problems = loss_problems + logits_problems
+
+                if verbose:
+                    logger.info(f"  [B] post-forward step {step}: "
+                                f"loss={loss.item():.6f} "
+                                f"logits={summarize_tensor('logits', logits)}")
+
+                if forward_problems:
+                    reason = (f"Non-finite at epoch {epoch} step {step} (forward): "
+                              f"{forward_problems}")
+                    logger.error(reason)
+                    artifact_paths = []
+                    if debug.save_bad_batch:
+                        texts = self.tokenizer.batch_decode(
+                            batch["input_ids"], skip_special_tokens=True)
+                        p = dump_bad_batch("artifacts/deberta_classifier", epoch, step,
+                                           "forward", batch, loss, logits, texts)
+                        artifact_paths.append(str(p))
+                    failure_result = TrainingResult(
+                        success=False,
+                        failed_reason=reason,
+                        first_bad_epoch=epoch,
+                        first_bad_step=step,
+                        first_bad_stage="forward",
+                        debug_artifact_paths=artifact_paths,
+                    )
                     break
 
                 loss.backward()
 
-                # Check for NaN gradients
-                for name, p in self.model.named_parameters():
-                    if p.grad is not None and not torch.isfinite(p.grad).all():
-                        logger.error(f"Bad grad in {name} at epoch {epoch} step {step}")
-                        nan_hit = True
-                        break
-
-                if nan_hit:
+                # [C] POST-BACKWARD
+                bad_grads = find_nonfinite_grads(self.model)
+                if bad_grads:
+                    first_name = bad_grads[0][0]
+                    reason = (f"Non-finite grad at epoch {epoch} step {step}: "
+                              f"{len(bad_grads)} params, first={first_name}")
+                    logger.error(reason)
+                    artifact_paths = []
+                    if debug.save_bad_batch:
+                        texts = self.tokenizer.batch_decode(
+                            batch["input_ids"], skip_special_tokens=True)
+                        p = dump_bad_batch("artifacts/deberta_classifier", epoch, step,
+                                           "backward", batch, loss, logits, texts)
+                        artifact_paths.append(str(p))
+                    failure_result = TrainingResult(
+                        success=False,
+                        failed_reason=reason,
+                        first_bad_epoch=epoch,
+                        first_bad_step=step,
+                        first_bad_stage="backward",
+                        first_bad_param=first_name,
+                        debug_artifact_paths=artifact_paths,
+                    )
                     break
+
+                if verbose and debug.log_param_stats:
+                    log_param_stats(self.model, logger)
 
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
                 optimizer.step()
                 scheduler.step()
+
+                # [D] POST-OPTIMIZER
+                bad_params = find_nonfinite_params(self.model)
+                if bad_params:
+                    first_name = bad_params[0][0]
+                    reason = (f"Non-finite params after optimizer step at epoch {epoch} "
+                              f"step {step}: {len(bad_params)} params, first={first_name}")
+                    logger.error(reason)
+                    artifact_paths = []
+                    if debug.save_bad_batch:
+                        texts = self.tokenizer.batch_decode(
+                            batch["input_ids"], skip_special_tokens=True)
+                        p = dump_bad_batch("artifacts/deberta_classifier", epoch, step,
+                                           "post_step", batch, loss, logits, texts)
+                        artifact_paths.append(str(p))
+                    failure_result = TrainingResult(
+                        success=False,
+                        failed_reason=reason,
+                        first_bad_epoch=epoch,
+                        first_bad_step=step,
+                        first_bad_stage="post_step",
+                        first_bad_param=first_name,
+                        debug_artifact_paths=artifact_paths,
+                    )
+                    break
+
+                if verbose:
+                    logger.info(f"  [D] post-optimizer step {step}: params OK")
 
                 epoch_loss += loss.item()
                 n_batches += 1
@@ -149,9 +353,10 @@ class DeBERTaClassifier:
                     logger.info(f"  epoch {epoch} step {step}/{len(train_loader)} "
                                 f"loss={loss.item():.4f} lr={lr:.2e}")
 
-            if nan_hit:
-                logger.error(f"Stopping training due to NaN at epoch {epoch}")
-                break
+            if failure_result is not None:
+                logger.error(f"Stopping training due to numeric failure at epoch {epoch}")
+                failure_result.train_history = self.train_history
+                return failure_result
 
             avg_loss = epoch_loss / max(n_batches, 1)
 
@@ -181,6 +386,7 @@ class DeBERTaClassifier:
                     break
 
         logger.info("Training complete.")
+        return TrainingResult(success=True, train_history=self.train_history)
 
     def _evaluate(self, val_loader, device):
         self.model.eval()
@@ -211,6 +417,9 @@ class DeBERTaClassifier:
     # ── Prediction ────────────────────────────────────────────────────────────
 
     def predict(self, df: pd.DataFrame, text_col: str) -> pd.DataFrame:
+        # Check model health before inference
+        self._assert_finite_model()
+
         self.model.eval()
         device = next(self.model.parameters()).device
         texts = df[text_col].tolist()
@@ -239,11 +448,22 @@ class DeBERTaClassifier:
                 nan_sample_indices = [sample_indices[r] for r in nan_rows]
                 nan_texts = [texts[i][:100] for i in nan_sample_indices]
                 nan_logits = logits[nan_rows].cpu().numpy()
+
+                # Enhanced diagnostics
+                param_health = "unknown"
+                try:
+                    bad_params = find_nonfinite_params(self.model)
+                    param_health = f"{len(bad_params)} non-finite params" if bad_params else "all finite"
+                except Exception:
+                    pass
+
                 raise ValueError(
                     f"NaN detected in batch {batch_idx} ({nan_count}/{len(probs)} samples). "
                     f"Device: {device}, logits dtype: {logits.dtype}, "
+                    f"Model params: {param_health}, "
                     f"NaN logits: {np.isnan(nan_logits).any()}, "
                     f"Logit range: [{logits.min().item():.4f}, {logits.max().item():.4f}], "
+                    f"Logits summary: {summarize_tensor('logits', logits)}, "
                     f"Sample indices: {nan_sample_indices}, "
                     f"Sample texts (truncated): {nan_texts}"
                 )
@@ -263,7 +483,8 @@ class DeBERTaClassifier:
     # ── Save / Load ───────────────────────────────────────────────────────────
 
     def save(self, output_dir):
-        from pathlib import Path
+        self._assert_finite_model()
+
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -282,8 +503,7 @@ class DeBERTaClassifier:
         logger.info(f"Model saved to {output_dir}")
 
     @classmethod
-    def load(cls, output_dir, cfg: dict):
-        from pathlib import Path
+    def load(cls, output_dir, cfg: dict, force_cpu: bool = False):
         output_dir = Path(output_dir)
 
         instance = cls(cfg)
@@ -295,5 +515,15 @@ class DeBERTaClassifier:
         instance.model = AutoModelForSequenceClassification.from_pretrained(
             output_dir / "model", dtype=torch.float32,
         )
+
+        device = instance._select_device(force_cpu)
+        instance.model.to(device)
+        logger.info(f"Model loaded on device: {device}")
+
+        # Warn if loaded model has non-finite params
+        bad_params = find_nonfinite_params(instance.model)
+        if bad_params:
+            names = [name for name, _ in bad_params[:5]]
+            logger.warning(f"Loaded model has {len(bad_params)} non-finite parameters: {names}")
 
         return instance

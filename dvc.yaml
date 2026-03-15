@@ -83,7 +83,7 @@ stages:
 
   # ── Stage 4: LLM Classifier (frozen by default — costs API tokens) ──────
   llm_classifier:
-    frozen: true
+    # frozen: true
     cmd: python -m src.llm_classifier.llm_classifier --split test --research --no-wandb
     deps:
     - data/processed/splits/test.parquet
@@ -99,7 +99,7 @@ stages:
 
   # ── Stage 4b: LLM Classifier on val (frozen — costs API tokens) ────────
   llm_classifier_val:
-    frozen: true
+    # frozen: true
     cmd: python -m src.llm_classifier.llm_classifier --split val --research --no-wandb
     deps:
     - data/processed/splits/val.parquet
@@ -132,7 +132,7 @@ stages:
 
   # ── Stage 5b: Research on val (frozen — costs API tokens) ──────────────
   research_val:
-    frozen: true
+    # frozen: true
     cmd: python -m src.research --split val
     deps:
     - src/research.py

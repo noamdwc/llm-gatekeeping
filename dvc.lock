@@ -9,8 +9,8 @@ stages:
       size: 7126
     - path: src/utils.py
       hash: md5
-      md5: f80e070a2f3a6149572a221c0e3887b7
-      size: 1676
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         benign:
@@ -80,8 +80,8 @@ stages:
       size: 3041
     - path: src/utils.py
       hash: md5
-      md5: f80e070a2f3a6149572a221c0e3887b7
-      size: 1676
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         labels.held_out_attacks:
@@ -135,8 +135,8 @@ stages:
       nfiles: 12
     - path: src/utils.py
       hash: md5
-      md5: f80e070a2f3a6149572a221c0e3887b7
-      size: 1676
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         ml:
@@ -177,7 +177,8 @@ stages:
       md5: d1c4da5eb6c415539d97429d139dc5d9
       size: 684905
   llm_classifier:
-    cmd: python -m src.llm_classifier.llm_classifier --split test --research --no-wandb
+    cmd: python -m src.llm_classifier.llm_classifier --split test --research 
+      --no-wandb
     deps:
     - path: data/processed/splits/test.parquet
       hash: md5
@@ -198,8 +199,8 @@ stages:
       nfiles: 17
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         llm:
@@ -231,9 +232,9 @@ stages:
     deps:
     - path: data/processed/predictions/
       hash: md5
-      md5: 1daa7aae632e65a29dce6ed048af2a7b.dir
-      size: 35895554
-      nfiles: 7
+      md5: 3144d0e10f17c638ea57d07403895159.dir
+      size: 37422279
+      nfiles: 10
     - path: data/processed/splits/test.parquet
       hash: md5
       md5: fdc978f8841e97de84a19852d22d6c38
@@ -252,8 +253,8 @@ stages:
       size: 36020
     - path: src/utils.py
       hash: md5
-      md5: f80e070a2f3a6149572a221c0e3887b7
-      size: 1676
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         hybrid:
@@ -276,14 +277,16 @@ stages:
       md5: bfe94ea089558d5e37aa9dcf9046d051
       size: 17923238
   research_external@deepset:
-    cmd: python -m src.cli.research_external --dataset deepset --mode hybrid --llm-predictions-path
+    cmd: python -m src.cli.research_external --dataset deepset --mode hybrid 
+      --llm-predictions-path 
       data/processed/predictions_external/llm_predictions_external_deepset.parquet
     deps:
     - path: data/processed/models/ml_baseline.pkl
       hash: md5
       md5: 1f028a09d125c6a04a39b30524168668
       size: 8268564
-    - path: data/processed/predictions_external/llm_predictions_external_deepset.parquet
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_deepset.parquet
       hash: md5
       md5: a97b57100d712d81a84635ea1141fa45
       size: 197123
@@ -315,8 +318,8 @@ stages:
       nfiles: 12
     - path: src/utils.py
       hash: md5
-      md5: f80e070a2f3a6149572a221c0e3887b7
-      size: 1676
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         external_datasets.deepset:
@@ -334,14 +337,16 @@ stages:
       md5: bcca6f3ccca7f1fdd221711f50a4c5c2
       size: 254724
   research_external@jackhhao:
-    cmd: python -m src.cli.research_external --dataset jackhhao --mode hybrid --llm-predictions-path
+    cmd: python -m src.cli.research_external --dataset jackhhao --mode hybrid 
+      --llm-predictions-path 
       data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
     deps:
     - path: data/processed/models/ml_baseline.pkl
       hash: md5
       md5: 1f028a09d125c6a04a39b30524168668
       size: 8268564
-    - path: data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
       hash: md5
       md5: 36f97994673ce6cdd1dc43d9cd0decdb
       size: 843538
@@ -373,8 +378,8 @@ stages:
       nfiles: 12
     - path: src/utils.py
       hash: md5
-      md5: f80e070a2f3a6149572a221c0e3887b7
-      size: 1676
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         external_datasets.jackhhao:
@@ -392,14 +397,16 @@ stages:
       md5: e5374cc792d7ae9a7365d8b764215044
       size: 1122327
   research_external@safeguard:
-    cmd: python -m src.cli.research_external --dataset safeguard --mode hybrid --llm-predictions-path
+    cmd: python -m src.cli.research_external --dataset safeguard --mode hybrid 
+      --llm-predictions-path 
       data/processed/predictions_external/llm_predictions_external_safeguard.parquet
     deps:
     - path: data/processed/models/ml_baseline.pkl
       hash: md5
       md5: 1f028a09d125c6a04a39b30524168668
       size: 8268564
-    - path: data/processed/predictions_external/llm_predictions_external_safeguard.parquet
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_safeguard.parquet
       hash: md5
       md5: 20e27d157e7effa401fe289674640284
       size: 2768963
@@ -431,8 +438,8 @@ stages:
       nfiles: 12
     - path: src/utils.py
       hash: md5
-      md5: f80e070a2f3a6149572a221c0e3887b7
-      size: 1676
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         external_datasets.safeguard:
@@ -450,14 +457,16 @@ stages:
       md5: d5d90bc39432489e14311be1ad44e77c
       size: 3631317
   research_external@spml:
-    cmd: python -m src.cli.research_external --dataset spml --mode hybrid --llm-predictions-path
+    cmd: python -m src.cli.research_external --dataset spml --mode hybrid 
+      --llm-predictions-path 
       data/processed/predictions_external/llm_predictions_external_spml.parquet
     deps:
     - path: data/processed/models/ml_baseline.pkl
       hash: md5
       md5: ab0618975b2d0c6ef533bce9e726584c
       size: 8270153
-    - path: data/processed/predictions_external/llm_predictions_external_spml.parquet
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_spml.parquet
       hash: md5
       md5: fca081afe7db0ad18a5ddf11ecd78840
       size: 710460
@@ -508,7 +517,8 @@ stages:
       md5: 5de149cfee5cd8f4165a4cd5cb0cc12a
       size: 9018714
   inference_ml:
-    cmd: python -m src.cli.infer_split --mode ml --split test --output reports/research/inference_ml_test.md
+    cmd: python -m src.cli.infer_split --mode ml --split test --output 
+      reports/research/inference_ml_test.md
     deps:
     - path: data/processed/models/ml_baseline.pkl
       hash: md5
@@ -544,7 +554,8 @@ stages:
       md5: abddc834e350403854951d8e6ba1f0f8
       size: 2058
   eval_new:
-    cmd: python -m src.cli.eval_new --split test --config configs/default.yaml --only-main
+    cmd: python -m src.cli.eval_new --split test --config configs/default.yaml 
+      --only-main
     deps:
     - path: data/processed/research/posthoc_benign_risk_summary.csv
       hash: md5
@@ -565,8 +576,8 @@ stages:
       size: 4639
     - path: src/cli/eval_baselines.py
       hash: md5
-      md5: 2a0c31f5d8ec5922e747de037c6bbf52
-      size: 8693
+      md5: 408582d2d54d2ad9f7ceb57dcfdc8f72
+      size: 9568
     - path: src/cli/eval_new.py
       hash: md5
       md5: dbeeb12f7ab4a65375685347cf8b6baa
@@ -581,8 +592,8 @@ stages:
       size: 36020
     - path: src/utils.py
       hash: md5
-      md5: f80e070a2f3a6149572a221c0e3887b7
-      size: 1676
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         external_datasets:
@@ -644,11 +655,11 @@ stages:
       size: 1833
     - path: reports/research/summary_report.md
       hash: md5
-      md5: b761050bde083c45de1dd06a097a9e6f
-      size: 1678
+      md5: fea5ce780197ef8d7aabab16f3ba4d11
+      size: 8645
   eval_new_external@deepset:
-    cmd: python -m src.cli.eval_new --config configs/default.yaml --only-external
-      --dataset deepset
+    cmd: python -m src.cli.eval_new --config configs/default.yaml 
+      --only-external --dataset deepset
     deps:
     - path: data/processed/research_external/research_external_deepset.parquet
       hash: md5
@@ -668,8 +679,8 @@ stages:
       size: 15498
     - path: src/utils.py
       hash: md5
-      md5: f80e070a2f3a6149572a221c0e3887b7
-      size: 1676
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         external_datasets.deepset:
@@ -687,8 +698,8 @@ stages:
       md5: 7bd11ef5ec07fed7844daec2ba9a5ed6
       size: 3778
   eval_new_external@jackhhao:
-    cmd: python -m src.cli.eval_new --config configs/default.yaml --only-external
-      --dataset jackhhao
+    cmd: python -m src.cli.eval_new --config configs/default.yaml 
+      --only-external --dataset jackhhao
     deps:
     - path: data/processed/research_external/research_external_jackhhao.parquet
       hash: md5
@@ -708,8 +719,8 @@ stages:
       size: 15498
     - path: src/utils.py
       hash: md5
-      md5: f80e070a2f3a6149572a221c0e3887b7
-      size: 1676
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         external_datasets.jackhhao:
@@ -727,8 +738,8 @@ stages:
       md5: c27bfcf0ba7ea32c7e1f2cccf36fe353
       size: 3835
   eval_new_external@safeguard:
-    cmd: python -m src.cli.eval_new --config configs/default.yaml --only-external
-      --dataset safeguard
+    cmd: python -m src.cli.eval_new --config configs/default.yaml 
+      --only-external --dataset safeguard
     deps:
     - path: data/processed/research_external/research_external_safeguard.parquet
       hash: md5
@@ -748,8 +759,8 @@ stages:
       size: 15498
     - path: src/utils.py
       hash: md5
-      md5: f80e070a2f3a6149572a221c0e3887b7
-      size: 1676
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         external_datasets.safeguard:
@@ -767,8 +778,8 @@ stages:
       md5: 72e252311d94377e16009ab2d39dbf19
       size: 4266
   eval_new_external@spml:
-    cmd: python -m src.cli.eval_new --config configs/default.yaml --only-external
-      --dataset spml
+    cmd: python -m src.cli.eval_new --config configs/default.yaml 
+      --only-external --dataset spml
     deps:
     - path: data/processed/research_external/research_external_spml.parquet
       hash: md5
@@ -807,7 +818,8 @@ stages:
       md5: 7d8ea0dba4de9db0734b710bd24415e9
       size: 5224
   research_external_llm@deepset:
-    cmd: python -m src.cli.research_external --dataset deepset --mode llm --llm-predictions-path
+    cmd: python -m src.cli.research_external --dataset deepset --mode llm 
+      --llm-predictions-path 
       data/processed/predictions_external/llm_predictions_external_deepset.parquet
     deps:
     - path: data/processed/splits/train.parquet
@@ -833,8 +845,8 @@ stages:
       nfiles: 17
     - path: src/utils.py
       hash: md5
-      md5: f80e070a2f3a6149572a221c0e3887b7
-      size: 1676
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         external_datasets.deepset:
@@ -865,12 +877,14 @@ stages:
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
-    - path: data/processed/predictions_external/llm_predictions_external_deepset.parquet
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_deepset.parquet
       hash: md5
       md5: a97b57100d712d81a84635ea1141fa45
       size: 197123
   research_external_llm@jackhhao:
-    cmd: python -m src.cli.research_external --dataset jackhhao --mode llm --llm-predictions-path
+    cmd: python -m src.cli.research_external --dataset jackhhao --mode llm 
+      --llm-predictions-path 
       data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
     deps:
     - path: data/processed/splits/train.parquet
@@ -896,8 +910,8 @@ stages:
       nfiles: 17
     - path: src/utils.py
       hash: md5
-      md5: f80e070a2f3a6149572a221c0e3887b7
-      size: 1676
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         external_datasets.jackhhao:
@@ -928,12 +942,14 @@ stages:
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
-    - path: data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
       hash: md5
       md5: 36f97994673ce6cdd1dc43d9cd0decdb
       size: 843538
   research_external_llm@safeguard:
-    cmd: python -m src.cli.research_external --dataset safeguard --mode llm --llm-predictions-path
+    cmd: python -m src.cli.research_external --dataset safeguard --mode llm 
+      --llm-predictions-path 
       data/processed/predictions_external/llm_predictions_external_safeguard.parquet
     deps:
     - path: data/processed/splits/train.parquet
@@ -959,8 +975,8 @@ stages:
       nfiles: 17
     - path: src/utils.py
       hash: md5
-      md5: f80e070a2f3a6149572a221c0e3887b7
-      size: 1676
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         external_datasets.safeguard:
@@ -991,12 +1007,14 @@ stages:
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
-    - path: data/processed/predictions_external/llm_predictions_external_safeguard.parquet
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_safeguard.parquet
       hash: md5
       md5: 20e27d157e7effa401fe289674640284
       size: 2768963
   research_external_llm@spml:
-    cmd: python -m src.cli.research_external --dataset spml --mode llm --llm-predictions-path
+    cmd: python -m src.cli.research_external --dataset spml --mode llm 
+      --llm-predictions-path 
       data/processed/predictions_external/llm_predictions_external_spml.parquet
     deps:
     - path: data/processed/splits/train.parquet
@@ -1052,12 +1070,14 @@ stages:
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
-    - path: data/processed/predictions_external/llm_predictions_external_spml.parquet
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_spml.parquet
       hash: md5
       md5: fca081afe7db0ad18a5ddf11ecd78840
       size: 710460
   synthetic_benign:
-    cmd: python -m src.cli.generate_synthetic_benign --category all --skip-judge-validation
+    cmd: python -m src.cli.generate_synthetic_benign --category all 
+      --skip-judge-validation
     deps:
     - path: src/cli/generate_synthetic_benign.py
       hash: md5
@@ -1086,7 +1106,8 @@ stages:
           batch_size: 20
           output_path: data/processed/synthetic_benign.parquet
   llm_classifier_val:
-    cmd: python -m src.llm_classifier.llm_classifier --split val --research --no-wandb
+    cmd: python -m src.llm_classifier.llm_classifier --split val --research 
+      --no-wandb
     deps:
     - path: data/processed/splits/train.parquet
       hash: md5
@@ -1107,8 +1128,8 @@ stages:
       nfiles: 17
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         llm:
@@ -1140,9 +1161,9 @@ stages:
     deps:
     - path: data/processed/predictions/
       hash: md5
-      md5: 1daa7aae632e65a29dce6ed048af2a7b.dir
-      size: 35895554
-      nfiles: 7
+      md5: 3144d0e10f17c638ea57d07403895159.dir
+      size: 37422279
+      nfiles: 10
     - path: data/processed/splits/val.parquet
       hash: md5
       md5: 8766a116b2ccd43cbafd9c494b60dd52
@@ -1161,8 +1182,8 @@ stages:
       size: 36020
     - path: src/utils.py
       hash: md5
-      md5: bdae10eefe0ccf3499acc24496e897e6
-      size: 1541
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
     params:
       configs/default.yaml:
         hybrid:
@@ -1185,8 +1206,9 @@ stages:
       md5: a18ff030ffd26605f76abdbce91415ca
       size: 12869950
   risk_model:
-    cmd: python -m src.cli.benign_risk_model --train-trace data/processed/research/hybrid_margin_trace_val.parquet
-      --trace data/processed/research/hybrid_margin_trace_test.parquet --split test
+    cmd: python -m src.cli.benign_risk_model --train-trace 
+      data/processed/research/hybrid_margin_trace_val.parquet --trace 
+      data/processed/research/hybrid_margin_trace_test.parquet --split test
     deps:
     - path: data/processed/research/hybrid_margin_trace_test.parquet
       hash: md5
@@ -1229,3 +1251,96 @@ stages:
       hash: md5
       md5: 443f341df6b7e41eb21bccd80bbd3dc5
       size: 3690
+  deberta_model:
+    cmd: python -m src.cli.deberta_classifier --research --no-wandb
+    deps:
+    - path: data/processed/splits/test.parquet
+      hash: md5
+      md5: fdc978f8841e97de84a19852d22d6c38
+      size: 440887
+    - path: data/processed/splits/test_unseen.parquet
+      hash: md5
+      md5: e43d8355c4f8634d825bcc9a3b021488
+      size: 524218
+    - path: data/processed/splits/train.parquet
+      hash: md5
+      md5: 60a9cc4eb557a1daacba383714007c49
+      size: 2041468
+    - path: data/processed/splits/val.parquet
+      hash: md5
+      md5: 8766a116b2ccd43cbafd9c494b60dd52
+      size: 367338
+    - path: src/cli/deberta_classifier.py
+      hash: md5
+      md5: 168224426646860924e71106de531ef8
+      size: 9756
+    - path: src/models/
+      hash: md5
+      md5: fda29fd05b7ae20a9ea5bf826044f2c8.dir
+      size: 72388
+      nfiles: 6
+    - path: src/utils.py
+      hash: md5
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
+    params:
+      configs/default.yaml:
+        deberta:
+          model_name: microsoft/deberta-v3-base
+          max_length: 128
+          num_epochs: 1
+          batch_size: 8
+          eval_batch_size: 8
+          max_grad_norm: 0.5
+          learning_rate: 5e-06
+          warmup_ratio: 0.1
+          weight_decay: 0.01
+          early_stopping_patience: 2
+          metric_for_best_model: f1
+          fp16: false
+          label_order:
+          - benign
+          - adversarial
+    outs:
+    - path: artifacts/deberta_classifier/label_mapping.json
+      hash: md5
+      md5: 810b1b2e80f4e2b2ff221685eb065bbb
+      size: 124
+    - path: artifacts/deberta_classifier/model/
+      hash: md5
+      md5: 436e4eb2ab0f9b3cfb02614a6e315cab.dir
+      size: 737720292
+      nfiles: 2
+    - path: artifacts/deberta_classifier/tokenizer/
+      hash: md5
+      md5: 931794a2674de514469f35949528d19a.dir
+      size: 8339700
+      nfiles: 2
+    - path: artifacts/deberta_classifier/train_history.json
+      hash: md5
+      md5: 63f160e9ce52adcc5da956b1ed59e753
+      size: 222
+    - path: data/processed/predictions/deberta_predictions_test.parquet
+      hash: md5
+      md5: ccfb151454edbd269af26e5be626dad9
+      size: 527023
+    - path: data/processed/predictions/deberta_predictions_test_unseen.parquet
+      hash: md5
+      md5: 679634f4d0b2bc64153113af9eee19b5
+      size: 563144
+    - path: data/processed/predictions/deberta_predictions_val.parquet
+      hash: md5
+      md5: 16d28ba93be47372221e1f102252c592
+      size: 436558
+    - path: reports/deberta_classifier/classification_report.json
+      hash: md5
+      md5: 347fcfa5210fecdcd908a2c844a7c38d
+      size: 1052
+    - path: reports/deberta_classifier/metrics.json
+      hash: md5
+      md5: 0aa81875c8e87fb61f873531c71d378c
+      size: 835
+    - path: reports/deberta_classifier/summary.md
+      hash: md5
+      md5: 1a2ac43efd80f90e2be12bcb2b53b286
+      size: 449

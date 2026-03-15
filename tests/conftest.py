@@ -184,6 +184,26 @@ def sample_dataframe():
 
 
 @pytest.fixture
+def sample_config_with_deberta(sample_config):
+    """Config with DeBERTa section for classifier tests."""
+    cfg = sample_config.copy()
+    cfg["deberta"] = {
+        "model_name": "microsoft/deberta-v3-base",
+        "max_length": 128,
+        "num_epochs": 2,
+        "batch_size": 4,
+        "eval_batch_size": 4,
+        "learning_rate": 2e-5,
+        "warmup_ratio": 0.1,
+        "weight_decay": 0.01,
+        "early_stopping_patience": 3,
+        "max_grad_norm": 0.5,
+        "label_order": ["benign", "adversarial"],
+    }
+    return cfg
+
+
+@pytest.fixture
 def fitted_ml_model(sample_config, sample_dataframe):
     """A small fitted MLBaseline instance for testing."""
     from src.ml_classifier.ml_baseline import MLBaseline

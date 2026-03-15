@@ -4,6 +4,8 @@ Usage:
     python -m src.cli.deberta_classifier --research --no-wandb
     python -m src.cli.deberta_classifier --train-only
     python -m src.cli.deberta_classifier --predict-only
+    python -m src.cli.deberta_classifier --research --cpu --debug-numerics --debug-first-n-batches 5
+    python -m src.cli.deberta_classifier --research --cpu --sanity-forward-only --sanity-batches 3
 """
 
 import os
@@ -15,6 +17,7 @@ os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
 import argparse
 import json
 import logging
+import sys
 
 import pandas as pd
 from sklearn.metrics import (
@@ -28,6 +31,7 @@ from sklearn.metrics import (
 )
 
 from src.models.deberta_classifier import DeBERTaClassifier
+from src.models.debug_numerics import DebugConfig
 from src.utils import (
     DEBERTA_ARTIFACTS_DIR,
     DEBERTA_REPORTS_DIR,
@@ -109,11 +113,46 @@ def main():
                         help="Train + predict on all splits + save reports")
     parser.add_argument("--train-only", action="store_true", help="Only train, skip prediction")
     parser.add_argument("--predict-only", action="store_true", help="Only predict from saved model")
+    parser.add_argument("--cpu", action="store_true", help="Force training/inference on CPU")
+
+    # Debug flags
+    debug_group = parser.add_argument_group("debug", "Numeric debug instrumentation")
+    debug_group.add_argument("--debug-numerics", action="store_true",
+                             help="Enable numeric debug instrumentation")
+    debug_group.add_argument("--debug-first-n-batches", type=int, default=3,
+                             help="Number of batches for verbose debug logging (default: 3)")
+    debug_group.add_argument("--debug-save-bad-batch", action="store_true",
+                             help="Save batch artifacts when NaN is detected")
+    debug_group.add_argument("--debug-stop-on-nan", action="store_true", default=True,
+                             help="Stop training on first NaN (default: true)")
+    debug_group.add_argument("--debug-log-param-stats", action="store_true",
+                             help="Log parameter statistics during debug batches")
+    debug_group.add_argument("--debug-log-batch-text", action="store_true",
+                             help="Log decoded batch text during debug batches")
+
+    sanity_group = parser.add_argument_group("sanity", "Sanity forward-only mode")
+    sanity_group.add_argument("--sanity-forward-only", action="store_true",
+                              help="Run forward passes only (no backward/optimizer)")
+    sanity_group.add_argument("--sanity-batches", type=int, default=3,
+                              help="Number of batches for sanity forward (default: 3)")
+
     args = parser.parse_args()
 
     cfg = load_config(args.config)
     text_col = cfg["dataset"]["text_col"]
     ensure_dirs()
+
+    # Build DebugConfig
+    debug = DebugConfig(
+        enabled=args.debug_numerics,
+        first_n_batches=args.debug_first_n_batches,
+        save_bad_batch=args.debug_save_bad_batch,
+        stop_on_nan=args.debug_stop_on_nan,
+        log_param_stats=args.debug_log_param_stats,
+        log_batch_text=args.debug_log_batch_text,
+        sanity_forward_only=args.sanity_forward_only,
+        sanity_batches=args.sanity_batches,
+    )
 
     should_train = not args.predict_only
     should_predict = not args.train_only
@@ -126,13 +165,23 @@ def main():
         logger.info(f"Train: {len(df_train)}, Val: {len(df_val)}")
 
         clf = DeBERTaClassifier(cfg)
-        clf.train(df_train, df_val, text_col=text_col, label_col="label_binary")
+        result = clf.train(df_train, df_val, text_col=text_col, label_col="label_binary",
+                           force_cpu=args.cpu, debug=debug)
+
+        if not result.success:
+            logger.error(f"Training failed: {result.failed_reason}")
+            logger.error(f"  epoch={result.first_bad_epoch}, step={result.first_bad_step}, "
+                         f"stage={result.first_bad_stage}, param={result.first_bad_param}")
+            if result.debug_artifact_paths:
+                logger.error(f"  debug artifacts: {result.debug_artifact_paths}")
+            sys.exit(1)
+
         clf.save(DEBERTA_ARTIFACTS_DIR)
         logger.info(f"Model saved to {DEBERTA_ARTIFACTS_DIR}")
 
     # ── Predict + Evaluate ────────────────────────────────────────────────
     if should_predict:
-        clf = DeBERTaClassifier.load(DEBERTA_ARTIFACTS_DIR, cfg)
+        clf = DeBERTaClassifier.load(DEBERTA_ARTIFACTS_DIR, cfg, force_cpu=args.cpu)
 
         all_metrics = {}
         all_reports = {}
