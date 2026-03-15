@@ -13,6 +13,9 @@ matplotlib>=3.8
 dvc>=3.50
 transformers>=4.36
 torch>=2.1
+accelerate>=0.25
+sentencepiece>=0.1.99
+tiktoken>=0.7
 
 # Testing
 pytest>=8.0

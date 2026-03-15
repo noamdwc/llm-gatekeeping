@@ -108,6 +108,24 @@ ml:
     scoring: "f1_macro"
     n_jobs: -1
 
+# DeBERTa fine-tuned classifier
+deberta:
+  model_name: "microsoft/deberta-v3-base"
+  max_length: 128
+  num_epochs: 1
+  batch_size: 8
+  eval_batch_size: 8
+  max_grad_norm: 0.5
+  learning_rate: 5.0e-6
+  warmup_ratio: 0.1
+  weight_decay: 0.01
+  early_stopping_patience: 2
+  metric_for_best_model: "f1"
+  fp16: false
+  label_order:
+    - benign
+    - adversarial
+
 # Hybrid router
 hybrid:
   ml_confidence_threshold: 0.85

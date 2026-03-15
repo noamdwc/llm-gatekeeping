@@ -26,7 +26,7 @@ dvc repro                    # Run full pipeline (ML-only; llm_classifier frozen
 
 **LLM control**: The `llm_classifier` DVC stage is frozen (unfreeze via `run_llm.sh`). For `research_external` stages, the `SKIP_LLM` env var controls LLM (defaults to `"1"` = skip); `run_llm.sh` sets `SKIP_LLM=0`.
 
-DVC stages: `preprocess → build_splits → ml_model → llm_classifier (frozen) → research → research_external@{dataset}`
+DVC stages: `preprocess → build_splits → ml_model → deberta_model → llm_classifier (frozen) → research → research_external@{dataset}`
 
 ### 2. Inference Pipeline (Bash)
 
@@ -47,6 +47,9 @@ All modules run as `python -m src.<module>` from the project root:
 python -m src.preprocess                                    # Load dataset → data/processed/full_dataset.parquet
 python -m src.build_splits                                  # Grouped splits → data/processed/splits/*.parquet
 python -m src.ml_classifier.ml_baseline --research          # Train ML + save research predictions
+python -m src.cli.deberta_classifier --research --no-wandb  # Train DeBERTa + evaluate on all splits
+python -m src.cli.deberta_classifier --train-only                  # Train only, skip prediction
+python -m src.cli.deberta_classifier --predict-only                # Predict only from saved model
 python -m src.llm_classifier.llm_classifier --split test --research  # LLM classifier (API tokens)
 python -m src.llm_classifier.llm_classifier --split test --research --dynamic  # LLM with dynamic few-shot
 python -m src.research --split test                         # Merge predictions + hybrid routing + reports
@@ -74,8 +77,9 @@ data/processed/
     train.parquet, val.parquet, test.parquet, test_unseen.parquet
   models/                        # ml_model
     ml_baseline.pkl
-  predictions/                   # ml_model + llm_classifier
+  predictions/                   # ml_model + deberta_model + llm_classifier
     ml_predictions_{split}.parquet
+    deberta_predictions_{split}.parquet
     llm_predictions_{split}.parquet
   research/                      # research stage
     research_{split}.parquet
@@ -84,7 +88,13 @@ data/processed/
   baselines/                     # HF baseline predictions
     {baseline_key}_{dataset_key}.parquet
 
+artifacts/
+  deberta_classifier/            # deberta_model stage
+    model/, tokenizer/, label_mapping.json, train_history.json
+
 reports/
+  deberta_classifier/            # deberta_model stage
+    metrics.json, classification_report.json, summary.md
   research/                      # research stage
     eval_report_ml.md, eval_report_hybrid.md, eval_report_llm.md
   research_external/             # research_external@{dataset}

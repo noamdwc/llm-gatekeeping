@@ -52,6 +52,35 @@ stages:
     - data/processed/predictions/ml_predictions_val.parquet
     - data/processed/predictions/ml_predictions_test_unseen.parquet
 
+  # ── Stage 3b: DeBERTa Classifier (train + research predictions) ─────────
+  deberta_model:
+    cmd: python -m src.cli.deberta_classifier --research --no-wandb
+    deps:
+    - src/models/
+    - src/cli/deberta_classifier.py
+    - src/utils.py
+    - data/processed/splits/train.parquet
+    - data/processed/splits/val.parquet
+    - data/processed/splits/test.parquet
+    - data/processed/splits/test_unseen.parquet
+    params:
+    - configs/default.yaml:
+      - deberta
+    outs:
+    - artifacts/deberta_classifier/model/
+    - artifacts/deberta_classifier/tokenizer/
+    - artifacts/deberta_classifier/label_mapping.json
+    - artifacts/deberta_classifier/train_history.json
+    - data/processed/predictions/deberta_predictions_test.parquet
+    - data/processed/predictions/deberta_predictions_val.parquet
+    - data/processed/predictions/deberta_predictions_test_unseen.parquet
+    - reports/deberta_classifier/metrics.json:
+        cache: false
+    - reports/deberta_classifier/classification_report.json:
+        cache: false
+    - reports/deberta_classifier/summary.md:
+        cache: false
+
   # ── Stage 4: LLM Classifier (frozen by default — costs API tokens) ──────
   llm_classifier:
     frozen: true
