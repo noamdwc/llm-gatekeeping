@@ -125,6 +125,9 @@ deberta:
   early_stopping_patience: 3
   metric_for_best_model: "f1"
   fp16: false
+  # Binary classification threshold on adversarial probability.
+  # Tuned on val set: raises benign recall from 90% to 95% at minimal F1 cost.
+  threshold: 0.93
   label_order:
     - benign
     - adversarial
@@ -144,6 +147,9 @@ hybrid:
   margin_threshold_classifier_only: 2.5
   margin_threshold_judge: 1.5
   production_adversarial_prior: 0.1
+  # DeBERTa confidence threshold for binary fast-path finalization.
+  # Samples where DeBERTa max softmax prob >= this skip LLM entirely.
+  deberta_confidence_threshold: 0.93
 
 # Evaluation
 evaluation:

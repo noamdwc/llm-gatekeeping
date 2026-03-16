@@ -30,7 +30,7 @@ from src.logprob_margin import (
     infer_route_bucket,
     resolve_margin_policy_config,
 )
-from src.utils import load_config, SPLITS_DIR, MODELS_DIR, REPORTS_RESEARCH_DIR
+from src.utils import load_config, SPLITS_DIR, MODELS_DIR, REPORTS_RESEARCH_DIR, DEBERTA_ARTIFACTS_DIR
 from src.ml_classifier.ml_baseline import MLBaseline
 from src.llm_classifier.llm_classifier import HierarchicalLLMClassifier, build_few_shot_examples
 from src.evaluate import evaluate_dataframe
@@ -94,13 +94,15 @@ class RouterStats:
 
 
 class HybridRouter:
-    """Routes classification through ML or LLM based on confidence thresholds."""
+    """Routes classification through ML, DeBERTa, or LLM based on confidence thresholds."""
 
-    def __init__(self, ml_model, llm_classifier, cfg: dict):
+    def __init__(self, ml_model, llm_classifier, cfg: dict, deberta_model=None):
         self.ml = ml_model
         self.llm = llm_classifier
+        self.deberta = deberta_model
         self.ml_threshold = cfg["hybrid"]["ml_confidence_threshold"]
         self.llm_threshold = cfg["hybrid"]["llm_confidence_threshold"]
+        self.deberta_threshold = cfg["hybrid"].get("deberta_confidence_threshold", 0.93)
         self.logprob_margin_threshold = cfg["hybrid"].get("logprob_margin_threshold")
         self.margin_policy_cfg = resolve_margin_policy_config(cfg)
         self.stats = RouterStats()
@@ -111,6 +113,8 @@ class HybridRouter:
         self._adv_non_unicode_escalations = 0
         self._adv_unknown_lane_escalations = 0
         self._margin_gate_overrides = 0
+        self._deberta_benign_finalizations = 0
+        self._deberta_adv_finalizations = 0
         unicode_types = cfg.get("labels", {}).get("unicode_attacks", [])
         self._unicode_types = {_normalize_attack_token(v) for v in unicode_types}
 
@@ -252,11 +256,14 @@ class HybridRouter:
             "override_reason": policy_result["override_reason"],
         }
 
-    def predict_single(self, text: str, ml_pred: dict) -> dict:
+    def predict_single(self, text: str, ml_pred: dict,
+                       deberta_pred: dict | None = None) -> dict:
         """
         Route a single sample.
 
         ml_pred should contain: pred_label_binary, confidence_label_binary, etc.
+        deberta_pred (optional) should contain: deberta_pred_binary,
+            deberta_conf_binary, deberta_proba_binary_adversarial.
         """
         self.stats.total += 1
 
@@ -267,20 +274,8 @@ class HybridRouter:
         ml_type = self._get_ml_type(ml_pred)
         unicode_lane, lane_reliable = self._determine_unicode_lane(ml_pred)
 
-        # ML benign is never trusted in fast path.
-        if not ml_binary_is_adv:
-            self._benign_escalations += 1
-            return self._route_via_llm(
-                text,
-                ml_pred,
-                route_reason="ml_benign_escalate",
-                ml_binary=ml_binary,
-                ml_conf=ml_conf,
-                unicode_lane=unicode_lane,
-            )
-
-        # Only high-confidence unicode-lane ML adversarial can be finalized by ML.
-        if ml_conf >= self.ml_threshold and unicode_lane:
+        # 1. ML fast path: high-confidence unicode-lane adversarial (unchanged).
+        if ml_binary_is_adv and ml_conf >= self.ml_threshold and unicode_lane:
             self._adv_high_conf_finalizations += 1
             self.stats.ml_handled += 1
             return {
@@ -300,7 +295,58 @@ class HybridRouter:
                 "unicode_lane": unicode_lane,
             }
 
-        if not lane_reliable:
+        # 2. DeBERTa fast path: high-confidence binary prediction.
+        if deberta_pred is not None:
+            deberta_conf = deberta_pred["deberta_conf_binary"]
+            deberta_binary = deberta_pred["deberta_pred_binary"]
+
+            if deberta_conf >= self.deberta_threshold:
+                if deberta_binary == "benign":
+                    self._deberta_benign_finalizations += 1
+                    self.stats.ml_handled += 1
+                    return {
+                        "label": "benign",
+                        "label_binary": "benign",
+                        "label_category": "benign",
+                        "label_type": "benign",
+                        "confidence_binary": deberta_conf,
+                        "confidence_category": None,
+                        "confidence_type": None,
+                        "routed_to": "deberta",
+                        "route_reason": "deberta_benign_high_conf",
+                        "ml_pred_binary": ml_binary,
+                        "ml_pred_category": ml_category,
+                        "ml_pred_type": ml_type,
+                        "ml_conf_binary": ml_conf,
+                        "unicode_lane": unicode_lane,
+                    }
+                else:
+                    # DeBERTa high-confidence adversarial — finalize with ML
+                    # category/type (DeBERTa is binary-only).
+                    self._deberta_adv_finalizations += 1
+                    self.stats.ml_handled += 1
+                    return {
+                        "label": "adversarial",
+                        "label_binary": "adversarial",
+                        "label_category": ml_category or "adversarial",
+                        "label_type": ml_type or "adversarial",
+                        "confidence_binary": deberta_conf,
+                        "confidence_category": ml_pred.get("ml_conf_category", ml_pred.get("confidence_label_category")),
+                        "confidence_type": ml_pred.get("ml_conf_type", ml_pred.get("confidence_label_type")),
+                        "routed_to": "deberta",
+                        "route_reason": "deberta_adv_high_conf",
+                        "ml_pred_binary": ml_binary,
+                        "ml_pred_category": ml_category,
+                        "ml_pred_type": ml_type,
+                        "ml_conf_binary": ml_conf,
+                        "unicode_lane": unicode_lane,
+                    }
+
+        # 3. Escalate to LLM — DeBERTa not available or not confident enough.
+        if not ml_binary_is_adv:
+            self._benign_escalations += 1
+            route_reason = "ml_benign_escalate"
+        elif not lane_reliable:
             self._adv_unknown_lane_escalations += 1
             route_reason = "ml_adv_unknown_lane_escalate"
         elif not unicode_lane:
@@ -329,23 +375,36 @@ class HybridRouter:
         # Get ML predictions for all samples at once (fast)
         ml_preds_df = self.ml.predict(df, text_col)
 
+        # Get DeBERTa predictions if model is available (fast, no API)
+        deberta_preds_df = None
+        if self.deberta is not None:
+            deberta_preds_df = self.deberta.predict(df, text_col)
+
         results = []
         for i, (idx, row) in enumerate(tqdm(df.iterrows(), total=len(df), desc=desc)):
             ml_pred = ml_preds_df.iloc[i].to_dict()
-            result = self.predict_single(row[text_col], ml_pred)
+            deberta_pred = deberta_preds_df.iloc[i].to_dict() if deberta_preds_df is not None else None
+            result = self.predict_single(row[text_col], ml_pred, deberta_pred)
             results.append(result)
 
         if self.stats.total > 0:
             margin_info = ""
             if self.logprob_margin_threshold is not None:
                 margin_info = f" | margin_gate_overrides={self._margin_gate_overrides} (threshold={self.logprob_margin_threshold})"
+            deberta_info = ""
+            if self.deberta is not None:
+                deberta_info = (
+                    f" | deberta_benign_finalize={self._deberta_benign_finalizations}"
+                    f" | deberta_adv_finalize={self._deberta_adv_finalizations}"
+                )
             print(
                 "  [HybridRouter] route summary | "
-                f"ml_benign_escalate={self._benign_escalations} | "
                 f"ml_adv_high_conf_unicode_finalize={self._adv_high_conf_finalizations} | "
+                f"ml_benign_escalate={self._benign_escalations} | "
                 f"ml_adv_low_conf_escalate={self._adv_low_conf_escalations} | "
                 f"ml_adv_non_unicode_escalate={self._adv_non_unicode_escalations} | "
                 f"ml_adv_unknown_lane_escalate={self._adv_unknown_lane_escalations}"
+                f"{deberta_info}"
                 f"{margin_info}"
             )
 
@@ -482,7 +541,14 @@ def main():
     few_shot, _ = build_few_shot_examples(df_train, cfg)
     llm = HierarchicalLLMClassifier(cfg, few_shot)
 
-    router = HybridRouter(ml, llm, cfg)
+    # Load DeBERTa if artifacts exist
+    deberta = None
+    if DEBERTA_ARTIFACTS_DIR.exists() and (DEBERTA_ARTIFACTS_DIR / "model").exists():
+        from src.models.deberta_classifier import DeBERTaClassifier
+        deberta = DeBERTaClassifier.load(DEBERTA_ARTIFACTS_DIR, cfg)
+        print(f"DeBERTa model loaded (threshold={cfg['hybrid'].get('deberta_confidence_threshold', 0.93)})")
+
+    router = HybridRouter(ml, llm, cfg, deberta_model=deberta)
     results = router.predict_batch(df_test, text_col)
 
     # Evaluate

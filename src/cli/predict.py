@@ -66,11 +66,12 @@ def predict_ml(texts: list[str], cfg: dict) -> list[dict]:
 
 
 def predict_hybrid(texts: list[str], cfg: dict) -> list[dict]:
-    """Predict using the hybrid ML+LLM router."""
+    """Predict using the hybrid ML+DeBERTa+LLM router."""
     import pandas as pd
     from src.ml_classifier.ml_baseline import MLBaseline
     from src.llm_classifier.llm_classifier import HierarchicalLLMClassifier
     from src.hybrid_router import HybridRouter
+    from src.utils import DEBERTA_ARTIFACTS_DIR
 
     model_path = MODELS_DIR / "ml_baseline.pkl"
     if not model_path.exists():
@@ -80,7 +81,15 @@ def predict_hybrid(texts: list[str], cfg: dict) -> list[dict]:
     ml = MLBaseline(cfg)
     ml.load(str(model_path))
     llm = HierarchicalLLMClassifier(cfg)
-    router = HybridRouter(ml, llm, cfg)
+
+    # Load DeBERTa if artifacts exist
+    deberta = None
+    if DEBERTA_ARTIFACTS_DIR.exists() and (DEBERTA_ARTIFACTS_DIR / "model").exists():
+        from src.models.deberta_classifier import DeBERTaClassifier
+        deberta = DeBERTaClassifier.load(DEBERTA_ARTIFACTS_DIR, cfg)
+        print("DeBERTa model loaded for hybrid routing.", file=sys.stderr)
+
+    router = HybridRouter(ml, llm, cfg, deberta_model=deberta)
 
     text_col = cfg["dataset"]["text_col"]
     df = pd.DataFrame({text_col: texts})

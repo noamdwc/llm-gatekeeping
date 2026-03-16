@@ -32,7 +32,7 @@ from src.utils import (
 )
 from src.evaluate import (
     binary_metrics, category_metrics, type_metrics,
-    calibration_metrics, generate_report, compute_fpr_views,
+    calibration_metrics, generate_report, compute_fpr_views, filter_binary_eval_to_benign_subset,
 )
 
 
@@ -245,6 +245,8 @@ def compute_hybrid_routing(
     require_llm_for_escalations: bool = False,
     llm_required_path: str | None = None,
     llm_generation_hint: str | None = None,
+    deberta_df: pd.DataFrame | None = None,
+    deberta_confidence_threshold: float = 0.93,
 ) -> pd.DataFrame:
     """Compute hybrid routing decisions from ML prediction + confidence threshold.
 
@@ -270,11 +272,40 @@ def compute_hybrid_routing(
     unicode_lane, lane_reliable = _compute_unicode_lane_mask(ml_df, unicode_types=unicode_types)
     confident = ml_adv_mask & unicode_lane & (ml_conf >= threshold)
     n_ml_fastpath = int(confident.sum())
-    n_llm_candidates = int((~confident).sum())
+
+    # DeBERTa fast path: high-confidence binary predictions skip LLM.
+    deberta_fastpath = np.zeros(len(ml_df), dtype=bool)
+    deberta_fastpath_benign = np.zeros(len(ml_df), dtype=bool)
+    deberta_fastpath_adv = np.zeros(len(ml_df), dtype=bool)
+    if deberta_df is not None:
+        deberta_indexed = deberta_df.set_index("sample_id")
+        matched = ml_df["sample_id"].isin(deberta_indexed.index)
+        if matched.any():
+            matched_ids = ml_df.loc[matched, "sample_id"]
+            deberta_rows = deberta_indexed.loc[matched_ids]
+            deberta_conf = deberta_rows["deberta_conf_binary"].values
+            deberta_pred = deberta_rows["deberta_pred_binary"].values
+            high_conf = deberta_conf >= deberta_confidence_threshold
+            is_benign = np.array([p == "benign" for p in deberta_pred])
+            # DeBERTa fast path only for samples NOT already on ML fast path
+            eligible = ~confident[matched.values]
+            deberta_fastpath_benign[matched.values] = high_conf & is_benign & eligible
+            deberta_fastpath_adv[matched.values] = high_conf & ~is_benign & eligible
+            deberta_fastpath[matched.values] = (deberta_fastpath_benign | deberta_fastpath_adv)[matched.values]
+        n_deberta_benign = int(deberta_fastpath_benign.sum())
+        n_deberta_adv = int(deberta_fastpath_adv.sum())
+        print(
+            f"  [research routing] deberta fast path | "
+            f"benign_finalize={n_deberta_benign} | adv_finalize={n_deberta_adv} | "
+            f"threshold={deberta_confidence_threshold}"
+        )
+
+    n_llm_candidates = int((~confident & ~deberta_fastpath).sum())
     print(
         "  [research routing] "
         f"threshold={threshold} | llm_conf_threshold={llm_conf_threshold} | "
         f"ml_confident_unicode_adv_fastpath={n_ml_fastpath} | "
+        f"deberta_fastpath={int(deberta_fastpath.sum())} | "
         f"llm_escalation_candidates={n_llm_candidates}"
     )
     print(
@@ -284,7 +315,10 @@ def compute_hybrid_routing(
         f"unicode_lane_unknown={int((~lane_reliable).sum())}"
     )
 
-    if require_llm_for_escalations and llm_df is None:
+    # Adjust require_llm_for_escalations: only required for samples not handled
+    # by ML or DeBERTa fast paths.
+    effective_require_llm = require_llm_for_escalations and n_llm_candidates > 0
+    if require_llm_for_escalations and llm_df is None and n_llm_candidates > 0:
         raise RuntimeError(
             _format_llm_required_error(
                 "Hybrid routing requires LLM predictions but llm_df is missing.",
@@ -292,7 +326,7 @@ def compute_hybrid_routing(
                 llm_generation_hint=llm_generation_hint,
             )
         )
-    if require_llm_for_escalations and llm_df is not None and llm_df.empty:
+    if effective_require_llm and llm_df is not None and llm_df.empty:
         raise RuntimeError(
             _format_llm_required_error(
                 "Hybrid routing requires non-empty LLM predictions but llm_df is empty.",
@@ -302,12 +336,26 @@ def compute_hybrid_routing(
         )
 
     # Start with ML predictions for every row (default / fallback)
+    # Routing priority: ml fast path > deberta fast path > llm
+    routing = np.where(
+        confident, "ml",
+        np.where(deberta_fastpath, "deberta", "llm"),
+    )
+    # DeBERTa benign overrides ML binary prediction
+    pred_binary = ml_df["ml_pred_binary"].values.copy()
+    pred_binary[deberta_fastpath_benign] = "benign"
+    pred_binary[deberta_fastpath_adv] = "adversarial"
+    # DeBERTa benign sets category/type to benign
+    pred_category = ml_df["ml_pred_category"].values.copy()
+    pred_type = ml_df["ml_pred_type"].values.copy()
+    pred_category[deberta_fastpath_benign] = "benign"
+    pred_type[deberta_fastpath_benign] = "benign"
     result = pd.DataFrame({
         "sample_id": ml_df["sample_id"].values,
-        "hybrid_routed_to": np.where(confident, "ml", "llm"),
-        "hybrid_pred_binary": ml_df["ml_pred_binary"].values,
-        "hybrid_pred_category": ml_df["ml_pred_category"].values,
-        "hybrid_pred_type": ml_df["ml_pred_type"].values,
+        "hybrid_routed_to": routing,
+        "hybrid_pred_binary": pred_binary,
+        "hybrid_pred_category": pred_category,
+        "hybrid_pred_type": pred_type,
         "hybrid_llm_pred_binary_pre_policy": pd.Series([None] * len(ml_df), dtype=object),
         "hybrid_margin": pd.Series([None] * len(ml_df), dtype=object),
         "hybrid_margin_source_stage": pd.Series([None] * len(ml_df), dtype=object),
@@ -333,7 +381,7 @@ def compute_hybrid_routing(
     }
 
     if llm_df is not None:
-        escalated = ~confident
+        escalated = ~confident & ~deberta_fastpath
         llm_indexed = llm_df.set_index("sample_id")
 
         # Among escalated rows, find which have matching LLM predictions
@@ -422,7 +470,7 @@ def compute_hybrid_routing(
             )
         result.loc[no_llm_idx, "hybrid_routed_to"] = "ml"
     else:
-        if require_llm_for_escalations:
+        if effective_require_llm:
             raise RuntimeError(
                 _format_llm_required_error(
                     "Hybrid routing requires LLM predictions but llm_df is missing.",
@@ -430,11 +478,13 @@ def compute_hybrid_routing(
                     llm_generation_hint=llm_generation_hint,
                 )
             )
-        # No LLM at all — everything routes to ML
-        result["hybrid_routed_to"] = "ml"
-        print("  [research routing] llm_df missing -> ML fallback for all rows")
+        # No LLM at all — LLM-routed samples fall back to ML; DeBERTa routes preserved
+        llm_routed_mask = result["hybrid_routed_to"] == "llm"
+        result.loc[llm_routed_mask, "hybrid_routed_to"] = "ml"
+        print("  [research routing] llm_df missing -> ML fallback for LLM-routed rows")
 
     result.loc[result["hybrid_routed_to"] == "ml", "hybrid_route_bucket"] = "ml_fastpath"
+    result.loc[result["hybrid_routed_to"] == "deberta", "hybrid_route_bucket"] = "deberta_fastpath"
 
     route_diag = compute_routing_diagnostics(
         result.assign(
@@ -463,17 +513,31 @@ def build_research_dataframe(
     ml_df: pd.DataFrame,
     hybrid_df: pd.DataFrame,
     llm_df: pd.DataFrame | None = None,
+    deberta_df: pd.DataFrame | None = None,
     split_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Merge ML predictions, LLM predictions, and hybrid results into one wide DataFrame.
+    """Merge ML, DeBERTa, LLM predictions, and hybrid results into one wide DataFrame.
 
     All DataFrames are joined on ``sample_id`` so row order doesn't matter.
     The ML predictions parquet already contains ground-truth columns, so we
     don't need the original split parquet.
 
-    If ``split_df`` is provided, ``synth_*`` metadata columns are joined from it.
+    If ``split_df`` is provided, benign provenance metadata is joined from it.
     """
     result = ml_df.merge(hybrid_df, on="sample_id", validate="one_to_one")
+    if deberta_df is not None:
+        gt_cols = {
+            "sample_id",
+            "modified_sample",
+            "original_sample",
+            "attack_name",
+            "label_binary",
+            "label_category",
+            "label_type",
+            "prompt_hash",
+        }
+        deberta_cols = ["sample_id"] + [c for c in deberta_df.columns if c not in gt_cols and c != "sample_id"]
+        result = result.merge(deberta_df[deberta_cols], on="sample_id", how="left", validate="one_to_one")
     if llm_df is not None:
         gt_cols = {
             "sample_id",
@@ -489,15 +553,51 @@ def build_research_dataframe(
         result = result.merge(llm_df[llm_cols], on="sample_id", how="left", validate="one_to_one")
     # Preserve synth_* metadata from split parquet
     if split_df is not None:
-        synth_cols = [c for c in split_df.columns if c.startswith("synth_")]
-        if synth_cols:
-            split_synth = split_df[["modified_sample"] + synth_cols].copy()
+        provenance_cols = [
+            c for c in split_df.columns
+            if c.startswith("synth_") or c in {"benign_source", "is_synthetic_benign"}
+        ]
+        if provenance_cols:
+            split_synth = split_df[["modified_sample"] + provenance_cols].copy()
             split_synth["sample_id"] = split_synth["modified_sample"].apply(build_sample_id)
             result = result.merge(
-                split_synth[["sample_id"] + synth_cols],
+                split_synth[["sample_id"] + provenance_cols],
                 on="sample_id", how="left", validate="one_to_one",
             )
     return result
+
+
+def _non_synthetic_benign_metrics(df: pd.DataFrame, pred_col: str) -> dict | None:
+    if pred_col not in df.columns or "is_synthetic_benign" not in df.columns:
+        return None
+    benign_mask = (df["label_binary"] == "benign") & (~df["is_synthetic_benign"].fillna(False).astype(bool))
+    n_benign = int(benign_mask.sum())
+    if n_benign == 0:
+        return None
+    subset = filter_binary_eval_to_benign_subset(df, benign_mask)
+    metrics = binary_metrics(subset["label_binary"], subset[pred_col])
+    metrics["support_benign_subset"] = n_benign
+    metrics["support_total_subset"] = int(len(subset))
+    return metrics
+
+
+def _render_non_synthetic_benign_section(metrics: dict | None) -> str:
+    if metrics is None:
+        return ""
+    lines = [
+        "## Non-Synthetic Benign Slice",
+        "",
+        "| Rows | Benign Rows | Accuracy | Adv F1 | Benign F1 | FPR | FNR | Benign Recall |",
+        "|------|-------------|----------|--------|-----------|-----|-----|---------------|",
+        (
+            f"| {metrics['support_total_subset']} | {metrics['support_benign_subset']} | "
+            f"{metrics['accuracy']:.4f} | {metrics['adversarial_f1']:.4f} | "
+            f"{metrics['benign_f1']:.4f} | {metrics['false_positive_rate']:.4f} | "
+            f"{metrics['false_negative_rate']:.4f} | {metrics['benign_recall']:.4f} |"
+        ),
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def generate_ml_report(research_df: pd.DataFrame, output_path: str):
@@ -519,6 +619,7 @@ def generate_ml_report(research_df: pd.DataFrame, output_path: str):
     }
     report = generate_report(df, binary, cat, types, cal, usage=usage,
                              title="ML Classifier Evaluation Report")
+    report = f"{report}\n{_render_non_synthetic_benign_section(_non_synthetic_benign_metrics(df, 'ml_pred_binary'))}"
     with open(output_path, "w") as f:
         f.write(report)
     print(f"  ML report saved → {output_path}")
@@ -565,6 +666,7 @@ def generate_hybrid_report(
         title="Hybrid Router Evaluation Report (Strict LLM Coverage)",
     )
     report = f"{report}\n{render_routing_diagnostics_markdown(routing_diag)}"
+    report = f"{report}\n{_render_non_synthetic_benign_section(_non_synthetic_benign_metrics(research_df, 'hybrid_pred_binary'))}"
 
     is_clean = research_df.get("synth_validated")
     is_clean_benign = (
@@ -626,6 +728,7 @@ def generate_llm_report(research_df: pd.DataFrame, output_path: str):
         df["llm_conf_binary"],
     )
     report = generate_report(df, binary, cat, types, cal)
+    report = f"{report}\n{_render_non_synthetic_benign_section(_non_synthetic_benign_metrics(df, 'llm_pred_binary'))}"
     with open(output_path, "w") as f:
         f.write(report)
     print(f"  LLM report saved → {output_path} ({len(df)}/{len(research_df)} samples with LLM predictions)")
@@ -694,6 +797,17 @@ def main():
     else:
         print(f"No LLM predictions found at {llm_path} — strict hybrid report cannot be generated")
 
+    # ── Read pre-computed DeBERTa predictions ─────────────────────────────────
+    deberta_path = PREDICTIONS_DIR / f"deberta_predictions_{args.split}.parquet"
+    deberta_df = None
+    if deberta_path.exists():
+        deberta_df = pd.read_parquet(deberta_path)
+        print(f"Loaded DeBERTa predictions: {deberta_path} ({len(deberta_df)} samples)")
+    else:
+        print(f"No DeBERTa predictions found at {deberta_path} — DeBERTa fast path disabled")
+
+    deberta_confidence_threshold = cfg["hybrid"].get("deberta_confidence_threshold", 0.93)
+
     # ── Compute hybrid routing ───────────────────────────────────────────────
     print(f"Computing hybrid routing (threshold={threshold})...")
     hybrid_df = compute_hybrid_routing(
@@ -707,6 +821,8 @@ def main():
         require_llm_for_escalations=True,
         llm_required_path=str(llm_path),
         llm_generation_hint=f"dvc repro llm_classifier research eval_new --force",
+        deberta_df=deberta_df,
+        deberta_confidence_threshold=deberta_confidence_threshold,
     )
 
     # ── Load split parquet for synth_* metadata ──────────────────────────────
@@ -714,7 +830,7 @@ def main():
     split_df = pd.read_parquet(split_path) if split_path.exists() else None
 
     # ── Build wide research DataFrame ────────────────────────────────────────
-    research_df = build_research_dataframe(ml_df, hybrid_df, llm_df, split_df=split_df)
+    research_df = build_research_dataframe(ml_df, hybrid_df, llm_df, deberta_df=deberta_df, split_df=split_df)
 
     # ── Save research parquet ────────────────────────────────────────────────
     RESEARCH_DIR.mkdir(parents=True, exist_ok=True)

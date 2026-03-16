@@ -99,6 +99,7 @@ class DeBERTaClassifier:
         self.early_stopping_patience = dcfg["early_stopping_patience"]
         self.metric_for_best_model = dcfg.get("metric_for_best_model", "f1")
         self.max_grad_norm = dcfg.get("max_grad_norm", 0.5)
+        self.threshold = dcfg.get("threshold", 0.5)
         self.label_order = dcfg.get("label_order", ["benign", "adversarial"])
 
         self.model = None
@@ -542,8 +543,12 @@ class DeBERTaClassifier:
             all_probs.append(probs)
 
         all_probs = np.concatenate(all_probs, axis=0)
+        # Apply threshold on adversarial probability instead of argmax
+        adv_idx = self.label2id["adversarial"]
+        adv_probs = all_probs[:, adv_idx]
+        pred_indices = np.where(adv_probs >= self.threshold, adv_idx, 1 - adv_idx)
         results = pd.DataFrame({
-            "deberta_pred_binary": [self.id2label[i] for i in np.argmax(all_probs, axis=1)],
+            "deberta_pred_binary": [self.id2label[i] for i in pred_indices],
             "deberta_conf_binary": np.max(all_probs, axis=1),
         })
         for i, lbl in self.id2label.items():
