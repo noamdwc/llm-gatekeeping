@@ -5,6 +5,7 @@ LLM classifier with classifier + judge pattern:
 
 Usage:
     python -m src.llm_classifier [--config configs/default.yaml] [--split test] [--limit N]
+    python -m src.llm_classifier --split val --research --no-wandb --target-rpm 30 --max-concurrency 2
 """
 
 import argparse
@@ -33,6 +34,7 @@ from src.llm_classifier.constants import (
 )
 from src.embeddings import ExemplarBank, get_embeddings
 from src.llm_cache import get_or_create_chat_completion
+from src.llm_classifier.rate_limiter import APIRateLimiter
 from src.llm_provider import get_provider, make_client, resolve_model
 
 # ---------------------------------------------------------------------------
@@ -53,6 +55,7 @@ from src.utils import load_config, build_sample_id, SPLITS_DIR, PREDICTIONS_DIR
 from src.llm_classifier.prompts import build_classifier_messages, build_judge_messages
 
 dotenv.load_dotenv()
+
 
 @dataclass
 class UsageStats:
@@ -123,6 +126,7 @@ class HierarchicalLLMClassifier:
         few_shot_examples: list[tuple[str, str, str]] | None = None,
         dynamic: bool = False,
         exemplar_bank: ExemplarBank | None = None,
+        rate_limiter: APIRateLimiter | None = None,
     ):
         self.cfg = cfg
         self._provider = get_provider()
@@ -135,6 +139,18 @@ class HierarchicalLLMClassifier:
         self.top_logprobs = max(0, int(cfg.get("llm", {}).get("top_logprobs", 5)))
         self.few_shot = few_shot_examples or []
         self.usage = UsageStats()
+
+        # Centralized rate limiter (shared across all threads)
+        if rate_limiter is not None:
+            self._rate_limiter = rate_limiter
+        else:
+            target_rpm = float(cfg.get("llm", {}).get("target_rpm", 60))
+            cooldown = float(cfg.get("llm", {}).get("cooldown_on_429", 15))
+            self._rate_limiter = APIRateLimiter(
+                target_rpm=target_rpm,
+                max_concurrency=self.max_concurrency,
+                cooldown_on_429=cooldown,
+            )
 
         # Dynamic few-shot settings
         self.dynamic = dynamic
@@ -160,41 +176,53 @@ class HierarchicalLLMClassifier:
         cached = None
         latency = 0.0
         for attempt in range(max_retries):
-            try:
-                t0 = time.time()
-                client = self._get_client()
-                request_kwargs = {
-                    "model": model or self.model,
-                    "messages": messages,
-                    "temperature": self.temperature,
-                    "max_tokens": max_tokens,
-                    "response_format": {"type": "json_object"},
-                }
-                if self.capture_logprobs:
-                    request_kwargs["logprobs"] = True
-                    if self.top_logprobs > 0:
-                        request_kwargs["top_logprobs"] = self.top_logprobs
-                cached = get_or_create_chat_completion(
-                    provider_name=self._provider.name,
-                    request_kwargs=request_kwargs,
-                    create_fn=lambda: client.chat.completions.create(**request_kwargs),
-                )
-                response = cached.payload
-                if not cached.cache_hit:
-                    latency = time.time() - t0
-                break
-            except openai.RateLimitError:
-                if attempt == max_retries - 1:
-                    raise
-                wait = min(2 ** attempt * 12, 60)
-                print(f"\nRate limit hit, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
-                time.sleep(wait)
-            except (openai.APIConnectionError, openai.APIError) as exc:
-                if attempt == max_retries - 1:
-                    raise
-                wait = min(2 ** attempt * 5, 60)
-                print(f"\nAPI error ({type(exc).__name__}), retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
-                time.sleep(wait)
+            with self._rate_limiter.acquire():
+                try:
+                    t0 = time.time()
+                    client = self._get_client()
+                    request_kwargs = {
+                        "model": model or self.model,
+                        "messages": messages,
+                        "temperature": self.temperature,
+                        "max_tokens": max_tokens,
+                        "response_format": {"type": "json_object"},
+                    }
+                    if self.capture_logprobs:
+                        request_kwargs["logprobs"] = True
+                        if self.top_logprobs > 0:
+                            request_kwargs["top_logprobs"] = self.top_logprobs
+                    cached = get_or_create_chat_completion(
+                        provider_name=self._provider.name,
+                        request_kwargs=request_kwargs,
+                        create_fn=lambda: client.chat.completions.create(**request_kwargs),
+                    )
+                    response = cached.payload
+                    if cached.cache_hit:
+                        self._rate_limiter.stats.record_cache(hit=True)
+                    else:
+                        latency = time.time() - t0
+                        self._rate_limiter.stats.record_cache(hit=False)
+                    self._rate_limiter.stats.record_request(success=True)
+                    break
+                except openai.RateLimitError as exc:
+                    self._rate_limiter.report_rate_limit(exc)
+                    self._rate_limiter.stats.record_request(success=False)
+                    if attempt == max_retries - 1:
+                        raise
+                    wait = self._rate_limiter.compute_retry_delay(attempt, exc)
+                    self._rate_limiter.stats.record_retry(wait)
+                    print(f"\n429 rate limit → global cooldown, retrying in {wait:.1f}s "
+                          f"(attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait)
+                except (openai.APIConnectionError, openai.APIError) as exc:
+                    self._rate_limiter.stats.record_request(success=False)
+                    if attempt == max_retries - 1:
+                        raise
+                    wait = self._rate_limiter.compute_retry_delay(attempt, exc)
+                    self._rate_limiter.stats.record_retry(wait)
+                    print(f"\nAPI error ({type(exc).__name__}), retrying in {wait:.1f}s "
+                          f"(attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait)
 
         prompt_tokens = 0
         completion_tokens = 0
@@ -322,9 +350,9 @@ class HierarchicalLLMClassifier:
             pairs = self._get_dynamic_few_shot(text)
         else:
             pairs = self._get_static_few_shot(text)
-        
-            
-            
+
+
+
         for (benign_text, attack_text, attack_type) in pairs:
             # Add benign example (fixed confidence for reproducibility)
             messages.append({"role": "user", "content": f"INPUT_PROMPT:\n{benign_text}"})
@@ -699,6 +727,92 @@ def build_few_shot_examples(df: pd.DataFrame, cfg: dict) -> tuple[list[tuple[str
     return pairs, used_ids
 
 
+# ---------------------------------------------------------------------------
+# Checkpointing / resume helpers
+# ---------------------------------------------------------------------------
+
+def _checkpoint_path(split: str) -> Path:
+    return PREDICTIONS_DIR / f"llm_checkpoint_{split}.parquet"
+
+
+def _build_research_row(r: dict) -> dict:
+    """Convert a single predict() result dict to a research-parquet row."""
+    return {
+        "llm_pred_binary": r["label_binary"],
+        "llm_pred_raw": r["label"],
+        "llm_pred_category": r["label_category"],
+        "llm_conf_binary": r["confidence"],
+        "llm_evidence": r.get("evidence", ""),
+        "llm_stages_run": r.get("llm_stages_run"),
+        "llm_provider_name": r.get("llm_provider_name"),
+        "llm_model_name": r.get("llm_model_name"),
+        "llm_raw_response_text": (
+            r.get("judge_raw_response_text")
+            if r.get("llm_stages_run") == 2
+            else r.get("clf_raw_response_text")
+        ),
+        "llm_parse_success": (
+            r.get("judge_parse_success")
+            if r.get("llm_stages_run") == 2
+            else r.get("clf_parse_success")
+        ),
+        "clf_label": r.get("clf_label"),
+        "clf_category": r.get("clf_category"),
+        "clf_confidence": r.get("clf_confidence"),
+        "clf_evidence": r.get("clf_evidence", ""),
+        "clf_nlp_attack_type": r.get("clf_nlp_attack_type", "none"),
+        "clf_provider_name": r.get("clf_provider_name"),
+        "clf_model_name": r.get("clf_model_name"),
+        "clf_raw_response_text": r.get("clf_raw_response_text"),
+        "clf_parse_success": r.get("clf_parse_success"),
+        "clf_token_logprobs": json.dumps(r.get("clf_token_logprobs")),
+        "judge_independent_label": r.get("judge_independent_label"),
+        "judge_category": r.get("judge_category"),
+        "judge_independent_confidence": r.get("judge_independent_confidence"),
+        "judge_independent_evidence": r.get("judge_independent_evidence"),
+        "judge_computed_decision": r.get("judge_computed_decision"),
+        "judge_benign_task_override": r.get("judge_benign_task_override"),
+        "judge_override_reason": r.get("judge_override_reason"),
+        "judge_provider_name": r.get("judge_provider_name"),
+        "judge_model_name": r.get("judge_model_name"),
+        "judge_raw_response_text": r.get("judge_raw_response_text"),
+        "judge_parse_success": r.get("judge_parse_success"),
+        "judge_token_logprobs": json.dumps(r.get("judge_token_logprobs")),
+    }
+
+
+def _load_checkpoint(split: str) -> set[str]:
+    """Return set of sample_ids already completed in a prior checkpoint."""
+    cp = _checkpoint_path(split)
+    if cp.exists():
+        df = pd.read_parquet(cp, columns=["sample_id"])
+        return set(df["sample_id"].tolist())
+    return set()
+
+
+def _append_checkpoint(split: str, rows: list[dict]):
+    """Append rows to the checkpoint parquet (create if missing)."""
+    if not rows:
+        return
+    cp = _checkpoint_path(split)
+    PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
+    df_new = pd.DataFrame(rows)
+    if cp.exists():
+        df_existing = pd.read_parquet(cp)
+        df_out = pd.concat([df_existing, df_new], ignore_index=True)
+    else:
+        df_out = df_new
+    df_out.to_parquet(cp, index=False)
+
+
+def _finalize_checkpoint(split: str, out_path: str):
+    """Move checkpoint to final output path and clean up."""
+    cp = _checkpoint_path(split)
+    if cp.exists():
+        import shutil
+        shutil.move(str(cp), out_path)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run hierarchical LLM classifier")
     parser.add_argument("--config", default=None)
@@ -710,9 +824,51 @@ def main():
     parser.add_argument("--bank-path", default=None, help="Path to exemplar bank pickle (built if not exists)")
     parser.add_argument("--research", action="store_true",
                         help="Save research-grade parquet with full prediction columns")
+
+    # Rate limiting / concurrency controls
+    rate_group = parser.add_argument_group("rate-limiting", "API rate-limit controls")
+    rate_group.add_argument("--target-rpm", type=float, default=None,
+                            help="Target requests per minute (default: config llm.target_rpm or 60)")
+    rate_group.add_argument("--max-concurrency", type=int, default=None,
+                            help="Max parallel API workers (default: config llm.max_concurrency)")
+    rate_group.add_argument("--cooldown-on-429", type=float, default=None,
+                            help="Global cooldown seconds after a 429 (default: config llm.cooldown_on_429 or 15)")
+
+    # Resume / checkpoint controls
+    resume_group = parser.add_argument_group("resume", "Checkpoint / resume controls")
+    resume_group.add_argument("--no-resume", action="store_true",
+                              help="Start fresh, ignore existing checkpoint")
+    resume_group.add_argument("--checkpoint-every", type=int, default=None,
+                              help="Save checkpoint every N samples (default: config llm.checkpoint_every or 200)")
+
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    llm_cfg = cfg.get("llm", {})
+
+    # Apply CLI overrides to config
+    if args.max_concurrency is not None:
+        cfg["llm"]["max_concurrency"] = args.max_concurrency
+    if args.target_rpm is not None:
+        cfg["llm"]["target_rpm"] = args.target_rpm
+    if args.cooldown_on_429 is not None:
+        cfg["llm"]["cooldown_on_429"] = args.cooldown_on_429
+
+    checkpoint_every = args.checkpoint_every or int(llm_cfg.get("checkpoint_every", 200))
+    enable_resume = not args.no_resume and llm_cfg.get("resume", True)
+
+    # Build rate limiter from resolved config
+    target_rpm = float(cfg["llm"].get("target_rpm", 60))
+    max_concurrency = int(cfg["llm"].get("max_concurrency", 8))
+    cooldown = float(cfg["llm"].get("cooldown_on_429", 15))
+    rate_limiter = APIRateLimiter(
+        target_rpm=target_rpm,
+        max_concurrency=max_concurrency,
+        cooldown_on_429=cooldown,
+    )
+
+    print(f"Rate limiter: target_rpm={target_rpm}, max_concurrency={max_concurrency}, "
+          f"cooldown_on_429={cooldown}s")
 
     # Init wandb
     if not args.no_wandb:
@@ -726,6 +882,9 @@ def main():
                 "few_shot_unicode": cfg["llm"]["few_shot"]["unicode"],
                 "few_shot_nlp": cfg["llm"]["few_shot"]["nlp"],
                 "dynamic": args.dynamic,
+                "target_rpm": target_rpm,
+                "max_concurrency": max_concurrency,
+                "cooldown_on_429": cooldown,
             },
         )
 
@@ -735,6 +894,36 @@ def main():
 
     if args.limit and args.limit < len(df_eval):
         df_eval = df_eval.sample(n=args.limit, random_state=42)
+
+    text_col = cfg["dataset"]["text_col"]
+
+    # Build sample_id column for resume tracking
+    df_eval = df_eval.copy()
+    df_eval["sample_id"] = df_eval[text_col].apply(build_sample_id)
+
+    # Resume: load checkpoint and filter out completed samples
+    completed_ids: set[str] = set()
+    if enable_resume:
+        completed_ids = _load_checkpoint(args.split)
+        if completed_ids:
+            n_before = len(df_eval)
+            df_eval = df_eval[~df_eval["sample_id"].isin(completed_ids)].reset_index(drop=True)
+            print(f"Resuming: {len(completed_ids)} already done, {n_before - len(df_eval)} skipped, "
+                  f"{len(df_eval)} remaining")
+    elif not args.no_resume:
+        # Starting fresh: remove stale checkpoint
+        cp = _checkpoint_path(args.split)
+        if cp.exists():
+            cp.unlink()
+
+    if len(df_eval) == 0:
+        print("All samples already completed. Use --no-resume to re-run.")
+        # Finalize if research mode
+        if args.research:
+            out_path = str(PREDICTIONS_DIR / f"llm_predictions_{args.split}.parquet")
+            _finalize_checkpoint(args.split, out_path)
+            print(f"Research predictions saved → {out_path}")
+        return
 
     # Build few-shot from train (static) or exemplar bank (dynamic)
     exemplar_bank = None
@@ -754,95 +943,75 @@ def main():
         few_shot, _ = build_few_shot_examples(df_train, cfg)
         print(f"Few-shot examples: {len(few_shot)} pairs")
 
-    # Classify
+    # Classify with checkpointing
     classifier = HierarchicalLLMClassifier(
-        cfg, few_shot, dynamic=args.dynamic, exemplar_bank=exemplar_bank
+        cfg, few_shot, dynamic=args.dynamic, exemplar_bank=exemplar_bank,
+        rate_limiter=rate_limiter,
     )
-    text_col = cfg["dataset"]["text_col"]
-    results = classifier.predict_batch(df_eval[text_col].tolist())
 
-    # Build results DataFrame
-    preds = pd.DataFrame(results)
-    df_out = pd.concat([df_eval.reset_index(drop=True), preds.reset_index(drop=True)], axis=1)
+    texts = df_eval[text_col].tolist()
+    sample_ids = df_eval["sample_id"].tolist()
 
-    # Save
+    # Ground-truth columns for checkpoint rows
+    gt_col_names = [
+        "modified_sample", "original_sample", "attack_name",
+        "label_binary", "label_category", "label_type", "prompt_hash",
+    ]
+    gt_cols = [c for c in gt_col_names if c in df_eval.columns]
+
+    # Accumulate checkpoint buffer
+    checkpoint_buffer: list[dict] = []
+    checkpoint_lock = threading.Lock()
+    completed_count = [0]  # mutable counter for thread-safe increment
+
+    def on_result(idx: int, result: dict):
+        row = _build_research_row(result)
+        # Add ground-truth and sample_id
+        row["sample_id"] = sample_ids[idx]
+        for col in gt_cols:
+            row[col] = df_eval.iloc[idx][col]
+        with checkpoint_lock:
+            checkpoint_buffer.append(row)
+            completed_count[0] += 1
+            if completed_count[0] % checkpoint_every == 0:
+                _append_checkpoint(args.split, checkpoint_buffer.copy())
+                checkpoint_buffer.clear()
+                print(f"\n  [checkpoint] saved {completed_count[0] + len(completed_ids)} total")
+
+    results = classifier.predict_batch(
+        texts, on_result=on_result, max_workers=max_concurrency,
+    )
+
+    # Flush remaining buffer
+    with checkpoint_lock:
+        if checkpoint_buffer:
+            _append_checkpoint(args.split, checkpoint_buffer)
+            checkpoint_buffer.clear()
+
+    # Save final output
     if args.research:
-        # Research mode: save parquet with prefixed LLM columns
         PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
-        research_rows = []
-        for r in results:
-            research_rows.append({
-                # Final prediction
-                "llm_pred_binary": r["label_binary"],
-                "llm_pred_raw": r["label"],
-                "llm_pred_category": r["label_category"],
-                "llm_conf_binary": r["confidence"],
-                "llm_evidence": r.get("evidence", ""),
-                "llm_stages_run": r.get("llm_stages_run"),
-                "llm_provider_name": r.get("llm_provider_name"),
-                "llm_model_name": r.get("llm_model_name"),
-                "llm_raw_response_text": (
-                    r.get("judge_raw_response_text")
-                    if r.get("llm_stages_run") == 2
-                    else r.get("clf_raw_response_text")
-                ),
-                "llm_parse_success": (
-                    r.get("judge_parse_success")
-                    if r.get("llm_stages_run") == 2
-                    else r.get("clf_parse_success")
-                ),
-                # Classifier stage
-                "clf_label": r.get("clf_label"),
-                "clf_category": r.get("clf_category"),
-                "clf_confidence": r.get("clf_confidence"),
-                "clf_evidence": r.get("clf_evidence", ""),
-                "clf_nlp_attack_type": r.get("clf_nlp_attack_type", "none"),
-                "clf_provider_name": r.get("clf_provider_name"),
-                "clf_model_name": r.get("clf_model_name"),
-                "clf_raw_response_text": r.get("clf_raw_response_text"),
-                "clf_parse_success": r.get("clf_parse_success"),
-                "clf_token_logprobs": json.dumps(r.get("clf_token_logprobs")),
-                # Judge stage (None if not run)
-                "judge_independent_label": r.get("judge_independent_label"),
-                "judge_category": r.get("judge_category"),
-                "judge_independent_confidence": r.get("judge_independent_confidence"),
-                "judge_independent_evidence": r.get("judge_independent_evidence"),
-                "judge_computed_decision": r.get("judge_computed_decision"),
-                "judge_benign_task_override": r.get("judge_benign_task_override"),
-                "judge_override_reason": r.get("judge_override_reason"),
-                "judge_provider_name": r.get("judge_provider_name"),
-                "judge_model_name": r.get("judge_model_name"),
-                "judge_raw_response_text": r.get("judge_raw_response_text"),
-                "judge_parse_success": r.get("judge_parse_success"),
-                "judge_token_logprobs": json.dumps(r.get("judge_token_logprobs")),
-            })
-        llm_df = pd.DataFrame(research_rows)
-
-        # Include ground truth columns
-        gt_cols = [c for c in df_eval.columns if c in [
-            "modified_sample", "original_sample", "attack_name",
-            "label_binary", "label_category", "label_type", "prompt_hash",
-        ]]
-        gt = df_eval[gt_cols].reset_index(drop=True)
-        research_out = pd.concat([gt, llm_df], axis=1)
-        research_out.insert(0, "sample_id", research_out["modified_sample"].apply(build_sample_id))
-
         out_path = str(PREDICTIONS_DIR / f"llm_predictions_{args.split}.parquet")
-        research_out.to_parquet(out_path, index=False)
-        print(f"\nResearch predictions saved → {out_path} (shape: {research_out.shape})")
+        _finalize_checkpoint(args.split, out_path)
+        n_total = len(completed_ids) + len(results)
+        print(f"\nResearch predictions saved → {out_path} ({n_total} samples)")
     else:
         # Legacy mode: save CSV
+        preds = pd.DataFrame(results)
+        df_out = pd.concat([df_eval.reset_index(drop=True), preds.reset_index(drop=True)], axis=1)
         out_path = args.output or str(PREDICTIONS_DIR / f"predictions_{args.split}.csv")
         Path(out_path).parent.mkdir(parents=True, exist_ok=True)
         df_out.to_csv(out_path, index=False)
         print(f"\nPredictions saved → {out_path}")
 
-    # Print + log usage stats
+    # Print usage + rate limiter stats
     usage = classifier.usage.to_dict()
-    print(f"\nUsage stats: {json.dumps(usage, indent=2)}")
+    limiter_stats = rate_limiter.stats.to_dict()
+    combined_stats = {**usage, "rate_limiter": limiter_stats}
+    print(f"\nUsage stats: {json.dumps(combined_stats, indent=2)}")
 
     if wandb.run is not None:
-        wandb.log(usage)
+        wandb.log({**usage, **{f"limiter/{k}": v for k, v in limiter_stats.items() if not isinstance(v, dict)}})
         wandb.finish()
 
 

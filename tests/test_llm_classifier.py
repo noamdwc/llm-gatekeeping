@@ -1344,12 +1344,13 @@ class TestCliLimitDefault:
 
     def test_cli_default_limit_covers_full_split(self, sample_config, sample_dataframe):
         with (
-            patch("sys.argv", ["llm_classifier.py", "--split", "test", "--research", "--no-wandb"]),
+            patch("sys.argv", ["llm_classifier.py", "--split", "test", "--research", "--no-wandb", "--no-resume"]),
             patch("src.llm_classifier.llm_classifier.load_config", return_value=sample_config),
             patch("src.llm_classifier.llm_classifier.pd.read_parquet", side_effect=[sample_dataframe, sample_dataframe]),
             patch("src.llm_classifier.llm_classifier.HierarchicalLLMClassifier") as classifier_cls,
             patch("src.llm_classifier.llm_classifier.build_few_shot_examples", return_value=([], [])),
             patch("src.llm_classifier.llm_classifier.PREDICTIONS_DIR"),
+            patch("src.llm_classifier.llm_classifier._finalize_checkpoint"),
             patch("pandas.DataFrame.to_parquet"),
         ):
             classifier = MagicMock()

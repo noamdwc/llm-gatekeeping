@@ -72,7 +72,7 @@ def build_benign_set(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     Construct benign examples from unique original prompts.
 
     Uses de-duplicated original_prompt values as the seed set.
-    If benign.synthetic.enabled=True and synthetic_benign.parquet exists,
+    If benign.synthetic.enabled=True and per-category parquets exist,
     validated synthetic benigns are appended before any resampling.
     """
     orig_col = cfg["dataset"]["original_text_col"]
@@ -90,12 +90,13 @@ def build_benign_set(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         "label_type": "benign",
     })
 
-    # Optionally integrate synthetic benigns
+    # Optionally integrate synthetic benigns (per-category parquets)
     synth_cfg = cfg.get("benign", {}).get("synthetic", {})
     if synth_cfg.get("enabled", False):
-        synth_path = Path(synth_cfg.get("output_path", "data/processed/synthetic_benign.parquet"))
-        if synth_path.exists():
-            df_synth = pd.read_parquet(synth_path)
+        synth_dir = Path(synth_cfg.get("output_dir", "data/processed/synthetic_benign"))
+        synth_files = sorted(synth_dir.glob("synthetic_benign_*.parquet"))
+        if synth_files:
+            df_synth = pd.concat([pd.read_parquet(f) for f in synth_files], ignore_index=True)
             # Only include validated synthetic samples
             df_synth_valid = df_synth[df_synth["synth_validated"].astype(bool)].copy()
             if len(df_synth_valid) > 0:
@@ -120,11 +121,11 @@ def build_benign_set(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
                 mask = [h not in existing_hashes for h in new_hashes]
                 synth_rows = synth_rows[mask].reset_index(drop=True)
                 benign = pd.concat([benign, synth_rows], ignore_index=True)
-                print(f"  Integrated {synth_rows.shape[0]} synthetic benign samples")
+                print(f"  Integrated {synth_rows.shape[0]} synthetic benign samples from {len(synth_files)} files")
         else:
             raise FileNotFoundError(
-                f"benign.synthetic.enabled=True but {synth_path} not found.\n"
-                "Generate it first: python -m src.cli.generate_synthetic_benign --category all"
+                f"benign.synthetic.enabled=True but no parquets found in {synth_dir}.\n"
+                "Generate first: python -m src.cli.generate_synthetic_benign --category all"
             )
 
     # Resample with replacement if still below target

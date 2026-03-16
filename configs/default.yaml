@@ -65,7 +65,7 @@ benign:
       E: 500          # Near-miss counterfactuals (ignore/bypass in benign context)
       F: 250          # Domain-specific professional queries
     batch_size: 20    # prompts per LLM call
-    output_path: "data/processed/synthetic_benign.parquet"
+    output_dir: "data/processed/synthetic_benign"
 
 # LLM classifier
 # Provider: set LLM_PROVIDER env var to "nim" (default) or "openai".
@@ -74,7 +74,9 @@ llm:
   model: "meta/llama-3.1-8b-instruct"
   model_quality: "meta/llama-3.1-70b-instruct"
   temperature: 0
-  max_concurrency: 8
+  max_concurrency: 4
+  target_rpm: 60
+  cooldown_on_429: 15
   checkpoint_every: 200
   resume: true
   max_tokens_classifier: 200
@@ -116,7 +118,7 @@ deberta:
   batch_size: 16
   eval_batch_size: 16
   max_grad_norm: 0.5
-  learning_rate: 1.0e-6
+  learning_rate: 5.0e-6
   warmup_ratio: 0.1
   weight_decay: 0.01
   logging_steps: 50

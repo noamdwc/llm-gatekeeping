@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.utils.class_weight import compute_class_weight
 from torch.optim import AdamW
 from torch.utils.data import DataLoader, Dataset
 from transformers import (
@@ -232,6 +233,13 @@ class DeBERTaClassifier:
 
         log_label_distribution(train_labels, self.id2label, logger)
 
+        # Compute class weights to handle imbalanced data
+        classes = np.arange(len(self.label_order))
+        weights = compute_class_weight("balanced", classes=classes, y=np.array(train_labels))
+        class_weights = torch.tensor(weights, dtype=torch.float32).to(device)
+        logger.info(f"Class weights: {dict(zip(self.label_order, weights))}")
+        loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights)
+
         train_texts = df_train[text_col].tolist()
         train_ds = PromptDataset(self.tokenizer, train_texts, train_labels, self.max_length)
         val_ds = PromptDataset(self.tokenizer, df_val[text_col].tolist(), val_labels, self.max_length)
@@ -285,8 +293,8 @@ class DeBERTaClassifier:
 
                 optimizer.zero_grad()
                 outputs = self.model(**batch)
-                loss = outputs.loss
                 logits = outputs.logits
+                loss = loss_fn(logits, batch["labels"])
 
                 # [B] POST-FORWARD
                 loss_problems = check_tensor_finite("loss", loss)

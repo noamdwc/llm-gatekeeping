@@ -2,12 +2,37 @@ vars:
 - configs/default.yaml
 
 stages:
+  # ── Stage 0: Generate Synthetic Benign (one stage per category — costs API tokens) ─────
+  generate_synthetic_benign:
+    foreach:
+      - A
+      - B
+      - C
+      - D
+      - E
+      - F
+    do:
+      cmd: python -m src.cli.generate_synthetic_benign --category ${item}
+      deps:
+      - src/cli/generate_synthetic_benign.py
+      - src/synthetic_benign.py
+      - src/validators.py
+      - src/llm_classifier/
+      - src/utils.py
+      params:
+      - configs/default.yaml:
+        - benign.synthetic
+        - llm
+      outs:
+      - data/processed/synthetic_benign/synthetic_benign_${item}.parquet
+
   # ── Stage 1: Preprocess ──────────────────────────────────────────────────
   preprocess:
     cmd: python -m src.preprocess
     deps:
     - src/preprocess.py
     - src/utils.py
+    - data/processed/synthetic_benign/
     params:
     - configs/default.yaml:
       - dataset
@@ -54,7 +79,7 @@ stages:
 
   # ── Stage 3b: DeBERTa Classifier (train + research predictions) ─────────
   deberta_model:
-    cmd: python -m src.cli.deberta_classifier --research --no-wandb
+    cmd: python -m src.cli.deberta_classifier --research
     deps:
     - src/models/
     - src/cli/deberta_classifier.py
