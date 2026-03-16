@@ -1,14 +1,17 @@
-"""Centralized, thread-safe rate limiter with global 429 cooldown.
+"""Centralized, thread-safe rate limiter with adaptive throttling.
 
 Design:
 - Token-bucket controls steady-state request rate (target RPM / 60).
 - Semaphore caps in-flight concurrent requests.
 - On any 429, a global cooldown-until timestamp is set so ALL workers
   pause — preventing retry storms.
+- Cooldown escalates on repeated 429s: each 429 within a window
+  doubles the cooldown duration, up to a cap.
+- After a cooldown with no 429s, the rate gradually recovers.
 - Retry-After header is respected when present.
 
 Usage:
-    limiter = APIRateLimiter(target_rpm=60, max_concurrency=4)
+    limiter = APIRateLimiter(target_rpm=30, max_concurrency=1)
     with limiter.acquire():
         try:
             response = client.chat.completions.create(...)
@@ -19,10 +22,13 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import random
 import threading
 import time
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -91,26 +97,35 @@ class RateLimiterStats:
 
 
 class APIRateLimiter:
-    """Thread-safe rate limiter with global 429 cooldown.
+    """Thread-safe rate limiter with adaptive throttling on 429s.
 
     Args:
         target_rpm: Target requests per minute. A 10% safety margin is
             applied internally (actual rate = target_rpm * 0.9).
         max_concurrency: Maximum in-flight concurrent requests.
-        cooldown_on_429: Default cooldown seconds when a 429 has no
-            Retry-After header.
+        cooldown_on_429: Base cooldown seconds when a 429 has no
+            Retry-After header. Escalates on repeated 429s.
     """
 
     def __init__(
         self,
-        target_rpm: float = 60,
-        max_concurrency: int = 4,
+        target_rpm: float = 30,
+        max_concurrency: int = 1,
         cooldown_on_429: float = 15.0,
     ):
+        self._target_rpm = target_rpm
+        self._base_cooldown = cooldown_on_429
+        self._max_concurrency = max(max_concurrency, 1)
+
+        # Adaptive state
         effective_rpm = target_rpm * 0.9  # 10% safety margin
         self._min_interval = 60.0 / max(effective_rpm, 1)
-        self._max_concurrency = max(max_concurrency, 1)
-        self._default_cooldown = cooldown_on_429
+        self._initial_min_interval = self._min_interval
+        self._consecutive_429s = 0
+        self._last_429_time = 0.0
+        # Window: if no 429 for this many seconds, reset escalation
+        self._escalation_reset_window = 120.0
+        self._max_cooldown = 120.0  # cap escalated cooldown
 
         self._lock = threading.Lock()
         self._last_dispatch = 0.0
@@ -118,6 +133,12 @@ class APIRateLimiter:
         self._semaphore = threading.Semaphore(self._max_concurrency)
 
         self.stats = RateLimiterStats()
+
+    @property
+    def effective_rpm(self) -> float:
+        """Current effective requests per minute after any throttling."""
+        with self._lock:
+            return 60.0 / self._min_interval
 
     # -- public API --------------------------------------------------------
 
@@ -134,27 +155,73 @@ class APIRateLimiter:
     def report_rate_limit(self, exc: Exception | None = None):
         """Called by any worker that receives a 429.
 
-        Sets a global cooldown so ALL workers pause.
+        Sets a global cooldown so ALL workers pause. Escalates on
+        repeated 429s and slows down the token-bucket rate.
         """
         retry_after = self._parse_retry_after(exc)
-        cooldown = retry_after if retry_after is not None else self._default_cooldown
-        # Add jitter to prevent thundering-herd on resume
-        cooldown += random.uniform(0, min(cooldown * 0.25, 5.0))
 
         with self._lock:
-            new_until = time.monotonic() + cooldown
-            # Only extend, never shorten an existing cooldown
+            now = time.monotonic()
+
+            # Track consecutive 429s (reset if it's been quiet)
+            if now - self._last_429_time > self._escalation_reset_window:
+                self._consecutive_429s = 0
+            self._consecutive_429s += 1
+            self._last_429_time = now
+
+            # Escalating cooldown: base * 2^(consecutive-1), capped
+            if retry_after is not None:
+                cooldown = retry_after
+            else:
+                cooldown = min(
+                    self._base_cooldown * (2 ** (self._consecutive_429s - 1)),
+                    self._max_cooldown,
+                )
+
+            # Add jitter (10-25% of cooldown)
+            cooldown += random.uniform(cooldown * 0.1, cooldown * 0.25)
+
+            # Set global cooldown (only extend, never shorten)
+            new_until = now + cooldown
             if new_until > self._cooldown_until:
                 self._cooldown_until = new_until
+
+            # Adaptive slowdown: halve the effective RPM (double the interval)
+            # Floor at 6 RPM (10s between requests)
+            new_interval = min(self._min_interval * 1.5, 10.0)
+            if new_interval > self._min_interval:
+                self._min_interval = new_interval
+                effective = 60.0 / self._min_interval
+                logger.info(f"Rate throttled to {effective:.1f} RPM after {self._consecutive_429s} consecutive 429s")
+
         self.stats.record_rate_limit()
+
+    def report_success(self):
+        """Called after a successful API request.
+
+        Gradually recovers the rate toward the original target.
+        """
+        with self._lock:
+            now = time.monotonic()
+            # Only recover if no recent 429 (at least 30s since last)
+            if now - self._last_429_time < 30.0:
+                return
+            # Recover 10% toward the original rate
+            if self._min_interval > self._initial_min_interval * 1.01:
+                self._min_interval = max(
+                    self._initial_min_interval,
+                    self._min_interval * 0.9,
+                )
+                # Reset consecutive counter on sustained success
+                self._consecutive_429s = 0
 
     def compute_retry_delay(self, attempt: int, exc: Exception | None = None) -> float:
         """Exponential backoff with jitter, respecting Retry-After."""
         retry_after = self._parse_retry_after(exc)
         if retry_after is not None:
             return retry_after + random.uniform(0, 2)
-        base = min(2 ** attempt * 5, 60)
-        return base + random.uniform(0, min(base * 0.5, 5))
+        base = min(2 ** attempt * 8, 90)
+        return base + random.uniform(0, min(base * 0.5, 10))
 
     # -- internals ---------------------------------------------------------
 
@@ -171,6 +238,12 @@ class APIRateLimiter:
         # 2. Token-bucket: space out requests
         with self._lock:
             now = time.monotonic()
+            # Re-check cooldown (might have been extended while we slept)
+            cooldown_remaining = self._cooldown_until - now
+            if cooldown_remaining > 0:
+                time.sleep(cooldown_remaining)
+                now = time.monotonic()
+
             wait = self._last_dispatch + self._min_interval - now
             if wait > 0:
                 time.sleep(wait)

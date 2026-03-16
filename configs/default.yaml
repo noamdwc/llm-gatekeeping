@@ -74,9 +74,9 @@ llm:
   model: "meta/llama-3.1-8b-instruct"
   model_quality: "meta/llama-3.1-70b-instruct"
   temperature: 0
-  max_concurrency: 4
-  target_rpm: 60
-  cooldown_on_429: 15
+  max_concurrency: 1
+  target_rpm: 30
+  cooldown_on_429: 20
   checkpoint_every: 200
   resume: true
   max_tokens_classifier: 200

@@ -144,8 +144,8 @@ class HierarchicalLLMClassifier:
         if rate_limiter is not None:
             self._rate_limiter = rate_limiter
         else:
-            target_rpm = float(cfg.get("llm", {}).get("target_rpm", 60))
-            cooldown = float(cfg.get("llm", {}).get("cooldown_on_429", 15))
+            target_rpm = float(cfg.get("llm", {}).get("target_rpm", 30))
+            cooldown = float(cfg.get("llm", {}).get("cooldown_on_429", 20))
             self._rate_limiter = APIRateLimiter(
                 target_rpm=target_rpm,
                 max_concurrency=self.max_concurrency,
@@ -203,6 +203,8 @@ class HierarchicalLLMClassifier:
                         latency = time.time() - t0
                         self._rate_limiter.stats.record_cache(hit=False)
                     self._rate_limiter.stats.record_request(success=True)
+                    if not cached.cache_hit:
+                        self._rate_limiter.report_success()
                     break
                 except openai.RateLimitError as exc:
                     self._rate_limiter.report_rate_limit(exc)

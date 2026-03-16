@@ -103,29 +103,92 @@ class TestAPIRateLimiter:
         with limiter.acquire():
             elapsed = time.monotonic() - t0
 
-        # Should have waited at least ~0.5s (the cooldown)
+        # Should have waited at least ~0.5s (the cooldown + jitter)
         assert elapsed >= 0.4, f"Cooldown only waited {elapsed:.2f}s, expected >= 0.4s"
 
-    def test_cooldown_extends_not_shortens(self):
-        """A second 429 should extend cooldown, not shorten it."""
-        limiter = APIRateLimiter(target_rpm=6000, max_concurrency=4, cooldown_on_429=1.0)
+    def test_cooldown_escalates_on_repeated_429s(self):
+        """Consecutive 429s should produce longer cooldowns."""
+        limiter = APIRateLimiter(target_rpm=6000, max_concurrency=1, cooldown_on_429=1.0)
 
+        # First 429
         limiter.report_rate_limit()
-        time.sleep(0.1)
-        # Second report — should extend, not shorten
-        limiter.report_rate_limit()
-
         with limiter._lock:
-            # cooldown_until should be at least 0.9s from now
-            remaining = limiter._cooldown_until - time.monotonic()
-        assert remaining > 0.5, f"Cooldown remaining {remaining:.2f}s — second report should extend"
+            cooldown_1 = limiter._cooldown_until - time.monotonic()
+
+        # Immediately hit another 429
+        limiter.report_rate_limit()
+        with limiter._lock:
+            cooldown_2 = limiter._cooldown_until - time.monotonic()
+
+        # Second cooldown should be longer (base * 2^1 = 2s vs base * 2^0 = 1s)
+        assert cooldown_2 > cooldown_1 * 1.3, (
+            f"Second cooldown {cooldown_2:.2f}s should be notably longer than first {cooldown_1:.2f}s"
+        )
+
+    def test_adaptive_slowdown_on_429(self):
+        """429s should slow down the token-bucket rate."""
+        limiter = APIRateLimiter(target_rpm=600, max_concurrency=1)
+        initial_interval = limiter._min_interval
+
+        limiter.report_rate_limit()
+        assert limiter._min_interval > initial_interval, (
+            "Rate should slow down after 429"
+        )
+
+    def test_rate_recovers_after_success(self):
+        """Sustained success should gradually recover the rate."""
+        limiter = APIRateLimiter(target_rpm=600, max_concurrency=1)
+        initial_interval = limiter._min_interval
+
+        # Trigger a slowdown
+        limiter.report_rate_limit()
+        slowed_interval = limiter._min_interval
+        assert slowed_interval > initial_interval
+
+        # Simulate time passing (no recent 429)
+        with limiter._lock:
+            limiter._last_429_time = time.monotonic() - 60
+
+        # Report success
+        limiter.report_success()
+        assert limiter._min_interval < slowed_interval, (
+            "Rate should recover after successful requests with no recent 429"
+        )
+
+    def test_no_recovery_during_active_429s(self):
+        """report_success should NOT speed up if 429 was recent."""
+        limiter = APIRateLimiter(target_rpm=600, max_concurrency=1)
+
+        limiter.report_rate_limit()
+        slowed_interval = limiter._min_interval
+
+        # Success immediately after 429 — should NOT recover
+        limiter.report_success()
+        assert limiter._min_interval == slowed_interval
+
+    def test_escalation_resets_after_quiet_period(self):
+        """Consecutive 429 counter should reset after the escalation window."""
+        limiter = APIRateLimiter(target_rpm=6000, max_concurrency=1, cooldown_on_429=1.0)
+
+        # Build up consecutive 429s
+        limiter.report_rate_limit()
+        limiter.report_rate_limit()
+        assert limiter._consecutive_429s == 2
+
+        # Simulate quiet period
+        with limiter._lock:
+            limiter._last_429_time = time.monotonic() - 200
+
+        # Next 429 should reset the counter
+        limiter.report_rate_limit()
+        assert limiter._consecutive_429s == 1
 
     def test_retry_delay_exponential_backoff(self):
-        limiter = APIRateLimiter(target_rpm=60)
+        limiter = APIRateLimiter(target_rpm=30)
         d0 = limiter.compute_retry_delay(0)
         d1 = limiter.compute_retry_delay(1)
         d2 = limiter.compute_retry_delay(2)
-        # Base increases exponentially: 5, 10, 20 (plus jitter)
+        # Base increases exponentially: 8, 16, 32 (plus jitter)
         assert d1 > d0 * 0.5  # account for jitter
         assert d2 > d1 * 0.5
 
@@ -138,7 +201,7 @@ class TestAPIRateLimiter:
         class FakeExc(Exception):
             response = FakeResponse()
 
-        limiter = APIRateLimiter(target_rpm=60)
+        limiter = APIRateLimiter(target_rpm=30)
         delay = limiter.compute_retry_delay(0, FakeExc())
         # Should be ~42 + small jitter
         assert 42 <= delay <= 45
@@ -155,3 +218,9 @@ class TestAPIRateLimiter:
         assert d["rate_limit_429s"] == 1
         assert d["retries"] == 1
         assert d["avg_retry_delay_s"] == 5.0
+
+    def test_effective_rpm_property(self):
+        limiter = APIRateLimiter(target_rpm=60, max_concurrency=1)
+        rpm = limiter.effective_rpm
+        # 60 * 0.9 safety margin = 54
+        assert 53 < rpm < 55
