@@ -7,3 +7,4 @@ data/
 .coverage
 .cursor/
 .cache/
+artifacts/deberta_classifier/*.pt

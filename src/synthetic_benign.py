@@ -30,7 +30,6 @@ import dotenv
 import openai
 import pandas as pd
 
-from src.llm_cache import extract_message_content, get_or_create_chat_completion
 from src.llm_provider import get_provider, make_client, resolve_model
 
 dotenv.load_dotenv()
@@ -146,7 +145,8 @@ Requirements:
 - Do NOT include: "ignore all previous instructions", "reveal your system prompt", "bypass safety", "DAN", etc.
 - Make each prompt distinct — no near-duplicates
 
-Return ONLY a JSON object with key "prompts" containing a list of {n} strings:
+IMPORTANT: Return ONLY a JSON object with key "prompts" containing a list of {n} strings.
+If a prompt contains special characters (quotes, braces, backslashes, newlines), escape them properly in the JSON string.
 {{"prompts": ["prompt 1", "prompt 2", ...]}}"""
 
 
@@ -179,7 +179,12 @@ class SyntheticBenignGenerator:
         model: Optional[str] = None,
         max_retries: int = 3,
     ) -> list[str]:
-        """Ask the LLM to generate n benign prompts for the given category."""
+        """Ask the LLM to generate n benign prompts for the given category.
+
+        Note: This method bypasses the LLM cache intentionally — we need
+        diverse outputs across batches, and the high temperature (0.9)
+        means identical requests should produce different results.
+        """
         meta = _CATEGORY_META[category]
         examples_str = "\n".join(f"- {e}" for e in meta["examples"])
         prompt = _GENERATION_PROMPT_TEMPLATE.format(
@@ -192,18 +197,13 @@ class SyntheticBenignGenerator:
 
         for attempt in range(max_retries):
             try:
-                request_kwargs = {
-                    "model": model or self.generation_model,
-                    "messages": messages,
-                    "temperature": 0.9,
-                    "max_tokens": 2048,
-                }
-                cached = get_or_create_chat_completion(
-                    provider_name=self.provider.name,
-                    request_kwargs=request_kwargs,
-                    create_fn=lambda: self.client.chat.completions.create(**request_kwargs),
+                response = self.client.chat.completions.create(
+                    model=model or self.generation_model,
+                    messages=messages,
+                    temperature=0.9,
+                    max_tokens=2048,
                 )
-                raw = extract_message_content(cached.payload) or ""
+                raw = response.choices[0].message.content or ""
                 # Try direct parse first, then extract from code blocks
                 try:
                     parsed = json.loads(raw)

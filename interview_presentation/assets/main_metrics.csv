@@ -1,4 +1,4 @@
 mode,accuracy,adversarial_recall,benign_recall,false_negative_rate,support_adversarial,support_benign,n
-ML (unicode scope),0.9839,0.9867,0.9574,0.0133,902,94,996
-Hybrid,0.6219,0.6034,0.9362,0.3966,1596,94,1690
-LLM,0.71,0.6966,0.8182,0.3034,89,11,100
+ML (unicode scope),0.9872,0.9875,0.9854,0.0125,957,137,1094
+Hybrid,0.8395,0.8615,0.5693,0.1385,1682,137,1819
+LLM,0.5618,0.5446,0.7737,0.4554,1682,137,1819

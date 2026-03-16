@@ -1,195 +1,204 @@
 # LLM Security Gatekeeper
 ### Detect adversarial prompts before they reach production LLMs
 
-- Hierarchical gatekeeper for prompt injection + jailbreak detection
-- Value proposition: high attack catch-rate with configurable ML/LLM cost tradeoff
-- Repo: `llm-gatekeeping`
+- Research pipeline for prompt injection + jailbreak detection
+- Current repo state: classic ML, LLM/hybrid routing, DeBERTa fine-tuning, and external baseline benchmarking
+- Goal: maximize adversarial catch-rate without making benign UX unusable
 
 ---
 
 ## The Problem
 
-- We need to classify incoming prompts as `adversarial` vs `benign` before model execution
-- Beyond binary blocking, we also want attack category/type signals for analysis and mitigation
-- Real impact:
-  - Missed attacks (false negatives) become direct security failures
-  - Over-blocking benign prompts (false positives) degrades UX and trust
+- We need to classify prompts as `adversarial` vs `benign` before model execution
+- Missed attacks are direct security failures
+- False positives still matter:
+  - they block legitimate user intent
+  - they reduce trust in the guardrail
+- The project also tracks attack category/type for analysis, not just block/allow
 
 ---
 
-## Why It Is Hard
+## Why This Is Hard
 
-- Adversarial prompts are intentionally obfuscated (unicode tricks, NLP perturbations)
-- Distribution shift is severe across external datasets
-- Taxonomy challenge:
-  - Unicode sub-types are separable
-  - NLP sub-types are largely indistinguishable and collapsed
-- Practical constraints:
-  - LLM inference is costly/slow
-  - ML-only can overfit to narrow benign data
+- Attackers deliberately obfuscate prompts:
+  - unicode tricks
+  - paraphrase / typo / jailbreak variants
+- Distribution shift is severe across public external datasets
+- The data is highly imbalanced toward adversarial samples
+- A production system needs a latency/cost-aware policy, not just one best offline score
 
 ---
 
-## High-Level Solution
+## Current Pipeline
 
 ![Pipeline](assets/pipeline_diagram.svg)
 
-- Reproducible research pipeline (DVC): preprocess -> split -> ML -> optional LLM -> hybrid -> reports
-- Hybrid policy: trust high-confidence ML adversarial predictions; escalate uncertain/benign ML cases
+- DVC pipeline now includes synthetic-benign-backed preprocessing
+- After grouped splits, the repo supports three model paths:
+  - TF-IDF + unicode-feature ML baseline
+  - DeBERTa fine-tuned classifier
+  - LLM classifier feeding hybrid routing
+- Reports and downstream analysis are artifact-driven
 
 ---
 
-## Data: Sources, Splits, and Coverage
+## Data Construction and Coverage
 
 | Dataset/Split | Rows | Adversarial | Benign | Adv % |
 |---|---:|---:|---:|---:|
-| full_dataset | 11,795 | 11,172 | 623 | 94.7% |
-| train | 7,633 | 7,197 | 436 | 94.3% |
-| val | 1,652 | 1,559 | 93 | 94.4% |
-| test | 1,690 | 1,596 | 94 | 94.4% |
-| test_unseen (held-out attacks) | 820 | 820 | 0 | 100% |
+| train | 7,989 | 7,352 | 637 | 92.0% |
+| val | 1,454 | 1,318 | 136 | 90.6% |
+| test | 1,819 | 1,682 | 137 | 92.5% |
+| test_unseen | 820 | 820 | 0 | 100.0% |
 
-- External eval sets: deepset (116), jackhhao (262), safeguard (2,049), spml (15,917)
+- Benigns are no longer just de-duplicated originals; synthetic benign data is configured into preprocessing
+- Held-out attack types still support unseen-attack testing
+- External datasets vary sharply in size and class balance, including a very large `spml` stress set
 
 ![Data coverage](assets/data_coverage.png)
 
 ---
 
-## Modeling: Feature Extraction + Models
-
-![Modeling](assets/modeling_diagram.png)
+## Modeling Paths
 
 - ML baseline:
-  - TF-IDF char n-grams (2-5, `char_wb`) + handcrafted unicode features
-  - Logistic regression models for binary/category/type
-- LLM classifier:
-  - classifier + judge pattern with few-shot support
-  - default CLI run limit is 100 samples unless overridden
-- Hybrid router:
-  - `ml_confidence_threshold: 0.85`
-  - escalate low-confidence or ML-benign cases to LLM
+  - TF-IDF char n-grams + handcrafted unicode features
+  - strong specialist for unicode-heavy attack patterns
+- LLM + hybrid:
+  - LLM classifier/judge path
+  - hybrid router uses ML confidence to decide escalation
+- DeBERTa:
+  - newer supervised path in the repo for binary classification
+  - trained and evaluated through its own DVC stage / CLI
 
 ---
 
-## Training and Evaluation Design
+## DeBERTa Update
 
-- Data construction and split strategy:
-  - Benign built from de-duplicated original prompts
-  - Grouped split by `prompt_hash` to reduce leakage across variants
-  - Held-out attack types for unseen generalization (`Emoji Smuggling`, `Pruthi`)
-- Baselines compared:
-  - ML (unicode-scope eval)
-  - Hybrid (full test split)
-  - LLM-only (current artifact covers 100 samples)
-- Metrics emphasized:
-  - Accuracy, adversarial recall, benign recall, FNR/FPR
-  - Category/type metrics + calibration buckets
+![DeBERTa summary](assets/deberta_summary.png)
+
+- Recent changes materially improved this path:
+  - class-weighted loss for imbalance
+  - longer training schedule and larger batches
+  - best-checkpoint save/restore
+  - research-time WandB logging
+- This is an important new repo capability, even though the canonical summary deck is still centered on `reports/research/*`
 
 ---
 
-## Results (Main Dataset)
+## Main Results From Canonical Reports
 
 | Mode | n | Accuracy | Adv Recall | Benign Recall | FNR |
 |---|---:|---:|---:|---:|---:|
-| ML (unicode scope) | 996 | 0.9839 | 0.9867 | 0.9574 | 0.0133 |
-| Hybrid | 1,690 | 0.6219 | 0.6034 | 0.9362 | 0.3966 |
-| LLM | 100 | 0.7100 | 0.6966 | 0.8182 | 0.3034 |
+| ML (unicode scope) | 1,094 | 0.9872 | 0.9875 | 0.9854 | 0.0125 |
+| Hybrid | 1,819 | 0.8395 | 0.8615 | 0.5693 | 0.1385 |
+| LLM | 1,819 | 0.5618 | 0.5446 | 0.7737 | 0.4554 |
 
 ![Main metrics](assets/main_metrics_comparison.png)
 
-- Interpretation: ML is very strong in its specialist scope; hybrid/LLM artifacts show security-recall tradeoffs that need retuning.
+- Reading this correctly matters:
+  - ML is excellent in its specialist scope
+  - Hybrid improves attack recall materially over LLM-only
+  - The benign side is still the painful tradeoff in the current hybrid setup
 
 ---
 
-## Results (External Generalization)
+## External Generalization Is Still The Main Risk
 
 | Dataset | n | Accuracy | Adv Recall | Benign Recall | FNR |
 |---|---:|---:|---:|---:|---:|
-| deepset | 116 | 0.4483 | 0.7500 | 0.1250 | 0.2500 |
-| jackhhao | 262 | 0.2672 | 0.0504 | 0.5122 | 0.9496 |
-| safeguard | 2,049 | 0.3514 | 0.0324 | 0.4989 | 0.9676 |
-| spml | 15,917 | 0.1253 | 0.0494 | 0.4073 | 0.9506 |
+| deepset | 116 | 0.5431 | 0.1333 | 0.9821 | 0.8667 |
+| jackhhao | 262 | 0.7595 | 0.5540 | 0.9919 | 0.4460 |
+| safeguard | 2,049 | 0.7857 | 0.3302 | 0.9964 | 0.6698 |
 
 ![External generalization](assets/external_generalization.png)
 
-- Key takeaway: OOD robustness is currently the largest gap.
+- Even with better current artifacts than the old deck showed, external adversarial recall is still not production-ready
+- Generalization remains the core research problem
 
 ---
 
-## Error Analysis: What Fails
+## External Benchmarks Need Caveats
+
+- `deepset` is the cleanest external benchmark in the repo today
+- `jackhhao` has small exact overlap with our local corpus and is explicitly a ProtectAI v2 training source
+- `safeguard` is not a clean unseen benchmark:
+  - Mindgard is documented as Safe-Guard-derived
+  - the repo overlap audit found large exact-text overlap
+- So external numbers need provenance-aware interpretation, not just leaderboard reading
+
+---
+
+## Baseline Comparison
+
+![Baseline comparison](assets/baseline_comparison.png)
+
+- The repo now benchmarks against two public models:
+  - Sentinel v2
+  - ProtectAI v2
+- On current checked-in artifacts, our hybrid is stronger on the main test split, while the public baselines are much stronger on `deepset`
+- That is useful, not discouraging:
+  - it gives us a real target
+  - it also forces us to be honest about overlap contamination and benchmark quality
+
+---
+
+## Error Pattern
 
 ![Hybrid confusion matrix](assets/hybrid_confusion_matrix.png)
 
-- Main split hybrid error pattern: high benign recall but many adversarial misses (high FNR)
-- External reports show repeated high-confidence mistakes and calibration drift in high-confidence bins
-- Common failure themes in external datasets:
-  - Benign roleplay/instruction prompts flagged as adversarial
-  - Adversarial jailbreak prompts accepted as benign in several datasets
+- On the main test split, the hybrid is still paying for security recall with benign overblocking
+- External reports also show calibration mismatch and high-confidence mistakes
+- The project has the right plumbing for diagnosis:
+  - merged research parquet outputs
+  - strict report generation
+  - benchmark comparison and overlap audit artifacts
 
 ---
 
-## Ablations and Sensitivity
+## Production View
 
-- Available in repo (historical run): threshold sweep table (`project_plan.md`) showing ML-handled % vs accuracy tradeoff
-- Missing in current canonical report set:
-  - No consolidated ablation report for latest `reports/research/*` artifacts
-  - No controlled dynamic-vs-static few-shot ablation report
-
-**TODO: missing in repo**
-- Create `reports/research/ablation_report.md` with:
-  - threshold sweep on current artifacts
-  - hybrid policy variants
-  - few-shot strategy ablation
-
----
-
-## Production Plan
-
-- Serving architecture:
-  - Stage 1 ML gate in-process (low latency)
-  - Stage 2 LLM escalation for uncertain cases
-  - Policy outputs: `block` / `allow` / `review` using `routed_to`, confidence, and risk thresholds
-- Monitoring:
-  - online FNR/FPR proxies, escalation rate, confidence drift, class prior drift
-  - weekly calibration checks + slice-based audits
-- Retraining loop:
-  - ingest reviewed false positives/false negatives
-  - refresh benign distribution and rerun DVC research pipeline
-- Safeguards:
-  - strict logging/audit trails
-  - fallback if LLM provider unavailable
-
-**TODO: missing in repo**
-- Full latency/cost benchmark on the canonical latest pipeline artifacts
-- End-to-end production API/policy engine implementation
+- The likely serving shape is still two-stage:
+  - cheap local classifier first
+  - slower escalation only when uncertainty or policy requires it
+- The repo already supports many research ingredients needed for production:
+  - routing stats
+  - calibration analysis
+  - reproducible report generation
+- Still missing:
+  - production API/policy engine
+  - full latency/cost benchmarking
+  - human review / audit workflow
 
 ---
 
-## Lessons Learned + Next Steps
+## What Changed Recently
 
-- What worked:
-  - Strong ML signal for unicode-focused detection
-  - Clean reproducible artifact flow with DVC and markdown reports
-- What did not:
-  - External generalization is currently weak
-  - Hybrid policy/coverage configuration needs tighter evaluation protocol
-- Next steps (priority):
-  1. Expand benign training diversity and recalibrate
-  2. Rerun full-scope LLM + strict hybrid evaluations (no partial-coverage mixing)
-  3. Add ablation and production benchmark reports as first-class artifacts
+- Synthetic benign generation is now part of the practical data story
+- DeBERTa became a real first-party model path rather than an idea
+- The project added external HuggingFace baseline comparisons
+- The repo also now includes an overlap audit, which changes how to present “external” results responsibly
 
 ---
 
-## Appendix: Repo Pointers and Caveats
+## Next Steps
 
-- Canonical latest outputs (per README):
-  - `reports/research/eval_report_ml.md`
-  - `reports/research/eval_report_hybrid.md`
-  - `reports/research/eval_report_llm.md`
-  - `reports/research_external/research_external_<dataset>.md`
-- Artifact lineage:
-  - config: `configs/default.yaml`
-  - pipeline graph: `dvc.yaml`
-  - merged eval artifact: `data/processed/research/research_test.parquet`
-- Caveat:
-  - Legacy report files exist under `reports/` root; use `reports/research/` and `reports/research_external/` for current narrative.
+1. Improve benign realism/diversity and recalibrate routing
+2. Push external adversarial recall up on the cleanest benchmark first (`deepset`)
+3. Decide whether DeBERTa or a public baseline should become the primary low-latency classifier
+4. Add production-facing evaluation: latency, cost, drift, and policy behavior
+
+---
+
+## Appendix: Canonical Sources
+
+- Current narrative should anchor on:
+  - `reports/research/summary_report.md`
+  - `reports/research/eval_report_{ml,llm,hybrid}.md`
+  - `docs/2026-03-13_baseline_dataset_overlap.md`
+  - `configs/default.yaml`
+  - `dvc.yaml`
+- DeBERTa state is backed by:
+  - `src/models/deberta_classifier.py`
+  - `src/cli/deberta_classifier.py`
+  - `artifacts/deberta_classifier/best_checkpoint.json`
