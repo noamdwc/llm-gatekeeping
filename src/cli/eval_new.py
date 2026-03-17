@@ -11,7 +11,12 @@ from pathlib import Path
 import pandas as pd
 
 from src.cli.eval_baselines import generate_report as generate_baseline_report
-from src.evaluate import binary_metrics, calibration_metrics, compute_fpr_views
+from src.evaluate import (
+    binary_metrics,
+    calibration_metrics,
+    compute_fpr_views,
+    filter_binary_eval_to_benign_subset,
+)
 from src.research import generate_ml_report, generate_hybrid_report, generate_llm_report
 from src.cli.research_external import generate_research_report
 from src.utils import (
@@ -80,6 +85,43 @@ def _main_metric_rows(df: pd.DataFrame) -> list[dict]:
             "rows": 0,
             "metrics": None,
         })
+
+    return rows
+
+
+def _non_synthetic_benign_rows(df: pd.DataFrame) -> list[dict]:
+    if "is_synthetic_benign" not in df.columns:
+        return []
+
+    rows = []
+    benign_mask = (df["label_binary"] == "benign") & (~df["is_synthetic_benign"].fillna(False).astype(bool))
+    n_benign = int(benign_mask.sum())
+    if n_benign == 0:
+        return rows
+
+    def add_row(model: str, pred_col: str, base_df: pd.DataFrame):
+        if pred_col not in base_df.columns:
+            return
+        subset = filter_binary_eval_to_benign_subset(base_df, benign_mask.reindex(base_df.index, fill_value=False))
+        if subset.empty:
+            return
+        rows.append({
+            "model": model,
+            "rows": int(len(subset)),
+            "benign_rows": int(((subset["label_binary"] == "benign") & (~subset["is_synthetic_benign"].fillna(False).astype(bool))).sum()),
+            "metrics": binary_metrics(subset["label_binary"], subset[pred_col]),
+        })
+
+    if "label_category" in df.columns:
+        ml_df = df[df["label_category"] != "nlp_attack"].copy()
+    else:
+        ml_df = df.copy()
+    add_row("ML (unicode scope)", "ml_pred_binary", ml_df)
+    add_row("Hybrid", "hybrid_pred_binary", df)
+
+    if "llm_pred_binary" in df.columns:
+        llm_df = df.dropna(subset=["llm_pred_binary"]).copy()
+        add_row("LLM", "llm_pred_binary", llm_df)
 
     return rows
 
@@ -180,6 +222,28 @@ def _render_summary_markdown(
                 f"| Clean-benign abstain rate | {fpr_views['clean_benign_abstain_rate']:.4f} | {n_cb_abs}/{n_cb} clean benign samples abstained |",
             ])
         lines.extend(fpr_lines)
+
+    ns_rows = _non_synthetic_benign_rows(main_df)
+    if ns_rows:
+        lines.extend([
+            "",
+            "## Non-Synthetic Benign Slice",
+            "",
+            "| Model | Rows | Non-Synth Benign Rows | Accuracy | Adv F1 | Benign F1 | FPR | FNR | Benign Recall |",
+            "|-------|------|-----------------------|----------|--------|-----------|-----|-----|---------------|",
+        ])
+        for row in ns_rows:
+            m = row["metrics"]
+            lines.append(
+                "| "
+                f"{row['model']} | {row['rows']} | {row['benign_rows']} | "
+                f"{_fmt_metric(m['accuracy'])} | "
+                f"{_fmt_metric(m['adversarial_f1'])} | "
+                f"{_fmt_metric(m['benign_f1'])} | "
+                f"{_fmt_metric(m['false_positive_rate'])} | "
+                f"{_fmt_metric(m['false_negative_rate'])} | "
+                f"{_fmt_metric(m['benign_recall'])} |"
+            )
 
     # Risk model summary
     if _RISK_SUMMARY_PATH.exists():

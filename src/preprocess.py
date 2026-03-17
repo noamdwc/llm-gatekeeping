@@ -88,6 +88,8 @@ def build_benign_set(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         "label_binary": "benign",
         "label_category": "benign",
         "label_type": "benign",
+        "benign_source": "original",
+        "is_synthetic_benign": False,
     })
 
     # Optionally integrate synthetic benigns (per-category parquets)
@@ -108,6 +110,8 @@ def build_benign_set(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
                     "label_binary": "benign",
                     "label_category": "benign",
                     "label_type": "benign",
+                    "benign_source": "synthetic_validated",
+                    "is_synthetic_benign": True,
                 })
                 # Carry synthetic metadata columns
                 for col in df_synth_valid.columns:
@@ -150,6 +154,8 @@ def preprocess(config_path: str = None, output_dir: str = None) -> pd.DataFrame:
 
     # Add hierarchical labels
     df_adv = add_hierarchical_labels(df_raw, cfg)
+    df_adv["benign_source"] = "adversarial"
+    df_adv["is_synthetic_benign"] = False
 
     # Build benign set
     print("Building benign set...")
@@ -184,6 +190,10 @@ def add_hierarchical_labels_benign(df: pd.DataFrame) -> pd.DataFrame:
     df["label_binary"] = "benign"
     df["label_category"] = "benign"
     df["label_type"] = "benign"
+    if "benign_source" not in df.columns:
+        df["benign_source"] = "original"
+    if "is_synthetic_benign" not in df.columns:
+        df["is_synthetic_benign"] = False
     return df
 
 

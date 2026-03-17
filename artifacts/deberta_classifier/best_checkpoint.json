@@ -1,5 +1,5 @@
 {
-  "epoch": 5,
+  "epoch": 3,
   "metric_name": "f1",
-  "metric_value": 0.9726384364820847
+  "metric_value": 0.9736673089274245
 }

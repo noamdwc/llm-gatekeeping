@@ -182,6 +182,16 @@ def compute_fpr_views(
     }
 
 
+def filter_binary_eval_to_benign_subset(
+    df: pd.DataFrame,
+    benign_mask: pd.Series,
+    label_col: str = "label_binary",
+) -> pd.DataFrame:
+    """Keep all adversarial rows plus the benign subset selected by ``benign_mask``."""
+    keep = (df[label_col] == "adversarial") | benign_mask.fillna(False).astype(bool)
+    return df.loc[keep].copy()
+
+
 def category_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
     """Compute category-level metrics (unicode_attack vs nlp_attack)."""
     # Filter to adversarial ground truth only; keep FNs (adv predicted as benign) as errors

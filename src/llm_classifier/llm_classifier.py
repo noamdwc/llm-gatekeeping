@@ -958,6 +958,7 @@ def main():
     gt_col_names = [
         "modified_sample", "original_sample", "attack_name",
         "label_binary", "label_category", "label_type", "prompt_hash",
+        "benign_source", "is_synthetic_benign",
     ]
     gt_cols = [c for c in gt_col_names if c in df_eval.columns]
 

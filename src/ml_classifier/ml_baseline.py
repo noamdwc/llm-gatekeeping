@@ -438,6 +438,8 @@ GROUND_TRUTH_COLS = [
     "label_category",
     "label_type",
     "prompt_hash",
+    "benign_source",
+    "is_synthetic_benign",
 ]
 
 

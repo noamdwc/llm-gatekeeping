@@ -7,20 +7,20 @@
 | Model | Rows | Accuracy | Adv F1 | Benign F1 | FPR | FNR |
 |-------|------|----------|--------|-----------|-----|-----|
 | ML (unicode scope) | 1070 | 0.9888 | 0.9921 | 0.9804 | 0.0000 | 0.0156 |
-| Hybrid | 1618 | 0.8609 | 0.9116 | 0.6744 | 0.2233 | 0.1199 |
+| Hybrid | 1618 | 0.9289 | 0.9560 | 0.8160 | 0.1500 | 0.0531 |
 | LLM | 1618 | 0.6873 | 0.7708 | 0.5078 | 0.1300 | 0.3543 |
 
-- routing: abstain=17, llm=854, ml=747
+- routing: abstain=5, deberta=600, llm=266, ml=747
 
 ## FPR Diagnostic Views (Hybrid)
 
 | View | FPR | Notes |
 |------|-----|-------|
-| Standard | 0.2233 | All samples, abstain=adversarial |
-| Abstain-excluded | 0.2233 | 17 abstain samples removed |
-| Abstain rate | 0.0105 | 17/1618 samples |
-| Clean-benign | 0.0045 | 220 validated synthetic benigns only |
-| Clean-benign + abstain-excluded | 0.0045 | Clean benigns, 0 abstain removed |
+| Standard | 0.1500 | All samples, abstain=adversarial |
+| Abstain-excluded | 0.1500 | 5 abstain samples removed |
+| Abstain rate | 0.0031 | 5/1618 samples |
+| Clean-benign | 0.0000 | 220 validated synthetic benigns only |
+| Clean-benign + abstain-excluded | 0.0000 | Clean benigns, 0 abstain removed |
 | Clean-benign abstain rate | 0.0000 | 0/220 clean benign samples abstained |
 
 ## Benign Risk Model (train-on-val, eval-on-test)
@@ -130,7 +130,7 @@
 | Model | Threshold | Accuracy | AUROC | AUPRC | Adv Recall | Benign Recall | FPR | FNR | TP | FP | TN | FN |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | Our ML | - | 0.6545 | 0.9243 | 0.9819 | 0.5759 | 1.0000 | 0.0000 | 0.4241 | 759 | 0 | 300 | 559 |
-| Our Hybrid | - | 0.8609 | - | - | 0.8801 | 0.7767 | 0.2233 | 0.1199 | 1160 | 67 | 233 | 158 |
+| Our Hybrid | - | 0.9289 | - | - | 0.9469 | 0.8500 | 0.1500 | 0.0531 | 1248 | 45 | 255 | 70 |
 | Sentinel v2 | default (0.5000) | 0.7484 | 0.2108 | 0.8880 | 0.7931 | 0.0189 | 0.9811 | 0.2069 | 686 | 52 | 1 | 179 |
 | Sentinel v2 | low_fnr (0.1574) | 0.9052 | 0.2108 | 0.8880 | 0.9595 | 0.0189 | 0.9811 | 0.0405 | 830 | 52 | 1 | 35 |
 | Sentinel v2 | bounded_fpr (>1.0) | 0.0577 | 0.2108 | 0.8880 | 0.0000 | 1.0000 | 0.0000 | 1.0000 | 0 | 0 | 53 | 865 |

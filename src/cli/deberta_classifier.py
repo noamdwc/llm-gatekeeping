@@ -54,6 +54,8 @@ GROUND_TRUTH_COLS = [
     "label_category",
     "label_type",
     "prompt_hash",
+    "benign_source",
+    "is_synthetic_benign",
 ]
 
 EVAL_SPLITS = ["val", "test", "test_unseen"]
@@ -77,6 +79,19 @@ def compute_split_metrics(df: pd.DataFrame, label_col: str = "label_binary") -> 
     }
     for label in sorted(set(y_true) | set(y_pred)):
         metrics[f"f1_{label}"] = f1_score(y_true, y_pred, pos_label=label, zero_division=0)
+    return metrics
+
+
+def compute_non_synthetic_benign_metrics(df: pd.DataFrame, label_col: str = "label_binary") -> dict | None:
+    if "is_synthetic_benign" not in df.columns:
+        return None
+    benign_mask = (df[label_col] == "benign") & (~df["is_synthetic_benign"].fillna(False).astype(bool))
+    n_benign = int(benign_mask.sum())
+    if n_benign == 0:
+        return None
+    subset = df[(df[label_col] == "adversarial") | benign_mask].copy()
+    metrics = compute_split_metrics(subset, label_col=label_col)
+    metrics["n_non_synthetic_benign"] = n_benign
     return metrics
 
 
@@ -105,6 +120,23 @@ def generate_summary(all_metrics: dict) -> str:
             f"{m['recall']:.4f} | {m['f1']:.4f} | {m['roc_auc']:.4f} | "
             f"{m['average_precision']:.4f} | {m['benign_recall']:.4f} | {m['n_samples']} |"
         )
+    ns_splits = {split: m for split, m in all_metrics.items() if "non_synthetic_benign" in m}
+    if ns_splits:
+        lines.extend([
+            "",
+            "## Non-Synthetic Benign Slice",
+            "",
+            "| Split | Accuracy | Precision | Recall | F1 | ROC-AUC | Avg-Prec | Benign Recall | Non-Synth Benign N | Total N |",
+            "|-------|----------|-----------|--------|-----|---------|----------|---------------|--------------------|---------|",
+        ])
+        for split, m in ns_splits.items():
+            ns = m["non_synthetic_benign"]
+            lines.append(
+                f"| {split} | {ns['accuracy']:.4f} | {ns['precision']:.4f} | "
+                f"{ns['recall']:.4f} | {ns['f1']:.4f} | {ns['roc_auc']:.4f} | "
+                f"{ns['average_precision']:.4f} | {ns['benign_recall']:.4f} | "
+                f"{ns['n_non_synthetic_benign']} | {ns['n_samples']} |"
+            )
     lines.append("")
     return "\n".join(lines)
 
@@ -272,6 +304,9 @@ def main():
             # Merge for metrics
             merged = pd.concat([df_split.reset_index(drop=True), preds.reset_index(drop=True)], axis=1)
             metrics = compute_split_metrics(merged)
+            non_synth_metrics = compute_non_synthetic_benign_metrics(merged)
+            if non_synth_metrics is not None:
+                metrics["non_synthetic_benign"] = non_synth_metrics
             all_metrics[split] = metrics
 
             if wandb.run is not None:
