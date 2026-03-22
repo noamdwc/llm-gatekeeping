@@ -144,8 +144,8 @@ N_NLP_EXAMPLES = 5                  # per NLP attack type (static mode)
 # a wider range may produce better-calibrated confidence output.
 # ═══════════════════════════════════════════════════════════════════════════
 
-FEW_SHOT_BENIGN_CONFIDENCE = 90     # shown in benign few-shot examples
-FEW_SHOT_ATTACK_CONFIDENCE = 88     # shown in adversarial few-shot examples
+FEW_SHOT_BENIGN_CONFIDENCE = 95     # shown in benign few-shot examples
+FEW_SHOT_ATTACK_CONFIDENCE = 84     # shown in adversarial few-shot examples
 FEW_SHOT_BENIGN_REASON = "No active attempt to override instructions, exfiltrate data, or hijack tools."
 FEW_SHOT_NLP_REASON_TEMPLATE = "Perturbed tokens characteristic of {attack_type} adversarial attack."
 FEW_SHOT_UNICODE_REASON_TEMPLATE = "Contains {attack_type} obfuscation; active adversarial prompt detected."
