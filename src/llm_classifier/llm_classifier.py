@@ -361,7 +361,7 @@ class HierarchicalLLMClassifier:
             messages.append({
                 "role": "assistant", "content": json.dumps({
                     "label": 'benign',
-                    "confidence": 90,
+                    "confidence": 95,
                     "nlp_attack_type": 'none',
                     "evidence": "",
                     "reason": "No active attempt to override instructions, exfiltrate data, or hijack tools.",
@@ -379,7 +379,7 @@ class HierarchicalLLMClassifier:
             messages.append({
                 "role": "assistant", "content": json.dumps({
                     "label": 'adversarial',
-                    "confidence": 88,
+                    "confidence": 84,
                     "nlp_attack_type": attack_type if attack_type in NLP_TYPES else 'none',
                     "evidence": evidence,
                     "reason": adv_reason,

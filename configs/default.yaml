@@ -86,7 +86,7 @@ llm:
   top_logprobs: 5
   few_shot:
     unicode: 2
-    nlp: 5
+    nlp: 6
     # Static hard-benign examples (off by default; enable after synthetic generation)
     include_hard_benign: false
     # Dynamic few-shot settings
