@@ -131,7 +131,7 @@ FEW_SHOT_MODE = "static"            # "none" | "static" | "dynamic"
 DYNAMIC_K = 2                       # exemplars per query (dynamic mode only)
 INCLUDE_HARD_BENIGN = False         # prepend hard-benign pairs
 N_UNICODE_EXAMPLES = 2              # per unicode attack type (static mode)
-N_NLP_EXAMPLES = 5                  # per NLP attack type (static mode)
+N_NLP_EXAMPLES = 6                  # per NLP attack type (static mode)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
