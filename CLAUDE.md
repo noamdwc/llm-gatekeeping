@@ -20,13 +20,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Heavy, reproducible run via `dvc repro`. Each stage produces output files consumed by downstream stages (no redundant computation). Produces research parquets with all intermediate probabilities + evaluation reports.
 
 ```bash
-dvc repro                    # Run full pipeline (ML-only; llm_classifier frozen, SKIP_LLM=1 by default)
-./run_llm.sh                 # Unfreeze LLM stages + set SKIP_LLM=0, run full pipeline, re-freeze
+dvc repro                    # Run full pipeline (all stages including LLM)
 ```
 
-**LLM control**: The `llm_classifier` DVC stage is frozen (unfreeze via `run_llm.sh`). For `research_external` stages, the `SKIP_LLM` env var controls LLM (defaults to `"1"` = skip); `run_llm.sh` sets `SKIP_LLM=0`.
+All stages run by default, including LLM classifier and judge. DVC caches predictions — changing thresholds (in `hybrid` config) only re-runs research/eval stages, not LLM API calls.
 
-DVC stages: `preprocess → build_splits → ml_model → deberta_model → llm_classifier (frozen) → research → research_external@{dataset}`
+DVC stages: `preprocess → build_splits → ml_model → deberta_model → llm_classifier → research → research_external@{dataset}`
 
 ### 2. Inference Pipeline (Bash)
 

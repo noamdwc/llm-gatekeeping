@@ -81,7 +81,7 @@ llm:
   resume: true
   max_tokens_classifier: 200
   max_tokens_judge: 500
-  judge_confidence_threshold: 0.9
+  judge_confidence_threshold: 0.8
   capture_logprobs: true
   top_logprobs: 5
   few_shot:
@@ -150,6 +150,13 @@ hybrid:
   # DeBERTa confidence threshold for binary fast-path finalization.
   # Samples where DeBERTa max softmax prob >= this skip LLM entirely.
   deberta_confidence_threshold: 0.93
+  # Abstain risk model: replaces blanket "abstain → adversarial" with an
+  # informed decision using DeBERTa probability + logprob margin features.
+  # Train with: python -m src.cli.train_risk_model
+  risk_model:
+    enabled: true
+    threshold: 0.5
+    model_path: "data/processed/models/risk_model.pkl"
 
 # Evaluation
 evaluation:

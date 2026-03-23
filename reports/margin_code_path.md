@@ -1,6 +1,6 @@
 # Margin Calibration Code Path
 
-- Split: `val`
+- Split: `test`
 - Canonical experiment entrypoint: `python -m src.llm_classifier.llm_classifier --split test --research`
 - Canonical hybrid routing entrypoint: `python -m src.research --split test`
 - Canonical report entrypoint: `python -m src.cli.eval_new --split test`

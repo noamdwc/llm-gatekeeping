@@ -27,6 +27,16 @@ FEATURE_COLS = [
     "is_judge_stage",
 ]
 
+RISK_FEATURE_COLS = [
+    "margin",
+    "top1_logprob",
+    "top2_logprob",
+    "self_reported_confidence",
+    "is_judge_stage",
+    "deberta_proba_binary_adversarial",
+    "is_abstain",
+]
+
 
 class BenignRiskDataset:
     """Filter a margin trace to LLM-path benign predictions and build features."""
@@ -503,3 +513,127 @@ def generate_plots(
     fig.tight_layout()
     fig.savefig(output_dir / "benign_risk_calibration.png", dpi=150)
     plt.close(fig)
+
+
+# ── Abstain risk model ────────────────────────────────────────────────────
+
+
+class AbstainRiskDataset:
+    """Build features from margin trace + DeBERTa predictions for all non-ML samples."""
+
+    def __init__(
+        self,
+        trace_df: pd.DataFrame,
+        deberta_df: pd.DataFrame | None = None,
+    ) -> None:
+        non_ml = trace_df[trace_df["route"] != "ml"].copy()
+
+        if deberta_df is not None:
+            non_ml = non_ml.merge(
+                deberta_df[["sample_id", "deberta_proba_binary_adversarial"]],
+                on="sample_id",
+                how="left",
+            )
+
+        non_ml["is_judge_stage"] = (
+            non_ml["margin_source_stage"] == "judge"
+        ).astype(int)
+        non_ml["is_abstain"] = (non_ml["route"] == "abstain").astype(int)
+        self._df = non_ml.reset_index(drop=True)
+        self._y = (self._df["true_label"] == "adversarial").astype(int)
+
+    @property
+    def df(self) -> pd.DataFrame:
+        return self._df
+
+    @property
+    def X(self) -> pd.DataFrame:
+        return self._df[RISK_FEATURE_COLS]
+
+    @property
+    def y(self) -> pd.Series:
+        return self._y
+
+    def summary(self) -> dict:
+        n = len(self._df)
+        n_adv = int(self._y.sum())
+        n_abstain = int(self._df["is_abstain"].sum())
+        return {
+            "n_total": n,
+            "n_adversarial": n_adv,
+            "n_benign": n - n_adv,
+            "n_abstain": n_abstain,
+            "base_rate_adversarial": round(n_adv / max(n, 1), 4),
+        }
+
+
+class RiskModel:
+    """Trained risk model for abstain resolution.
+
+    Wraps a sklearn Pipeline (StandardScaler + LogisticRegression) with
+    save/load and single-sample prediction for use in the hybrid router.
+    """
+
+    def __init__(
+        self,
+        pipeline: Pipeline,
+        threshold: float = 0.5,
+        feature_cols: list[str] | None = None,
+    ) -> None:
+        self.pipeline = pipeline
+        self.threshold = threshold
+        self.feature_cols = feature_cols or list(RISK_FEATURE_COLS)
+
+    def predict_risk(self, features: dict) -> float:
+        """Return P(adversarial) for a single sample."""
+        x = pd.DataFrame([{c: features.get(c, 0.0) for c in self.feature_cols}]).fillna(0.0)
+        return float(self.pipeline.predict_proba(x)[:, 1][0])
+
+    def predict_label(self, features: dict) -> str:
+        """Return 'adversarial' or 'benign' based on threshold."""
+        return "adversarial" if self.predict_risk(features) > self.threshold else "benign"
+
+    def predict_risk_batch(self, df: pd.DataFrame) -> np.ndarray:
+        """Return P(adversarial) for a batch of samples."""
+        X = df[self.feature_cols].astype(float).fillna(0.0)
+        return self.pipeline.predict_proba(X)[:, 1]
+
+    def save(self, path: str | Path) -> None:
+        import pickle
+
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        obj = {
+            "pipeline": self.pipeline,
+            "threshold": self.threshold,
+            "feature_cols": self.feature_cols,
+        }
+        with open(path, "wb") as f:
+            pickle.dump(obj, f)
+
+    @classmethod
+    def load(cls, path: str | Path) -> "RiskModel":
+        import pickle
+
+        with open(path, "rb") as f:
+            obj = pickle.load(f)
+        return cls(
+            pipeline=obj["pipeline"],
+            threshold=obj["threshold"],
+            feature_cols=obj["feature_cols"],
+        )
+
+    @staticmethod
+    def train(
+        X: pd.DataFrame | np.ndarray,
+        y: pd.Series | np.ndarray,
+        threshold: float = 0.5,
+        feature_cols: list[str] | None = None,
+    ) -> "RiskModel":
+        """Train a new risk model."""
+        pipeline = Pipeline([
+            ("scaler", StandardScaler()),
+            ("lr", LogisticRegression(C=1.0, max_iter=1000, random_state=42)),
+        ])
+        pipeline.fit(X, y)
+        return RiskModel(pipeline, threshold, feature_cols)
