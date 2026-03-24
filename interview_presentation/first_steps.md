@@ -5,45 +5,56 @@
 | File path | Why it matters |
 |---|---|
 | `README.md` | Canonical project framing, hierarchy, pipeline stages, and where latest outputs live. |
-| `configs/default.yaml` | Source of truth for dataset names, label schema, thresholds, and external datasets. |
+| `configs/default.yaml` | Source of truth for dataset names, label schema, thresholds, DeBERTa gate config, and external datasets. |
 | `dvc.yaml` | Reproducible stage graph and artifact lineage from raw data to reports. |
 | `src/preprocess.py` | How benign data is constructed and hierarchical labels are assigned. |
 | `src/build_splits.py` | Grouped split logic and held-out attack-type strategy. |
 | `src/ml_classifier/ml_baseline.py` | ML feature design, training scope (unicode+benign), and calibration setup. |
-| `src/llm_classifier/llm_classifier.py` | LLM classifier/judge architecture and default evaluation limit. |
-| `src/research.py` | Hybrid routing behavior and report generation logic. |
-| `reports/research/eval_report_ml.md` | Main ML metrics on canonical latest artifact. |
-| `reports/research/eval_report_hybrid.md` | Main hybrid metrics + routing diagnostics on canonical latest artifact. |
+| `src/hybrid_router.py` | 4-tier routing logic: ML → DeBERTa → LLM → risk model. |
+| `src/models/deberta_classifier.py` | DeBERTa binary gate model architecture and training. |
+| `src/llm_classifier/llm_classifier.py` | LLM classifier/judge architecture and evaluation. |
+| `reports/research/summary_report.md` | Current canonical metrics, routing stats, and baseline comparison. |
 
 ## 2) Key Metrics + Dataset Stats (from repo artifacts)
 
 | Scope | Rows | Adversarial | Benign | Accuracy | Adv Recall | Benign Recall | FNR | Source |
 |---|---:|---:|---:|---:|---:|---:|---:|---|
-| Full processed dataset | 11,795 | 11,172 | 623 | TODO | TODO | TODO | TODO | `data/processed/full_dataset.parquet` |
-| Train split | 7,633 | 7,197 | 436 | TODO | TODO | TODO | TODO | `data/processed/splits/train.parquet` |
-| Val split | 1,652 | 1,559 | 93 | TODO | TODO | TODO | TODO | `data/processed/splits/val.parquet` |
-| Test split | 1,690 | 1,596 | 94 | TODO | TODO | TODO | TODO | `data/processed/splits/test.parquet` |
-| Main ML (unicode scope) | 996 | 902 | 94 | 0.9839 | 0.9867 | 0.9574 | 0.0133 | `reports/research/eval_report_ml.md` |
-| Main Hybrid | 1,690 | 1,596 | 94 | 0.6219 | 0.6034 | 0.9362 | 0.3966 | `reports/research/eval_report_hybrid.md` |
-| Main LLM | 100 | 89 | 11 | 0.7100 | 0.6966 | 0.8182 | 0.3034 | `reports/research/eval_report_llm.md` |
-| External deepset | 116 | 60 | 56 | 0.4483 | 0.7500 | 0.1250 | 0.2500 | `reports/research_external/research_external_deepset.md` |
-| External jackhhao | 262 | 139 | 123 | 0.2672 | 0.0504 | 0.5122 | 0.9496 | `reports/research_external/research_external_jackhhao.md` |
-| External safeguard | 2,049 | 648 | 1,401 | 0.3514 | 0.0324 | 0.4989 | 0.9676 | `reports/research_external/research_external_safeguard.md` |
-| External spml | 15,917 | 12,541 | 3,376 | 0.1253 | 0.0494 | 0.4073 | 0.9506 | `reports/research_external/research_external_spml.md` |
+| Full processed dataset | ~13,166 | ~11,172 | ~1,994 | - | - | - | - | `data/processed/full_dataset.parquet` |
+| Train split | 8,881 | 7,486 | 1,395 | - | - | - | - | `data/processed/splits/train.parquet` |
+| Val split | 1,847 | 1,548 | 299 | - | - | - | - | `data/processed/splits/val.parquet` |
+| Test split | 1,618 | 1,318 | 300 | - | - | - | - | `data/processed/splits/test.parquet` |
+| Main ML (unicode scope) | 1,070 | 770 | 300 | 0.9888 | 0.9844 | 1.0000 | 0.0156 | `reports/research/eval_report_ml.md` |
+| Main Hybrid | 1,618 | 1,318 | 300 | 0.9580 | 0.9788 | 0.8667 | 0.0212 | `reports/research/eval_report_hybrid.md` |
+| Main LLM | 1,618 | 1,318 | 300 | 0.8072 | 0.7982 | 0.8467 | 0.2018 | `reports/research/eval_report_llm.md` |
+| DeBERTa (test) | 1,618 | 1,318 | 300 | 0.8597 | 0.8308 | 0.9867 | - | `reports/deberta_classifier/summary.md` |
+| External deepset | 116 | 60 | 56 | 0.6121 | 0.6500 | 0.5714 | 0.3500 | `reports/research/summary_report.md` |
+| External jackhhao | 262 | 139 | 123 | 0.8817 | 0.9065 | 0.8537 | 0.0935 | `reports/research/summary_report.md` |
+| External safeguard | 2,049 | 648 | 1,401 | 0.7613 | 0.4660 | 0.8979 | 0.5340 | `reports/research/summary_report.md` |
 
-## 3) Draft Slide Titles (titles only)
+## 3) Routing Breakdown (test split)
+
+| Tier | Samples | % | Description |
+|---|---:|---:|---|
+| ML fast-path | 747 | 46.2% | High-confidence unicode attack detection |
+| DeBERTa gate | 600 | 37.1% | Binary classification at threshold 0.93 |
+| LLM escalation | 91 | 5.6% | Classifier + judge for uncertain samples |
+| Abstain/Risk | 180 | 11.1% | Post-hoc resolution via risk model |
+
+## 4) Draft Slide Titles (titles only)
 
 1. LLM Security Gatekeeper: Detect Adversarial Prompts Before They Reach Production LLMs
 2. Problem: Prompt Injection/Jailbreak Detection for Real Traffic
 3. Why This Is Hard: Evasion, Dataset Shift, and Cost-Latency Constraints
-4. High-Level Solution: ML-First + LLM Escalation Pipeline
-5. Data: Sources, Label Hierarchy, and Split Strategy
-6. Modeling: Feature Stack, LLM Cascade, and Routing Logic
-7. Training & Evaluation Design
+4. High-Level Solution: 4-Tier Hybrid Routing Pipeline
+5. Data: Sources, Label Hierarchy, Synthetic Benign, and Split Strategy
+6. Modeling: ML Specialist, DeBERTa Gate, LLM Cascade, Risk Model
+7. DeBERTa as Hybrid Binary Gate
 8. Main Results: ML vs Hybrid vs LLM (Canonical Reports)
 9. External Generalization Results: What Breaks OOD
-10. Error Analysis: Failure Patterns and Calibration Gaps
-11. Ablations and Sensitivity (Available + Missing)
-12. Productionization Plan: SLOs, Monitoring, Retraining, Guardrails
-13. Lessons Learned and Next Steps
-14. Appendix: Artifact Map, Legacy Report Caveats, and Extra Tables
+10. External Benchmark Caveats and Overlap Audit
+11. Baseline Comparison: Sentinel v2, ProtectAI v2
+12. Error Analysis: FPR, Abstain, and Risk Model
+13. Production View: Cost, Latency, and Routing
+14. What Changed Recently
+15. Next Steps
+16. Appendix: Artifact Map and Canonical Sources

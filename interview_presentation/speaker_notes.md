@@ -3,7 +3,7 @@
 ## Slide 1 — Title (0:30)
 Talk track:
 - "This is a prompt-security gatekeeper that runs before an application LLM."
-- "The current repo is broader than the original deck: it now includes classic ML, LLM/hybrid routing, a DeBERTa path, and baseline benchmarking."
+- "The repo now has a full 4-tier hybrid pipeline: classic ML, DeBERTa binary gate, LLM escalation, and a risk model for abstain resolution."
 
 Evidence paths:
 - `README.md`
@@ -28,87 +28,82 @@ Evidence paths:
 - `README.md`
 - `project_plan.md`
 - `reports/research_external/research_external_deepset.md`
-- `reports/research_external/research_external_jackhhao.md`
 - `reports/research_external/research_external_safeguard.md`
 
 ## Slide 4 — Current Pipeline (0:55)
 Talk track:
-- "The repo now starts with Mindgard adversarial data plus optional synthetic benign generation before preprocessing."
-- "After grouped splits, there are three model paths: TF-IDF ML, DeBERTa fine-tuning, and LLM/hybrid."
-- "Everything is tracked as DVC stages and report artifacts."
+- "The pipeline starts with Mindgard adversarial data plus synthetic benign generation, grouped into train/val/test splits."
+- "Routing is 4-tier: ML catches high-confidence unicode attacks first (46% of traffic). DeBERTa handles binary classification for the rest (37%). Only 6% of samples actually need an LLM API call. The remaining 11% are abstains resolved by a post-hoc risk model."
+- "This 4-tier design reduced LLM API calls by 93%."
 
 Evidence paths:
 - `dvc.yaml`
-- `dvc.lock`
 - `configs/default.yaml`
+- `src/hybrid_router.py`
 - `interview_presentation/assets/pipeline_diagram.svg`
-- `interview_presentation/make_plots.py`
 
 ## Slide 5 — Data Construction and Coverage (0:50)
 Talk track:
-- "Benign data is no longer just original-prompt recovery; synthetic benign augmentation is configured into preprocessing."
-- "Splits are grouped by `prompt_hash`, and held-out attack types still support unseen-attack testing."
-- "External datasets differ a lot in size and balance, so aggregate metrics can hide failure modes."
+- "Benign data now includes synthetic benign augmentation — validated through heuristic, judge, and dedup filters."
+- "The test split has 300 benign samples now, up from 137 before synthetic augmentation."
+- "Splits are still grouped by `prompt_hash`, and held-out attack types support unseen-attack testing."
 
 Evidence paths:
 - `src/preprocess.py`
 - `src/build_splits.py`
 - `configs/default.yaml`
 - `interview_presentation/assets/data_coverage.csv`
-- `interview_presentation/assets/data_coverage.png`
 
 ## Slide 6 — Modeling Paths (0:45)
 Talk track:
-- "The ML baseline is still sparse features plus logistic regression and remains a useful specialist."
-- "The LLM path remains classifier plus judge, with hybrid routing on top."
-- "The notable change is that DeBERTa is now a first-party trained model path in the repo."
+- "The ML baseline is still sparse features plus logistic regression — a useful specialist for unicode attacks."
+- "DeBERTa is the big change: it's now the primary binary gate in the hybrid router, not just a standalone model."
+- "The LLM path is only for genuinely uncertain samples. And the risk model resolves abstain cases using trace features."
 
 Evidence paths:
 - `src/ml_classifier/ml_baseline.py`
-- `src/llm_classifier/llm_classifier.py`
+- `src/models/deberta_classifier.py`
 - `src/hybrid_router.py`
-- `src/cli/deberta_classifier.py`
+- `src/llm_classifier/llm_classifier.py`
 
-## Slide 7 — DeBERTa Update (0:50)
+## Slide 7 — DeBERTa as Hybrid Gate (0:50)
 Talk track:
-- "Recent changes made DeBERTa much more serious: class-weighted loss, longer training, best-checkpoint persistence, and WandB logging."
-- "The checked-in best checkpoint metadata shows the current best model at epoch 2 with F1 around 0.971."
-- "I present this as a current capability addition, not as part of the canonical summary-report comparison yet."
+- "DeBERTa standalone gets 86% accuracy and F1 of 0.9061, but the key number is 98.67% benign recall."
+- "At a confidence threshold of 0.93, high-confidence predictions are finalized without calling the LLM."
+- "This integration reduced LLM API calls from ~871 to 91 on the test set — a 93% cost reduction."
+- "ROC-AUC is 0.989, so the model's probability ranking is excellent."
 
 Evidence paths:
-- `src/models/deberta_classifier.py`
-- `src/cli/deberta_classifier.py`
+- `reports/deberta_classifier/summary.md`
+- `src/hybrid_router.py`
 - `configs/default.yaml`
 - `artifacts/deberta_classifier/best_checkpoint.json`
-- `interview_presentation/assets/deberta_summary.png`
 
 ## Slide 8 — Main Results (0:55)
 Talk track:
-- "These numbers come from the canonical `reports/research/*` flow."
-- "ML is still strongest in its specialist scope; hybrid is much better than LLM-only on attack recall."
-- "But hybrid benign recall is still weak enough that routing/calibration remains an open problem."
+- "The headline: hybrid accuracy is now 95.8%, with FNR of only 2.1%."
+- "That's a big jump from the previous 84% accuracy and 14% FNR."
+- "ML is still strongest in its specialist scope — 98.9% accuracy on unicode + benign."
+- "LLM alone only gets 80.7% — the pipeline is much more than its LLM component."
 
 Evidence paths:
-- `reports/research/eval_report_ml.md`
-- `reports/research/eval_report_hybrid.md`
-- `reports/research/eval_report_llm.md`
 - `reports/research/summary_report.md`
-- `interview_presentation/assets/main_metrics.csv`
-- `interview_presentation/assets/main_metrics_comparison.png`
+- `reports/research/eval_report_hybrid.md`
+- `reports/research/eval_report_ml.md`
+- `reports/research/eval_report_llm.md`
 
 ## Slide 9 — External Generalization (0:50)
 Talk track:
-- "The project’s central weakness is still external generalization."
-- "Even though the current reports are better than the old deck snapshot, adversarial recall still collapses on external sets."
-- "That makes external robustness the most important model-quality target."
+- "External generalization is still the main risk, but it's no longer uniformly bad."
+- "jackhhao improved to 88% accuracy with only 9% FNR — the pipeline generalizes to these attack styles."
+- "deepset has a 43% FPR problem — too many benign prompts flagged as adversarial."
+- "safeguard has a 53% FNR problem — many threat/coercion-style attacks are missed entirely."
 
 Evidence paths:
 - `reports/research/summary_report.md`
 - `reports/research_external/research_external_deepset.md`
 - `reports/research_external/research_external_jackhhao.md`
 - `reports/research_external/research_external_safeguard.md`
-- `interview_presentation/assets/external_metrics.csv`
-- `interview_presentation/assets/external_generalization.png`
 
 ## Slide 10 — External Benchmark Caveats (0:55)
 Talk track:
@@ -122,57 +117,60 @@ Evidence paths:
 
 ## Slide 11 — Baseline Comparison (0:55)
 Talk track:
-- "The repo now compares against Sentinel v2 and ProtectAI v2."
-- "On checked-in artifacts, our hybrid is stronger on the main test split, but both public baselines are clearly stronger on `deepset`."
-- "That is useful because it gives us a target, but the overlap caveats mean benchmark interpretation still needs care."
+- "The repo compares against Sentinel v2 and ProtectAI v2."
+- "On external datasets, public baselines are much stronger — Sentinel v2 gets 99.8% on safeguard, 87.9% on deepset."
+- "But on our test split, the baselines break: Sentinel v2 has 98% FPR — it classifies almost everything as adversarial."
+- "That tells us something important: our benign distribution is unusual, and calibration is domain-specific. Our hybrid is the only model with balanced performance on our test set."
 
 Evidence paths:
 - `reports/research/summary_report.md`
 - `docs/2026-03-13_baseline_dataset_overlap.md`
-- `interview_presentation/assets/baseline_comparison.csv`
-- `interview_presentation/assets/baseline_comparison.png`
 
 ## Slide 12 — Error Pattern (0:45)
 Talk track:
-- "On the main test split, the hybrid confusion structure shows the remaining cost of current routing."
-- "The good part is that the repo already has the right merged artifacts and report plumbing for deeper diagnosis."
+- "The dominant error is now FPR at 13.3% — 40 of 300 benign samples misclassified."
+- "FNR is very low at 2.1% — we're catching 98% of attacks."
+- "The clean-benign FPR is 0.0% — all validated synthetic benigns are correct. The remaining FP errors are on harder, ambiguous benign samples."
+- "180 samples go through the risk model abstain path."
 
 Evidence paths:
+- `reports/research/eval_report_hybrid.md`
 - `data/processed/research/research_test.parquet`
-- `interview_presentation/assets/hybrid_confusion_matrix.png`
-- `reports/research/summary_report.md`
 
 ## Slide 13 — Production View (0:40)
 Talk track:
-- "The likely deployment shape is still cheap first-stage classification plus selective escalation."
-- "The research pipeline already measures many things production would care about, but there is no full API/policy stack in the repo yet."
+- "The serving shape is concrete now: ML is instant, DeBERTa adds ~10ms, and only 6% of traffic needs an API call."
+- "That's 93% cost reduction compared to routing everything through the LLM."
+- "The risk model handles abstain cases with near-zero additional latency."
+- "Still missing: production API, load testing, and human audit workflow."
 
 Evidence paths:
-- `PRD.md`
-- `STATUS.md`
 - `src/cli/predict.py`
 - `src/hybrid_router.py`
+- `reports/research/eval_report_hybrid.md`
 
 ## Slide 14 — What Changed Recently (0:35)
 Talk track:
-- "The delta from the old deck is meaningful: synthetic benign integration, DeBERTa, baseline comparisons, and overlap-aware reporting."
-- "That shifts the project from a narrow prototype to a better-instrumented research platform."
+- "The biggest change is the DeBERTa binary gate — it transformed the hybrid router from an ML+LLM two-stage into a 4-tier pipeline."
+- "The risk model for abstain resolution is a novel addition."
+- "Hybrid accuracy went from 84% to 95.8%, and LLM costs dropped 93%."
+- "I also added an autoresearch framework for automated threshold optimization."
 
 Evidence paths:
 - `git log --oneline`
 - `configs/default.yaml`
-- `dvc.yaml`
-- `docs/2026-03-13_baseline_dataset_overlap.md`
+- `autoresearch/program.md`
 
 ## Slide 15 — Next Steps (0:35)
 Talk track:
-- "My next priorities would be improving benign realism, optimizing for the cleanest external benchmark first, and deciding whether DeBERTa or a public baseline should anchor the low-latency path."
-- "After that, I would add latency/cost/policy evaluation and production interfaces."
+- "The top priorities are external generalization: safeguard FNR at 53% and deepset FPR at 43%."
+- "Risk model threshold tuning and the autoresearch optimization loop should help."
+- "Need to decide whether DeBERTa or a public baseline should anchor the low-latency path."
+- "Then production evaluation: latency under load, cost modeling, and policy behavior."
 
 Evidence paths:
-- `STATUS.md`
 - `reports/research/summary_report.md`
-- `artifacts/deberta_classifier/best_checkpoint.json`
+- `autoresearch/program.md`
 
 ## Slide 16 — Appendix (0:20)
 Talk track:
@@ -181,6 +179,6 @@ Talk track:
 
 Evidence paths:
 - `reports/research/summary_report.md`
-- `reports/research/`
+- `reports/deberta_classifier/summary.md`
 - `docs/2026-03-13_baseline_dataset_overlap.md`
 - `interview_presentation/make_plots.py`

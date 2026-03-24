@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1360" height="1560" viewBox="0 0 1360 1560" role="img" aria-labelledby="title desc">
+  <title id="title">LLM Gatekeeping Inference Pipeline</title>
+  <desc id="desc">Compact README-friendly diagram of the inference pipeline. Fast-path rules are shown on arrows and only model invocations are boxed.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f6f3ec; }
+      .panel { fill: #fffdf8; stroke: #cbd5e1; stroke-width: 2; rx: 20; ry: 20; }
+      .model { fill: #eef6ff; stroke: #2563eb; stroke-width: 2.5; rx: 20; ry: 20; }
+      .gate { fill: #fff6dc; stroke: #b7791f; stroke-width: 2.5; rx: 20; ry: 20; }
+      .outcome { fill: #ecfdf3; stroke: #15803d; stroke-width: 2.5; rx: 20; ry: 20; }
+      .warning { fill: #fff1f2; stroke: #be123c; stroke-width: 2.5; rx: 20; ry: 20; }
+      .neutral { fill: #ffffff; stroke: #64748b; stroke-width: 2; rx: 20; ry: 20; }
+      .title { font: 700 34px Helvetica, Arial, sans-serif; fill: #111827; }
+      .subtitle { font: 400 18px Helvetica, Arial, sans-serif; fill: #475569; }
+      .section { font: 700 22px Helvetica, Arial, sans-serif; fill: #111827; }
+      .label { font: 700 18px Helvetica, Arial, sans-serif; fill: #111827; }
+      .body { font: 400 17px Helvetica, Arial, sans-serif; fill: #334155; }
+      .small { font: 600 15px Helvetica, Arial, sans-serif; fill: #475569; }
+      .arrow { stroke: #475569; stroke-width: 3.5; fill: none; marker-end: url(#arrowhead); }
+      .branch { stroke: #94a3b8; stroke-width: 3; fill: none; marker-end: url(#arrowhead-light); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrowhead-light" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1360" height="1560"/>
+
+  <text class="title" x="70" y="68">Inference Pipeline</text>
+  <text class="subtitle" x="70" y="102">Only model calls are boxed. Fast-path and escalation rules are shown on the arrows.</text>
+
+  <rect class="panel" x="60" y="132" width="1240" height="116"/>
+  <text class="section" x="88" y="170">Thresholds</text>
+  <text class="body" x="88" y="204">ML: 0.85 | DeBERTa label: P(adv) ≥ 0.93 | DeBERTa router confidence: max softmax ≥ 0.93</text>
+  <text class="body" x="88" y="232">Judge trigger: LLM conf &lt; 0.8 | LLM accept: conf ≥ 0.9 | Benign margin override: &lt; 2.0 | Risk model: 0.5</text>
+
+  <rect class="neutral" x="80" y="294" width="560" height="112"/>
+  <text class="section" x="108" y="334">Reading key</text>
+  <text class="body" x="108" y="368">Blue = model call | Amber = router gate</text>
+  <text class="body" x="108" y="394">Green = accepted output | Pink = abstain or fallback</text>
+
+  <rect class="neutral" x="720" y="294" width="560" height="112"/>
+  <text class="section" x="748" y="334">Flow idea</text>
+  <text class="body" x="748" y="368">Local models try to finish cheap cases first.</text>
+  <text class="body" x="748" y="394">Only unresolved cases reach the LLM.</text>
+
+  <rect class="neutral" x="140" y="470" width="540" height="88"/>
+  <text class="section" x="168" y="522">Input prompt</text>
+
+  <rect class="model" x="140" y="640" width="540" height="110"/>
+  <text class="section" x="168" y="682">ML baseline</text>
+  <text class="body" x="168" y="718">Character-level model for easy unicode or char attacks.</text>
+
+  <rect class="outcome" x="860" y="628" width="360" height="112"/>
+  <text class="section" x="888" y="670">Finalize via ML</text>
+  <text class="body" x="888" y="706">Route: `ml` | Label: adversarial</text>
+
+  <rect class="model" x="140" y="860" width="540" height="116"/>
+  <text class="section" x="168" y="902">DeBERTa</text>
+  <text class="body" x="168" y="938">Binary classifier used before any LLM call.</text>
+
+  <rect class="outcome" x="860" y="852" width="360" height="128"/>
+  <text class="section" x="888" y="894">Finalize via DeBERTa</text>
+  <text class="body" x="888" y="930">Route: `deberta`</text>
+  <text class="body" x="888" y="958">Label: benign or adversarial</text>
+
+  <rect class="model" x="140" y="1088" width="540" height="116"/>
+  <text class="section" x="168" y="1130">LLM classifier</text>
+  <text class="body" x="168" y="1166">8B model returns label plus confidence.</text>
+
+  <rect class="model" x="860" y="1078" width="360" height="116"/>
+  <text class="section" x="888" y="1120">Optional judge</text>
+  <text class="body" x="888" y="1156">70B review on low-confidence classifier cases.</text>
+
+  <rect class="gate" x="860" y="1288" width="420" height="148"/>
+  <text class="section" x="888" y="1330">Post-LLM gates</text>
+  <text class="body" x="888" y="1366">Accept only if final LLM confidence ≥ 0.9.</text>
+  <text class="body" x="888" y="1394">For benign outputs, margin &lt; 2.0 forces adversarial.</text>
+
+  <rect class="outcome" x="80" y="1462" width="560" height="90"/>
+  <text class="section" x="108" y="1510">Accepted LLM output</text>
+
+  <rect class="warning" x="760" y="1462" width="540" height="90"/>
+  <text class="section" x="788" y="1510">Abstain then risk model</text>
+
+  <line class="arrow" x1="410" y1="558" x2="410" y2="640"/>
+  <line class="arrow" x1="410" y1="750" x2="410" y2="860"/>
+  <line class="arrow" x1="410" y1="976" x2="410" y2="1088"/>
+
+  <line class="branch" x1="680" y1="694" x2="860" y2="684"/>
+  <text class="small" x="706" y="672">adv and conf ≥ 0.85</text>
+  <text class="small" x="706" y="692">and unicode lane</text>
+
+  <path class="branch" d="M 680 724 C 760 724, 760 902, 860 902"/>
+  <text class="small" x="706" y="760">else continue</text>
+
+  <line class="branch" x1="680" y1="918" x2="860" y2="918"/>
+  <text class="small" x="706" y="896">router conf ≥ 0.93</text>
+
+  <path class="branch" d="M 680 950 C 760 950, 760 1146, 860 1146"/>
+  <text class="small" x="706" y="986">router conf &lt; 0.93</text>
+  <text class="small" x="706" y="1006">escalate to LLM</text>
+
+  <line class="arrow" x1="410" y1="1204" x2="410" y2="1462"/>
+
+  <path class="branch" d="M 680 1146 C 760 1146, 780 1146, 860 1146"/>
+  <text class="small" x="706" y="1124">classifier conf &lt; 0.8</text>
+
+  <path class="branch" d="M 680 1178 C 790 1178, 790 1340, 860 1340"/>
+  <text class="small" x="706" y="1220">classifier conf ≥ 0.8</text>
+  <text class="small" x="706" y="1240">skip judge</text>
+
+  <line class="arrow" x1="1040" y1="1194" x2="1040" y2="1288"/>
+  <text class="small" x="1062" y="1244">judge output</text>
+
+  <path class="branch" d="M 860 1360 C 760 1360, 740 1504, 640 1504"/>
+  <text class="small" x="694" y="1422">final conf ≥ 0.9</text>
+  <text class="small" x="700" y="1442">and no low-margin benign override</text>
+
+  <path class="branch" d="M 1280 1360 C 1300 1360, 1300 1504, 1300 1504"/>
+  <text class="small" x="1118" y="1422">else abstain first</text>
+
+</svg>
