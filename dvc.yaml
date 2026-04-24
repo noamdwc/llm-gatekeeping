@@ -37,6 +37,7 @@ stages:
       - dataset
       - labels
       - benign
+      - training_datasets
     outs:
     - data/processed/full_dataset.parquet
 
@@ -51,12 +52,14 @@ stages:
     - configs/default.yaml:
       - splits
       - labels.held_out_attacks
+      - training_datasets
     outs:
     - data/processed/splits/train.parquet
     - data/processed/splits/val.parquet
     - data/processed/splits/test.parquet
     - data/processed/splits/unseen_val.parquet
     - data/processed/splits/unseen_test.parquet
+    - data/processed/splits/safeguard_test.parquet
 
   # ── Stage 3: ML Model (train + research predictions) ─────────────────────
   ml_model:
@@ -69,6 +72,7 @@ stages:
     - data/processed/splits/test.parquet
     - data/processed/splits/unseen_val.parquet
     - data/processed/splits/unseen_test.parquet
+    - data/processed/splits/safeguard_test.parquet
     params:
     - configs/default.yaml:
       - ml
@@ -78,6 +82,7 @@ stages:
     - data/processed/predictions/ml_predictions_val.parquet
     - data/processed/predictions/ml_predictions_unseen_val.parquet
     - data/processed/predictions/ml_predictions_unseen_test.parquet
+    - data/processed/predictions/ml_predictions_safeguard_test.parquet
 
   # ── Stage 3b: DeBERTa Classifier (train + research predictions) ─────────
   deberta_model:
@@ -91,6 +96,7 @@ stages:
     - data/processed/splits/test.parquet
     - data/processed/splits/unseen_val.parquet
     - data/processed/splits/unseen_test.parquet
+    - data/processed/splits/safeguard_test.parquet
     params:
     - configs/default.yaml:
       - deberta
@@ -103,6 +109,7 @@ stages:
     - data/processed/predictions/deberta_predictions_val.parquet
     - data/processed/predictions/deberta_predictions_unseen_val.parquet
     - data/processed/predictions/deberta_predictions_unseen_test.parquet
+    - data/processed/predictions/deberta_predictions_safeguard_test.parquet
     - reports/deberta_classifier/metrics.json:
         cache: false
     - reports/deberta_classifier/classification_report.json:
@@ -175,6 +182,22 @@ stages:
     outs:
     - data/processed/research/hybrid_margin_trace_val.parquet
     - data/processed/research/research_val.parquet
+
+  # ── Stage 5d: Research on safeguard_test (binary-only) ──────────────────
+  research_safeguard_test:
+    cmd: python -m src.research --split safeguard_test
+    deps:
+    - data/processed/predictions/
+    - data/processed/splits/safeguard_test.parquet
+    - src/evaluate.py
+    - src/hybrid_router.py
+    - src/research.py
+    - src/utils.py
+    params:
+    - configs/default.yaml:
+      - hybrid
+    outs:
+    - data/processed/research/research_safeguard_test.parquet
 
   # ── Stage 5c: Train Risk Model (on val trace + DeBERTa) ─────────────────
   train_risk_model:
