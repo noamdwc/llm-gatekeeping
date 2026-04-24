@@ -96,10 +96,12 @@ class RouterStats:
 class HybridRouter:
     """Routes classification through ML, DeBERTa, or LLM based on confidence thresholds."""
 
-    def __init__(self, ml_model, llm_classifier, cfg: dict, deberta_model=None):
+    def __init__(self, ml_model, llm_classifier, cfg: dict, deberta_model=None,
+                 risk_model=None):
         self.ml = ml_model
         self.llm = llm_classifier
         self.deberta = deberta_model
+        self.risk_model = risk_model
         self.ml_threshold = cfg["hybrid"]["ml_confidence_threshold"]
         self.llm_threshold = cfg["hybrid"]["llm_confidence_threshold"]
         self.deberta_threshold = cfg["hybrid"].get("deberta_confidence_threshold", 0.93)
@@ -113,6 +115,8 @@ class HybridRouter:
         self._adv_non_unicode_escalations = 0
         self._adv_unknown_lane_escalations = 0
         self._margin_gate_overrides = 0
+        self._risk_model_benign = 0
+        self._risk_model_adversarial = 0
         self._deberta_benign_finalizations = 0
         self._deberta_adv_finalizations = 0
         unicode_types = cfg.get("labels", {}).get("unicode_attacks", [])
@@ -178,6 +182,7 @@ class HybridRouter:
         ml_binary: str,
         ml_conf: float,
         unicode_lane: bool,
+        deberta_pred: dict | None = None,
     ) -> dict:
         """Escalate a sample to LLM and standardize output schema."""
         llm_result = self.llm.predict(text)
@@ -222,6 +227,30 @@ class HybridRouter:
             self.stats.abstained += 1
         if margin_gated and policy_result["policy_outcome"] == "forced_adversarial":
             self._margin_gate_overrides += 1
+
+        # Risk model: replace crude abstain→adversarial with informed decision
+        if routed_to == "abstain" and self.risk_model is not None:
+            deberta_adv_prob = 0.5
+            if deberta_pred is not None:
+                deberta_adv_prob = deberta_pred.get(
+                    "deberta_proba_binary_adversarial", 0.5
+                )
+            risk_features = {
+                "margin": margin_features.margin,
+                "top1_logprob": margin_features.top1_logprob,
+                "top2_logprob": margin_features.top2_logprob,
+                "self_reported_confidence": llm_conf,
+                "is_judge_stage": int(margin_features.source_stage == "judge"),
+                "deberta_proba_binary_adversarial": deberta_adv_prob,
+                "is_abstain": 1,
+            }
+            risk_label = self.risk_model.predict_label(risk_features)
+            if risk_label == "benign":
+                final_binary = "benign"
+                final_label = "benign"
+                self._risk_model_benign += 1
+            else:
+                self._risk_model_adversarial += 1
 
         llm_category = llm_result.get("label_category")
         ml_category = self._get_ml_category(ml_pred)
@@ -363,6 +392,7 @@ class HybridRouter:
             ml_binary=ml_binary,
             ml_conf=ml_conf,
             unicode_lane=unicode_lane,
+            deberta_pred=deberta_pred,
         )
 
     def predict_batch(
@@ -397,6 +427,12 @@ class HybridRouter:
                     f" | deberta_benign_finalize={self._deberta_benign_finalizations}"
                     f" | deberta_adv_finalize={self._deberta_adv_finalizations}"
                 )
+            risk_info = ""
+            if self.risk_model is not None:
+                risk_info = (
+                    f" | risk_model_benign={self._risk_model_benign}"
+                    f" | risk_model_adversarial={self._risk_model_adversarial}"
+                )
             print(
                 "  [HybridRouter] route summary | "
                 f"ml_adv_high_conf_unicode_finalize={self._adv_high_conf_finalizations} | "
@@ -406,6 +442,7 @@ class HybridRouter:
                 f"ml_adv_unknown_lane_escalate={self._adv_unknown_lane_escalations}"
                 f"{deberta_info}"
                 f"{margin_info}"
+                f"{risk_info}"
             )
 
         return results
@@ -548,7 +585,17 @@ def main():
         deberta = DeBERTaClassifier.load(DEBERTA_ARTIFACTS_DIR, cfg)
         print(f"DeBERTa model loaded (threshold={cfg['hybrid'].get('deberta_confidence_threshold', 0.93)})")
 
-    router = HybridRouter(ml, llm, cfg, deberta_model=deberta)
+    # Load risk model if available
+    risk_model = None
+    risk_cfg = cfg.get("hybrid", {}).get("risk_model", {})
+    if risk_cfg.get("enabled", False):
+        risk_path = Path(risk_cfg.get("model_path", MODELS_DIR / "risk_model.pkl"))
+        if risk_path.exists():
+            from src.benign_risk_model import RiskModel
+            risk_model = RiskModel.load(risk_path)
+            print(f"Risk model loaded (threshold={risk_model.threshold})")
+
+    router = HybridRouter(ml, llm, cfg, deberta_model=deberta, risk_model=risk_model)
     results = router.predict_batch(df_test, text_col)
 
     # Evaluate

@@ -27,6 +27,7 @@ import pandas as pd
 from src.utils import (
     load_config, build_sample_id, MODELS_DIR, SPLITS_DIR,
     RESEARCH_EXTERNAL_DIR, REPORTS_EXTERNAL_DIR, PREDICTIONS_EXTERNAL_DIR,
+    DEBERTA_ARTIFACTS_DIR,
 )
 from src.evaluate import binary_metrics, calibration_metrics
 from src.eval_external import load_external_dataset
@@ -563,6 +564,27 @@ def run_research_single(
     threshold = cfg["hybrid"]["ml_confidence_threshold"]
     llm_threshold = cfg["hybrid"]["llm_confidence_threshold"]
     unicode_types = cfg.get("labels", {}).get("unicode_attacks", [])
+    deberta_confidence_threshold = cfg["hybrid"].get("deberta_confidence_threshold", 0.93)
+
+    # DeBERTa predictions for external dataset
+    deberta_df = None
+    if DEBERTA_ARTIFACTS_DIR.exists() and (DEBERTA_ARTIFACTS_DIR / "model").exists():
+        from src.models.deberta_classifier import DeBERTaClassifier
+        deberta_model = DeBERTaClassifier.load(DEBERTA_ARTIFACTS_DIR, cfg)
+        deberta_df = deberta_model.predict(df, "modified_sample")
+        deberta_df.insert(0, "sample_id", df["modified_sample"].reset_index(drop=True).apply(build_sample_id))
+        print(f"  DeBERTa predictions: {len(deberta_df)} samples")
+
+    # Risk model for abstain resolution
+    risk_model_obj = None
+    risk_cfg = cfg.get("hybrid", {}).get("risk_model", {})
+    if risk_cfg.get("enabled", False):
+        from src.benign_risk_model import RiskModel
+        risk_path = Path(risk_cfg.get("model_path", MODELS_DIR / "risk_model.pkl"))
+        if risk_path.exists():
+            risk_model_obj = RiskModel.load(risk_path)
+            print(f"  Risk model loaded (threshold={risk_model_obj.threshold})")
+
     print(f"  Computing hybrid routing (threshold={threshold})...")
     hybrid_df = compute_hybrid_routing(
         ml_df,
@@ -576,6 +598,9 @@ def run_research_single(
             f"dvc repro research_external_llm@{ds_key} research_external@{ds_key}"
             if mode == "hybrid" else None
         ),
+        deberta_df=deberta_df,
+        deberta_confidence_threshold=deberta_confidence_threshold,
+        risk_model=risk_model_obj,
     )
 
     research_df = build_external_research_df(df, ml_df, hybrid_df, llm_df)

@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -28,7 +29,7 @@ from src.utils import (
     load_config,
     build_sample_id,
     SPLITS_DIR, PREDICTIONS_DIR, RESEARCH_DIR, REPORTS_DIR,
-    REPORTS_RESEARCH_DIR, REPORTS_ARTIFACTS_DIR,
+    REPORTS_RESEARCH_DIR, REPORTS_ARTIFACTS_DIR, MODELS_DIR,
 )
 from src.evaluate import (
     binary_metrics, category_metrics, type_metrics,
@@ -247,6 +248,7 @@ def compute_hybrid_routing(
     llm_generation_hint: str | None = None,
     deberta_df: pd.DataFrame | None = None,
     deberta_confidence_threshold: float = 0.93,
+    risk_model=None,
 ) -> pd.DataFrame:
     """Compute hybrid routing decisions from ML prediction + confidence threshold.
 
@@ -405,6 +407,46 @@ def compute_hybrid_routing(
                 if len(abstain_idx) > 0:
                     result.loc[abstain_idx, "hybrid_routed_to"] = "abstain"
                     result.loc[abstain_idx, "hybrid_pred_binary"] = "adversarial"
+
+                    # Risk model: replace blanket adversarial with informed decision
+                    if risk_model is not None and deberta_df is not None:
+                        deberta_indexed_rm = deberta_df.set_index("sample_id")
+                        abstain_ids = result.loc[abstain_idx, "sample_id"]
+                        has_deberta = abstain_ids.isin(deberta_indexed_rm.index)
+                        risk_eligible = abstain_idx[has_deberta.values]
+                        if len(risk_eligible) > 0:
+                            risk_ids = result.loc[risk_eligible, "sample_id"]
+                            deb_rows = deberta_indexed_rm.loc[risk_ids]
+                            llm_rows_rm = llm_indexed.loc[risk_ids]
+                            margins = [
+                                extract_preferred_margin_features_from_row(llm_rows_rm.iloc[i])
+                                for i in range(len(risk_ids))
+                            ]
+                            is_judge = (
+                                (llm_rows_rm["llm_stages_run"] == 2).astype(int).values
+                                if "llm_stages_run" in llm_rows_rm.columns
+                                else np.zeros(len(risk_ids), dtype=int)
+                            )
+                            risk_features = pd.DataFrame({
+                                "margin": [m.margin for m in margins],
+                                "top1_logprob": [m.top1_logprob for m in margins],
+                                "top2_logprob": [m.top2_logprob for m in margins],
+                                "self_reported_confidence": llm_rows_rm["llm_conf_binary"].fillna(0.5).values,
+                                "is_judge_stage": is_judge,
+                                "deberta_proba_binary_adversarial": deb_rows["deberta_proba_binary_adversarial"].values,
+                                "is_abstain": 1,
+                            })
+                            risk_scores = risk_model.predict_risk_batch(risk_features)
+                            benign_mask = risk_scores <= risk_model.threshold
+                            benign_idx = risk_eligible[benign_mask]
+                            n_risk_benign = int(benign_mask.sum())
+                            n_risk_adv = len(risk_eligible) - n_risk_benign
+                            result.loc[benign_idx, "hybrid_pred_binary"] = "benign"
+                            print(
+                                f"  [research routing] risk model on abstain | "
+                                f"total={len(risk_eligible)} | "
+                                f"benign={n_risk_benign} | adversarial={n_risk_adv}"
+                            )
             # LLM does not provide type-level predictions; hybrid_pred_type stays as ML's prediction
 
             for idx in override_idx:
@@ -808,6 +850,18 @@ def main():
 
     deberta_confidence_threshold = cfg["hybrid"].get("deberta_confidence_threshold", 0.93)
 
+    # ── Load risk model if available ─────────────────────────────────────────
+    risk_model_obj = None
+    risk_cfg = cfg.get("hybrid", {}).get("risk_model", {})
+    if risk_cfg.get("enabled", False):
+        from src.benign_risk_model import RiskModel
+        risk_path = Path(risk_cfg.get("model_path", MODELS_DIR / "risk_model.pkl"))
+        if risk_path.exists():
+            risk_model_obj = RiskModel.load(risk_path)
+            print(f"Risk model loaded (threshold={risk_model_obj.threshold})")
+        else:
+            print(f"Risk model enabled but not found at {risk_path} — falling back to blanket adversarial")
+
     # ── Compute hybrid routing ───────────────────────────────────────────────
     print(f"Computing hybrid routing (threshold={threshold})...")
     hybrid_df = compute_hybrid_routing(
@@ -823,6 +877,7 @@ def main():
         llm_generation_hint=f"dvc repro llm_classifier research eval_new --force",
         deberta_df=deberta_df,
         deberta_confidence_threshold=deberta_confidence_threshold,
+        risk_model=risk_model_obj,
     )
 
     # ── Load split parquet for synth_* metadata ──────────────────────────────

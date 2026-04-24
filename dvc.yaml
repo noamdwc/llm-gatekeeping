@@ -5,19 +5,18 @@ stages:
   # ── Stage 0: Generate Synthetic Benign (one stage per category — costs API tokens) ─────
   generate_synthetic_benign:
     foreach:
-      - A
-      - B
-      - C
-      - D
-      - E
-      - F
+    - A
+    - B
+    - C
+    - D
+    - E
+    - F
     do:
       cmd: python -m src.cli.generate_synthetic_benign --category ${item}
       deps:
       - src/cli/generate_synthetic_benign.py
       - src/synthetic_benign.py
       - src/validators.py
-      - src/llm_classifier/
       - src/utils.py
       params:
       - configs/default.yaml:
@@ -106,9 +105,8 @@ stages:
     - reports/deberta_classifier/summary.md:
         cache: false
 
-  # ── Stage 4: LLM Classifier (frozen by default — costs API tokens) ──────
+  # ── Stage 4: LLM Classifier ─────────────────────────────────────────────
   llm_classifier:
-    # frozen: true
     cmd: python -m src.llm_classifier.llm_classifier --split test --research --no-wandb
     deps:
     - data/processed/splits/test.parquet
@@ -122,13 +120,12 @@ stages:
     outs:
     - data/processed/predictions/llm_predictions_test.parquet
 
-  # ── Stage 4b: LLM Classifier on val (frozen — costs API tokens) ────────
+  # ── Stage 4b: LLM Classifier on val ────────────────────────────────────
   llm_classifier_val:
-    # frozen: true
     cmd: python -m src.llm_classifier.llm_classifier --split val --research --no-wandb
     deps:
-    - data/processed/splits/val.parquet
     - data/processed/splits/train.parquet
+    - data/processed/splits/val.parquet
     - src/embeddings.py
     - src/llm_classifier/
     - src/utils.py
@@ -143,11 +140,13 @@ stages:
     cmd: python -m src.research --split test
     deps:
     - src/research.py
+    - src/benign_risk_model.py
     - src/hybrid_router.py
     - src/evaluate.py
     - src/utils.py
     - data/processed/predictions/
     - data/processed/splits/test.parquet
+    - data/processed/models/risk_model.pkl
     params:
     - configs/default.yaml:
       - hybrid
@@ -155,23 +154,36 @@ stages:
     - data/processed/research/research_test.parquet
     - data/processed/research/hybrid_margin_trace_test.parquet
 
-  # ── Stage 5b: Research on val (frozen — costs API tokens) ──────────────
+  # ── Stage 5b: Research on val ──────────────────────────────────────────
   research_val:
-    # frozen: true
     cmd: python -m src.research --split val
     deps:
-    - src/research.py
-    - src/hybrid_router.py
-    - src/evaluate.py
-    - src/utils.py
     - data/processed/predictions/
     - data/processed/splits/val.parquet
+    - src/evaluate.py
+    - src/hybrid_router.py
+    - src/research.py
+    - src/utils.py
     params:
     - configs/default.yaml:
       - hybrid
     outs:
-    - data/processed/research/research_val.parquet
     - data/processed/research/hybrid_margin_trace_val.parquet
+    - data/processed/research/research_val.parquet
+
+  # ── Stage 5c: Train Risk Model (on val trace + DeBERTa) ─────────────────
+  train_risk_model:
+    cmd: python -m src.cli.train_risk_model
+    deps:
+    - src/benign_risk_model.py
+    - src/cli/train_risk_model.py
+    - data/processed/research/hybrid_margin_trace_val.parquet
+    - data/processed/predictions/deberta_predictions_val.parquet
+    params:
+    - configs/default.yaml:
+      - hybrid.risk_model
+    outs:
+    - data/processed/models/risk_model.pkl
 
   # ── Stage 6: External LLM Predictions (one stage per dataset) ────────────
   research_external_llm:
@@ -218,10 +230,8 @@ stages:
 
   # ── Stage 7b: Post-hoc Benign Risk Model ──────────────────────────────────
   risk_model:
-    cmd: python -m src.cli.benign_risk_model
-      --train-trace data/processed/research/hybrid_margin_trace_val.parquet
-      --trace data/processed/research/hybrid_margin_trace_test.parquet
-      --split test
+    cmd: python -m src.cli.benign_risk_model --train-trace data/processed/research/hybrid_margin_trace_val.parquet
+      --trace data/processed/research/hybrid_margin_trace_test.parquet --split test
     deps:
     - src/benign_risk_model.py
     - src/cli/benign_risk_model.py

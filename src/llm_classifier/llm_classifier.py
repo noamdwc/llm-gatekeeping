@@ -33,7 +33,7 @@ from src.llm_classifier.constants import (
     BYPASS_INTENT_PATTERNS,
 )
 from src.embeddings import ExemplarBank, get_embeddings
-from src.llm_cache import get_or_create_chat_completion
+from src.llm_cache import CachedChatResult, get_cache_path, get_or_create_chat_completion
 from src.llm_classifier.rate_limiter import APIRateLimiter
 from src.llm_provider import get_provider, make_client, resolve_model
 
@@ -172,59 +172,72 @@ class HierarchicalLLMClassifier:
         max_retries: int = 5,
     ) -> dict:
         """Make one LLM call, track usage, return parsed JSON."""
-        response = None
-        cached = None
-        latency = 0.0
-        for attempt in range(max_retries):
-            with self._rate_limiter.acquire():
-                try:
-                    t0 = time.time()
-                    client = self._get_client()
-                    request_kwargs = {
-                        "model": model or self.model,
-                        "messages": messages,
-                        "temperature": self.temperature,
-                        "max_tokens": max_tokens,
-                        "response_format": {"type": "json_object"},
-                    }
-                    if self.capture_logprobs:
-                        request_kwargs["logprobs"] = True
-                        if self.top_logprobs > 0:
-                            request_kwargs["top_logprobs"] = self.top_logprobs
-                    cached = get_or_create_chat_completion(
-                        provider_name=self._provider.name,
-                        request_kwargs=request_kwargs,
-                        create_fn=lambda: client.chat.completions.create(**request_kwargs),
-                    )
-                    response = cached.payload
-                    if cached.cache_hit:
-                        self._rate_limiter.stats.record_cache(hit=True)
-                    else:
-                        latency = time.time() - t0
-                        self._rate_limiter.stats.record_cache(hit=False)
-                    self._rate_limiter.stats.record_request(success=True)
-                    if not cached.cache_hit:
-                        self._rate_limiter.report_success()
-                    break
-                except openai.RateLimitError as exc:
-                    self._rate_limiter.report_rate_limit(exc)
-                    self._rate_limiter.stats.record_request(success=False)
-                    if attempt == max_retries - 1:
-                        raise
-                    wait = self._rate_limiter.compute_retry_delay(attempt, exc)
-                    self._rate_limiter.stats.record_retry(wait)
-                    print(f"\n429 rate limit → global cooldown, retrying in {wait:.1f}s "
-                          f"(attempt {attempt + 1}/{max_retries})")
-                    time.sleep(wait)
-                except (openai.APIConnectionError, openai.APIError) as exc:
-                    self._rate_limiter.stats.record_request(success=False)
-                    if attempt == max_retries - 1:
-                        raise
-                    wait = self._rate_limiter.compute_retry_delay(attempt, exc)
-                    self._rate_limiter.stats.record_retry(wait)
-                    print(f"\nAPI error ({type(exc).__name__}), retrying in {wait:.1f}s "
-                          f"(attempt {attempt + 1}/{max_retries})")
-                    time.sleep(wait)
+        request_kwargs = {
+            "model": model or self.model,
+            "messages": messages,
+            "temperature": self.temperature,
+            "max_tokens": max_tokens,
+            "response_format": {"type": "json_object"},
+        }
+        if self.capture_logprobs:
+            request_kwargs["logprobs"] = True
+            if self.top_logprobs > 0:
+                request_kwargs["top_logprobs"] = self.top_logprobs
+
+        # Check cache before acquiring rate limiter slot
+        cache_path = get_cache_path(self._provider.name, request_kwargs)
+        if cache_path.exists():
+            cached = CachedChatResult(
+                payload=json.loads(cache_path.read_text(encoding="utf-8")),
+                cache_hit=True,
+            )
+            response = cached.payload
+            self._rate_limiter.stats.record_cache(hit=True)
+            self._rate_limiter.stats.record_request(success=True)
+        else:
+            # Cache miss — go through rate limiter for actual API call
+            response = None
+            cached = None
+            latency = 0.0
+            for attempt in range(max_retries):
+                with self._rate_limiter.acquire():
+                    try:
+                        t0 = time.time()
+                        client = self._get_client()
+                        cached = get_or_create_chat_completion(
+                            provider_name=self._provider.name,
+                            request_kwargs=request_kwargs,
+                            create_fn=lambda: client.chat.completions.create(**request_kwargs),
+                        )
+                        response = cached.payload
+                        if cached.cache_hit:
+                            self._rate_limiter.stats.record_cache(hit=True)
+                        else:
+                            latency = time.time() - t0
+                            self._rate_limiter.stats.record_cache(hit=False)
+                        self._rate_limiter.stats.record_request(success=True)
+                        if not cached.cache_hit:
+                            self._rate_limiter.report_success()
+                        break
+                    except openai.RateLimitError as exc:
+                        self._rate_limiter.report_rate_limit(exc)
+                        self._rate_limiter.stats.record_request(success=False)
+                        if attempt == max_retries - 1:
+                            raise
+                        wait = self._rate_limiter.compute_retry_delay(attempt, exc)
+                        self._rate_limiter.stats.record_retry(wait)
+                        print(f"\n429 rate limit → global cooldown, retrying in {wait:.1f}s "
+                              f"(attempt {attempt + 1}/{max_retries})")
+                        time.sleep(wait)
+                    except (openai.APIConnectionError, openai.APIError) as exc:
+                        self._rate_limiter.stats.record_request(success=False)
+                        if attempt == max_retries - 1:
+                            raise
+                        wait = self._rate_limiter.compute_retry_delay(attempt, exc)
+                        self._rate_limiter.stats.record_retry(wait)
+                        print(f"\nAPI error ({type(exc).__name__}), retrying in {wait:.1f}s "
+                              f"(attempt {attempt + 1}/{max_retries})")
+                        time.sleep(wait)
 
         prompt_tokens = 0
         completion_tokens = 0
@@ -361,7 +374,7 @@ class HierarchicalLLMClassifier:
             messages.append({
                 "role": "assistant", "content": json.dumps({
                     "label": 'benign',
-                    "confidence": 90,
+                    "confidence": 95,
                     "nlp_attack_type": 'none',
                     "evidence": "",
                     "reason": "No active attempt to override instructions, exfiltrate data, or hijack tools.",
@@ -379,7 +392,7 @@ class HierarchicalLLMClassifier:
             messages.append({
                 "role": "assistant", "content": json.dumps({
                     "label": 'adversarial',
-                    "confidence": 88,
+                    "confidence": 84,
                     "nlp_attack_type": attack_type if attack_type in NLP_TYPES else 'none',
                     "evidence": evidence,
                     "reason": adv_reason,
