@@ -207,7 +207,7 @@ class FakeTokenizer:
     def __call__(self, texts, truncation=True, max_length=128, padding=False):
         n = len(texts)
         return {
-            "input_ids": [[1, 2] for _ in range(n)],
+            "input_ids": [[n - i, 2] for i in range(n)],
             "attention_mask": [[1, 1] for _ in range(n)],
         }
 
@@ -245,8 +245,9 @@ class FakeHFModel(nn.Module):
 
     def forward(self, input_ids, attention_mask=None, labels=None):
         batch_size = input_ids.shape[0]
+        scale = input_ids[:, 0].float()
         logits = torch.stack(
-            [self.weight.expand(batch_size), (-self.weight).expand(batch_size)],
+            [self.weight.expand(batch_size) * scale, (-self.weight).expand(batch_size) * scale],
             dim=1,
         )
         loss = (self.weight - 1.0) ** 2
@@ -316,6 +317,77 @@ class TestTrainingLifecycle:
         assert len(result.train_history) == 3
         assert clf.best_checkpoint["epoch"] == 1
         assert torch.isclose(clf.model.weight.detach().cpu(), torch.tensor(0.1), atol=1e-6)
+
+    @patch("src.models.deberta_classifier.get_linear_schedule_with_warmup", return_value=FakeScheduler())
+    @patch("src.models.deberta_classifier.AdamW", side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr))
+    @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())
+    @patch("src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained", return_value=FakeHFModel())
+    @patch("src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer())
+    def test_train_records_unseen_monitor_metrics_without_selecting_on_them(
+        self,
+        _mock_tokenizer,
+        _mock_model,
+        _mock_collator,
+        _mock_optimizer,
+        _mock_scheduler,
+        sample_config_with_deberta,
+    ):
+        cfg = sample_config_with_deberta.copy()
+        cfg["deberta"] = cfg["deberta"].copy()
+        cfg["deberta"]["num_epochs"] = 1
+        cfg["deberta"]["metric_for_best_model"] = "f1"
+
+        df_train = pd.DataFrame({
+            "modified_sample": ["a", "b", "c", "d"],
+            "label_binary": ["benign", "adversarial", "benign", "adversarial"],
+        })
+        df_val = pd.DataFrame({
+            "modified_sample": ["e", "f"],
+            "label_binary": ["benign", "adversarial"],
+        })
+        monitor_dfs = {
+            "unseen_val": pd.DataFrame({
+                "modified_sample": ["g", "h"],
+                "label_binary": ["benign", "adversarial"],
+            }),
+            "unseen_test": pd.DataFrame({
+                "modified_sample": ["i", "j"],
+                "label_binary": ["benign", "adversarial"],
+            }),
+        }
+
+        clf = DeBERTaClassifier(cfg)
+        metrics = [
+            {
+                "accuracy": 0.8, "f1": 0.7, "macro_f1": 0.75, "precision": 0.7, "recall": 0.7,
+                "f1_benign": 0.8, "f1_adversarial": 0.7,
+            },
+            {
+                "accuracy": 0.4, "f1": 0.9, "macro_f1": 0.5, "precision": 0.91, "recall": 0.92,
+                "f1_benign": 0.2, "f1_adversarial": 0.9,
+            },
+            {
+                "accuracy": 0.3, "f1": 0.95, "macro_f1": 0.4, "precision": 0.96, "recall": 0.97,
+                "f1_benign": 0.1, "f1_adversarial": 0.95,
+            },
+        ]
+
+        with patch.object(clf, "_evaluate", side_effect=metrics):
+            result = clf.train(
+                df_train,
+                df_val,
+                text_col="modified_sample",
+                force_cpu=True,
+                monitor_dfs=monitor_dfs,
+            )
+
+        assert result.best_metric_value == 0.7
+        assert result.train_history[0]["unseen_val_f1"] == 0.9
+        assert result.train_history[0]["unseen_val_precision"] == 0.91
+        assert result.train_history[0]["unseen_val_recall"] == 0.92
+        assert result.train_history[0]["unseen_test_f1"] == 0.95
+        assert result.train_history[0]["unseen_test_precision"] == 0.96
+        assert result.train_history[0]["unseen_test_recall"] == 0.97
 
     @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())
     @patch("src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained", return_value=FakeHFModel())
@@ -391,9 +463,13 @@ class TestCLILifecycle:
         """Successful training should initialize wandb, log history, and finish the run."""
         train_df = MagicMock()
         val_df = MagicMock()
+        unseen_val_df = MagicMock()
+        unseen_test_df = MagicMock()
         train_df.__len__.return_value = 10
         val_df.__len__.return_value = 4
-        mock_read.side_effect = [train_df, val_df]
+        unseen_val_df.__len__.return_value = 3
+        unseen_test_df.__len__.return_value = 2
+        mock_read.side_effect = [train_df, val_df, unseen_val_df, unseen_test_df]
 
         mock_clf = MagicMock()
         MockClf.return_value = mock_clf
@@ -409,6 +485,12 @@ class TestCLILifecycle:
                 "eval_f1_benign": 0.78,
                 "eval_precision": 0.85,
                 "eval_recall": 0.75,
+                "unseen_val_f1": 0.71,
+                "unseen_val_precision": 0.72,
+                "unseen_val_recall": 0.73,
+                "unseen_test_f1": 0.61,
+                "unseen_test_precision": 0.62,
+                "unseen_test_recall": 0.63,
             }],
         )
         mock_wandb.run = object()
@@ -419,12 +501,28 @@ class TestCLILifecycle:
             main()
 
         mock_wandb.init.assert_called_once()
+        train_kwargs = mock_clf.train.call_args.kwargs
+        assert train_kwargs["monitor_dfs"] == {
+            "unseen_val": unseen_val_df,
+            "unseen_test": unseen_test_df,
+        }
         assert mock_wandb.log.call_count >= 3
         assert any(
             call.kwargs.get("step") == 1
             and call.args
             and call.args[0].get("eval/f1_adversarial") == 0.82
             and call.args[0].get("eval/f1_benign") == 0.78
+            for call in mock_wandb.log.call_args_list
+        )
+        assert any(
+            call.kwargs.get("step") == 1
+            and call.args
+            and call.args[0].get("monitor/unseen_val/f1") == 0.71
+            and call.args[0].get("monitor/unseen_val/precision") == 0.72
+            and call.args[0].get("monitor/unseen_val/recall") == 0.73
+            and call.args[0].get("monitor/unseen_test/f1") == 0.61
+            and call.args[0].get("monitor/unseen_test/precision") == 0.62
+            and call.args[0].get("monitor/unseen_test/recall") == 0.63
             for call in mock_wandb.log.call_args_list
         )
         mock_wandb.log_artifact.assert_not_called()
@@ -437,9 +535,13 @@ class TestCLILifecycle:
         """Failed training should mark the wandb run failed before exiting."""
         train_df = MagicMock()
         val_df = MagicMock()
+        unseen_val_df = MagicMock()
+        unseen_test_df = MagicMock()
         train_df.__len__.return_value = 10
         val_df.__len__.return_value = 4
-        mock_read.side_effect = [train_df, val_df]
+        unseen_val_df.__len__.return_value = 3
+        unseen_test_df.__len__.return_value = 2
+        mock_read.side_effect = [train_df, val_df, unseen_val_df, unseen_test_df]
 
         mock_clf = MagicMock()
         MockClf.return_value = mock_clf
@@ -460,6 +562,30 @@ class TestCLILifecycle:
 
         mock_wandb.init.assert_called_once()
         mock_wandb.finish.assert_called_once_with(exit_code=1)
+
+
+class TestCLIReporting:
+    def test_summary_includes_unseen_precision_recall_and_f1(self):
+        from src.cli.deberta_classifier import compute_split_metrics, generate_summary
+
+        split_df = pd.DataFrame({
+            "label_binary": ["adversarial", "benign", "adversarial", "benign"],
+            "deberta_pred_binary": ["adversarial", "benign", "benign", "benign"],
+            "deberta_proba_binary_adversarial": [0.95, 0.05, 0.40, 0.10],
+        })
+
+        metrics = {
+            "unseen_val": compute_split_metrics(split_df),
+            "unseen_test": compute_split_metrics(split_df),
+        }
+        summary = generate_summary(metrics)
+
+        assert metrics["unseen_val"]["precision"] == 1.0
+        assert metrics["unseen_val"]["recall"] == 0.5
+        assert metrics["unseen_val"]["f1"] == pytest.approx(2 / 3)
+        assert "| unseen_val |" in summary
+        assert "| unseen_test |" in summary
+        assert "| Split | Accuracy | Precision | Recall | F1 |" in summary
 
 
 # ── DebugConfig ──────────────────────────────────────────────────────────────

@@ -202,7 +202,8 @@ class DeBERTaClassifier:
     def train(self, df_train: pd.DataFrame, df_val: pd.DataFrame,
               text_col: str, label_col: str = "label_binary",
               force_cpu: bool = False,
-              debug: DebugConfig | None = None) -> TrainingResult:
+              debug: DebugConfig | None = None,
+              monitor_dfs: dict[str, pd.DataFrame] | None = None) -> TrainingResult:
         if debug is None:
             debug = DebugConfig()
 
@@ -250,6 +251,22 @@ class DeBERTaClassifier:
                                   collate_fn=collator, pin_memory=False)
         val_loader = DataLoader(val_ds, batch_size=self.eval_batch_size, shuffle=False,
                                 collate_fn=collator, pin_memory=False)
+        monitor_loaders = {}
+        for split_name, monitor_df in (monitor_dfs or {}).items():
+            monitor_labels = [self.label2id[l] for l in monitor_df[label_col]]
+            monitor_ds = PromptDataset(
+                self.tokenizer,
+                monitor_df[text_col].tolist(),
+                monitor_labels,
+                self.max_length,
+            )
+            monitor_loaders[split_name] = DataLoader(
+                monitor_ds,
+                batch_size=self.eval_batch_size,
+                shuffle=False,
+                collate_fn=collator,
+                pin_memory=False,
+            )
 
         # Sanity forward-only mode
         if debug.sanity_forward_only:
@@ -407,11 +424,18 @@ class DeBERTaClassifier:
 
             # Evaluate
             val_metrics = self._evaluate(val_loader, device)
-            self.train_history.append({
+            epoch_metrics = {
                 "epoch": epoch + 1,
                 "train_loss": avg_loss,
                 **{f"eval_{k}": v for k, v in val_metrics.items()},
-            })
+            }
+            for split_name, monitor_loader in monitor_loaders.items():
+                split_metrics = self._evaluate(monitor_loader, device)
+                epoch_metrics.update({
+                    f"{split_name}_{k}": v
+                    for k, v in split_metrics.items()
+                })
+            self.train_history.append(epoch_metrics)
 
             current_metric = val_metrics[self.metric_for_best_model]
 

@@ -59,6 +59,7 @@ GROUND_TRUTH_COLS = [
 ]
 
 EVAL_SPLITS = ["val", "test", "unseen_val", "unseen_test"]
+MONITOR_SPLITS = ["unseen_val", "unseen_test"]
 
 
 def compute_split_metrics(df: pd.DataFrame, label_col: str = "label_binary") -> dict:
@@ -93,6 +94,19 @@ def compute_non_synthetic_benign_metrics(df: pd.DataFrame, label_col: str = "lab
     metrics = compute_split_metrics(subset, label_col=label_col)
     metrics["n_non_synthetic_benign"] = n_benign
     return metrics
+
+
+def load_monitor_splits() -> dict[str, pd.DataFrame]:
+    """Load unseen splits for training-time monitoring when available."""
+    monitor_dfs = {}
+    for split in MONITOR_SPLITS:
+        split_path = SPLITS_DIR / f"{split}.parquet"
+        if not split_path.exists():
+            logger.warning(f"Monitor split {split} not found, skipping.")
+            continue
+        monitor_dfs[split] = pd.read_parquet(split_path)
+        logger.info(f"Monitor {split}: {len(monitor_dfs[split])}")
+    return monitor_dfs
 
 
 def save_predictions(df_split: pd.DataFrame, preds: pd.DataFrame,
@@ -233,9 +247,10 @@ def main():
                 "val_samples": len(df_val),
             })
 
+        monitor_dfs = load_monitor_splits()
         clf = DeBERTaClassifier(cfg)
         result = clf.train(df_train, df_val, text_col=text_col, label_col="label_binary",
-                           force_cpu=args.cpu, debug=debug)
+                           force_cpu=args.cpu, debug=debug, monitor_dfs=monitor_dfs)
 
         if wandb.run is not None and result.train_history:
             for epoch_metrics in result.train_history:
@@ -251,6 +266,11 @@ def main():
                 for metric_name, metric_value in epoch_metrics.items():
                     if metric_name.startswith("eval_f1_"):
                         log_payload[f"eval/{metric_name.removeprefix('eval_')}"] = metric_value
+                    for split in MONITOR_SPLITS:
+                        prefix = f"{split}_"
+                        if metric_name.startswith(prefix):
+                            monitor_metric = metric_name.removeprefix(prefix)
+                            log_payload[f"monitor/{split}/{monitor_metric}"] = metric_value
                 wandb.log(log_payload, step=epoch_metrics["epoch"])
             wandb.log({
                 "best_epoch": result.best_epoch,
