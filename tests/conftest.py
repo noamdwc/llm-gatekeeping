@@ -27,7 +27,7 @@ def sample_config():
                 "TextFooler",
             ],
             "held_out_attacks": [
-                "Homoglyphs",
+                "BAE",
             ],
         },
         "splits": {
@@ -180,24 +180,6 @@ def sample_dataframe():
          "attack_name": "benign", "label_binary": "benign",
          "label_category": "benign", "label_type": "benign",
          "prompt_hash": "iii999"},
-        # Additional held-out Homoglyphs hashes (so the held-out pool has >=2 hashes to split)
-        {"modified_sample": "gооd mоrning", "original_sample": "good morning",
-         "attack_name": "Homoglyphs", "label_binary": "adversarial",
-         "label_category": "unicode_attack", "label_type": "Homoglyphs",
-         "prompt_hash": "jjj000"},
-        {"modified_sample": "hоw аre you", "original_sample": "how are you",
-         "attack_name": "Homoglyphs", "label_binary": "adversarial",
-         "label_category": "unicode_attack", "label_type": "Homoglyphs",
-         "prompt_hash": "kkk111"},
-        # Extra benigns so benign allocation to unseen splits is possible
-        {"modified_sample": "please summarize", "original_sample": "please summarize",
-         "attack_name": "benign", "label_binary": "benign",
-         "label_category": "benign", "label_type": "benign",
-         "prompt_hash": "lll222"},
-        {"modified_sample": "list three colors", "original_sample": "list three colors",
-         "attack_name": "benign", "label_binary": "benign",
-         "label_category": "benign", "label_type": "benign",
-         "prompt_hash": "mmm333"},
     ]
     return pd.DataFrame(rows)
 

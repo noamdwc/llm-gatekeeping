@@ -527,22 +527,23 @@ def main():
     evaluate_ml(model, df_val, text_col, "val")
     preds_test = evaluate_ml(model, df_test, text_col, "test")
 
-    # Also try unseen attacks if available
-    unseen_path = SPLITS_DIR / "test_unseen.parquet"
-    if unseen_path.exists():
-        df_unseen = pd.read_parquet(unseen_path)
-        if len(df_unseen) > 0:
-            evaluate_ml(model, df_unseen, text_col, "test_unseen")
+    # Also try unseen attacks if available (both unseen_val monitoring and unseen_test)
+    unseen_dfs: dict[str, pd.DataFrame] = {}
+    for unseen_name in ("unseen_val", "unseen_test"):
+        unseen_path = SPLITS_DIR / f"{unseen_name}.parquet"
+        if unseen_path.exists():
+            df_unseen = pd.read_parquet(unseen_path)
+            if len(df_unseen) > 0:
+                evaluate_ml(model, df_unseen, text_col, unseen_name)
+                unseen_dfs[unseen_name] = df_unseen
 
     # Research mode: save full predictions for all splits
     if args.research:
         print("\nSaving research prediction parquets...")
         save_research_predictions(model, df_test, text_col, "test")
         save_research_predictions(model, df_val, text_col, "val")
-        if unseen_path.exists():
-            df_unseen = pd.read_parquet(unseen_path)
-            if len(df_unseen) > 0:
-                save_research_predictions(model, df_unseen, text_col, "test_unseen")
+        for unseen_name, df_unseen in unseen_dfs.items():
+            save_research_predictions(model, df_unseen, text_col, unseen_name)
 
     if wandb.run is not None:
         wandb.finish()

@@ -59,7 +59,7 @@ class TestBuildSplits:
         config_path, input_path = splits_input
         splits = build_splits(config_path, input_path)
 
-        held_out = {"Homoglyphs"}
+        held_out = {"BAE"}
         for name in ["train", "val", "test"]:
             attacks = set(splits[name]["attack_name"].unique())
             assert attacks.isdisjoint(held_out), (
@@ -77,7 +77,7 @@ class TestBuildSplits:
         config_path, input_path = splits_input
         splits = build_splits(config_path, input_path)
 
-        for attack in {"Homoglyphs"}:
+        for attack in {"BAE"}:
             v_hashes = set(splits["unseen_val"].query("attack_name == @attack")["prompt_hash"])
             t_hashes = set(splits["unseen_test"].query("attack_name == @attack")["prompt_hash"])
             assert len(v_hashes) >= 1, f"{attack} missing from unseen_val"
