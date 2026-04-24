@@ -110,12 +110,15 @@ def sample_config():
                 "label_col": "type",
                 "label_map": {"jailbreak": "adversarial", "benign": "benign"},
             },
+        },
+        "training_datasets": {
             "safeguard": {
                 "name": "xTRam1/safe-guard-prompt-injection",
-                "split": "test",
+                "train_split": "train",
+                "test_split": "test",
                 "text_col": "text",
                 "label_col": "label",
-                "label_map": {1: "adversarial", 0: "benign"},
+                "label_map": {0: "benign", 1: "adversarial"},
             },
         },
     }

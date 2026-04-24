@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from src.preprocess import load_safeguard_split
 from src.utils import DATA_DIR, SPLITS_DIR, load_config
 
 
@@ -154,6 +155,24 @@ def build_splits(config_path: str = None, input_path: str = None) -> dict[str, p
         path = SPLITS_DIR / f"{name}.parquet"
         split_df.to_parquet(path, index=False)
         print(f"  {name}: {len(split_df)} rows -> {path}")
+
+    # Write held-out splits from training_datasets (binary-only test sets)
+    for ds_key in cfg.get("training_datasets", {}):
+        df_held = load_safeguard_split(cfg, ds_key, "test_split")
+        path = SPLITS_DIR / f"{ds_key}_test.parquet"
+        df_held.to_parquet(path, index=False)
+        print(f"  {ds_key}_test: {len(df_held)} rows -> {path}")
+
+        held_hashes = set(df_held["prompt_hash"])
+        for name in ("train", "val", "test", "unseen_val", "unseen_test"):
+            other = set(splits[name]["prompt_hash"])
+            overlap = held_hashes & other
+            assert not overlap, (
+                f"prompt_hash leakage: {ds_key}_test overlaps {name} "
+                f"on {len(overlap)} hashes (e.g. {list(overlap)[:3]})"
+            )
+
+        splits[f"{ds_key}_test"] = df_held
 
     for name, split_df in splits.items():
         print(f"\n--- {name} label_binary distribution ---")

@@ -17,11 +17,23 @@ def splits_input(tmp_path, sample_config, sample_dataframe):
 
 
 def _patch_splits_dir(monkeypatch, tmp_path):
+    import pandas as pd
     import src.build_splits as mod
+    import src.preprocess as pre
+
     splits_dir = tmp_path / "data" / "processed" / "splits"
     splits_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(mod, "DATA_DIR", tmp_path / "data" / "processed")
     monkeypatch.setattr(mod, "SPLITS_DIR", splits_dir)
+
+    # Stub HuggingFace loader so build_splits doesn't hit the network for
+    # safeguard's test split. Tests that care about safeguard rows override
+    # this with their own monkeypatch AFTER calling _patch_splits_dir.
+    class _EmptyDS:
+        def to_pandas(self):
+            return pd.DataFrame({"text": [], "label": []})
+
+    monkeypatch.setattr(pre.datasets, "load_dataset", lambda name, split=None: _EmptyDS())
 
 
 class TestBuildSplits:
@@ -31,7 +43,7 @@ class TestBuildSplits:
         _patch_splits_dir(monkeypatch, tmp_path)
         config_path, input_path = splits_input
         splits = build_splits(config_path, input_path)
-        assert set(splits.keys()) == {"train", "val", "test", "unseen_val", "unseen_test"}
+        assert set(splits.keys()) == {"train", "val", "test", "unseen_val", "unseen_test", "safeguard_test"}
 
     def test_no_prompt_hash_overlap_within_groups(self, splits_input, monkeypatch, tmp_path):
         """Disjoint within main (train/val/test) and within unseen (unseen_val/unseen_test).
@@ -127,3 +139,62 @@ class TestBuildSplits:
                 splits1[name].reset_index(drop=True),
                 splits2[name].reset_index(drop=True),
             )
+
+
+def test_safeguard_test_split_written(splits_input, monkeypatch, tmp_path):
+    """build_splits writes safeguard_test.parquet from HF test split."""
+    import pandas as pd
+    from src import build_splits as mod
+    import src.preprocess as pre
+
+    _patch_splits_dir(monkeypatch, tmp_path)
+
+    fake = pd.DataFrame({
+        "text": ["benign hi", "do bad thing", "another benign"],
+        "label": [0, 1, 0],
+    })
+
+    class _FakeDS:
+        def to_pandas(self):
+            return fake
+
+    monkeypatch.setattr(pre.datasets, "load_dataset", lambda name, split=None: _FakeDS())
+
+    config_path, input_path = splits_input
+    mod.build_splits(config_path, input_path)
+
+    safeguard_path = tmp_path / "data" / "processed" / "splits" / "safeguard_test.parquet"
+    assert safeguard_path.exists(), "safeguard_test.parquet not written"
+
+    df_sg = pd.read_parquet(safeguard_path)
+    assert len(df_sg) == 3
+    assert (df_sg["source"] == "safeguard").all()
+    assert df_sg["label_category"].isna().all()
+    assert df_sg["label_type"].isna().all()
+    assert set(df_sg["label_binary"]) == {"benign", "adversarial"}
+
+
+def test_safeguard_test_no_overlap_with_training_pool(splits_input, monkeypatch, tmp_path):
+    """prompt_hash in safeguard_test must be disjoint from train/val/test/unseen splits."""
+    import pandas as pd
+    from src import build_splits as mod
+    import src.preprocess as pre
+
+    _patch_splits_dir(monkeypatch, tmp_path)
+
+    fake = pd.DataFrame({"text": ["safeguard only one", "safeguard only two"], "label": [0, 1]})
+
+    class _FakeDS:
+        def to_pandas(self):
+            return fake
+
+    monkeypatch.setattr(pre.datasets, "load_dataset", lambda name, split=None: _FakeDS())
+
+    config_path, input_path = splits_input
+    splits = mod.build_splits(config_path, input_path)
+
+    df_sg = pd.read_parquet(tmp_path / "data" / "processed" / "splits" / "safeguard_test.parquet")
+    sg_hashes = set(df_sg["prompt_hash"])
+    for name in ("train", "val", "test", "unseen_val", "unseen_test"):
+        other = set(splits[name]["prompt_hash"])
+        assert sg_hashes.isdisjoint(other), f"safeguard_test overlaps with {name}"
