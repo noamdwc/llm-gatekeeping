@@ -194,8 +194,9 @@ def filter_binary_eval_to_benign_subset(
 
 def category_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
     """Compute category-level metrics (unicode_attack vs nlp_attack)."""
-    # Filter to adversarial ground truth only; keep FNs (adv predicted as benign) as errors
-    mask = y_true != "benign"
+    # Filter to adversarial ground truth only; keep FNs (adv predicted as benign) as errors.
+    # Exclude rows lacking category ground truth (e.g. binary-only safeguard rows).
+    mask = y_true.notna() & (y_true != "benign")
     yt, yp = y_true[mask], y_pred[mask]
     if len(yt) == 0:
         return {"category_accuracy": 0.0, "category_f1_macro": 0.0}
@@ -215,8 +216,8 @@ def category_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
 
 def type_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
     """Compute per-type metrics for unicode attack sub-types."""
-    # Filter to unicode predictions
-    mask = (y_true != "benign") & (y_true != "nlp_attack")
+    # Filter to unicode predictions; exclude NaN ground truth (binary-only rows).
+    mask = y_true.notna() & (y_true != "benign") & (y_true != "nlp_attack")
     yt, yp = y_true[mask], y_pred[mask]
     if len(yt) == 0:
         return {"type_accuracy": 0.0, "type_f1_macro": 0.0}
