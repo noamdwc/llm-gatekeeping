@@ -35,7 +35,7 @@ An attack relying on Unicode or character-level perturbations such as homoglyphs
 An attack based on word substitutions or similar perturbations. The repo treats these as hard for the ML specialist to separate.
 
 ### Held-out attacks
-Attack types listed in `configs/default.yaml` under `labels.held_out_attacks` and sent entirely to `test_unseen`.
+Attack types listed in `configs/default.yaml` under `labels.held_out_attacks` and split 50/50 by `prompt_hash` between `unseen_val` (monitoring) and `unseen_test` (final generalization).
 
 ## Pipeline Terms
 

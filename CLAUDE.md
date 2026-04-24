@@ -35,7 +35,7 @@ Lightweight, fast run for quick evaluation. No DVC overhead. Assumes model + spl
 ./run_inference.sh --mode ml --split test                  # ML-only, instant
 ./run_inference.sh --mode hybrid --split test --limit 100  # Hybrid (API tokens)
 ./run_inference.sh --mode llm --split test --limit 50      # LLM-only (API tokens)
-./run_inference.sh --mode ml --split test_unseen           # Generalization test
+./run_inference.sh --mode ml --split unseen_test           # Generalization test
 ```
 
 ## Pipeline Module Commands
@@ -73,7 +73,7 @@ echo "text" | python -m src.cli.predict --mode hybrid --pretty  # Hybrid (recomm
 data/processed/
   full_dataset.parquet           # preprocess
   splits/                        # build_splits
-    train.parquet, val.parquet, test.parquet, test_unseen.parquet
+    train.parquet, val.parquet, test.parquet, unseen_val.parquet, unseen_test.parquet
   models/                        # ml_model
     ml_baseline.pkl
   predictions/                   # ml_model + deberta_model + llm_classifier
@@ -127,7 +127,7 @@ Three classifier backends share this hierarchy:
 ## Key Design Decisions
 
 - **Data splits are grouped by `prompt_hash`** (MD5 of lowered/stripped original prompt) — all variants of the same original prompt stay in the same split. No overlap between train/val/test.
-- **Held-out attacks** (Emoji Smuggling + Pruthi) are entirely excluded from train/val/test and placed in `test_unseen.parquet` for generalization testing.
+- **Held-out attacks** (Emoji Smuggling, Pruthi, TextFooler, BAE) are excluded from train/val/test and split 50/50 by `prompt_hash` between `unseen_val.parquet` (monitoring) and `unseen_test.parquet` (final generalization). Note: prompt_hashes can still overlap across main and unseen splits because the same original prompt may have variants under both held-out and non-held-out attacks.
 - **Config-driven**: All labels, thresholds, model params, and split ratios live in `configs/default.yaml`.
 - **Path constants**: All output paths are defined in `src/utils.py` (SPLITS_DIR, MODELS_DIR, PREDICTIONS_DIR, etc.).
 - scikit-learn 1.8: `LogisticRegression` no longer accepts `multi_class` parameter.

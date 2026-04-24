@@ -32,7 +32,7 @@ This list favors files that define behavior, boundaries, or operational workflow
 - What to look for: benign construction, synthetic benign integration, prompt hashing
 
 ### `src/build_splits.py`
-- Why it matters: defines train/val/test/test_unseen semantics
+- Why it matters: defines train/val/test/unseen_val/unseen_test semantics
 - Responsibility: grouped splitting by `prompt_hash`, held-out attack routing
 - What to look for: how unseen attacks are isolated and why groups are preserved
 

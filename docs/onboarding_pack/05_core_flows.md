@@ -35,10 +35,11 @@ Trigger:
 
 Steps:
 1. Load `full_dataset.parquet`
-2. Separate held-out attack types into `test_unseen`
-3. Shuffle `prompt_hash` groups using configured seed
-4. Split remaining groups into train/val/test
-5. Save split parquets
+2. Separate held-out attack types and split their prompt_hashes 50/50 into `unseen_val` (monitoring) and `unseen_test` (final generalization)
+3. Reserve benign hashes for the unseen splits to match main-pool adv/benign ratio
+4. Shuffle remaining `prompt_hash` groups using configured seed
+5. Split remaining groups into train/val/test
+6. Save split parquets
 
 Key files:
 - `src/build_splits.py`
@@ -48,7 +49,8 @@ Output/result:
 - `data/processed/splits/train.parquet`
 - `data/processed/splits/val.parquet`
 - `data/processed/splits/test.parquet`
-- `data/processed/splits/test_unseen.parquet`
+- `data/processed/splits/unseen_val.parquet`
+- `data/processed/splits/unseen_test.parquet`
 
 Failure points / debugging tips:
 - If leakage is suspected, inspect `prompt_hash` grouping

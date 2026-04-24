@@ -109,7 +109,7 @@ Fast CLI for running just what you need and producing reports. Assumes you alrea
 ./run_inference.sh --mode ml --split test
 ./run_inference.sh --mode hybrid --split test --limit 100
 ./run_inference.sh --mode llm --split test --limit 50
-./run_inference.sh --mode ml --split test_unseen
+./run_inference.sh --mode ml --split unseen_test
 ```
 
 ## Pipeline (module-level commands)
@@ -219,7 +219,8 @@ data/processed/
     train.parquet
     val.parquet
     test.parquet
-    test_unseen.parquet
+    unseen_val.parquet
+    unseen_test.parquet
   models/
     ml_baseline.pkl          # Trained ML model
   predictions/

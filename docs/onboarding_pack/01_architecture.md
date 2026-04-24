@@ -33,7 +33,7 @@ data/processed/full_dataset.parquet
         v
 src/build_splits.py
   - grouped train/val/test
-  - held-out attacks -> test_unseen
+  - held-out attacks -> unseen_val + unseen_test (50/50 by prompt_hash)
         |
         +-----------------------------+
         |                             |

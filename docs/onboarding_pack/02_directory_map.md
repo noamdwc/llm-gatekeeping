@@ -41,7 +41,7 @@ Core code. This is the most important directory for onboarding.
   - Builds the labeled combined dataset
 - `src/build_splits.py`
   - Core
-  - Creates grouped train/val/test/test_unseen parquets
+  - Creates grouped train/val/test/unseen_val/unseen_test parquets
 - `src/ml_classifier/`
   - Core
   - Classical ML baseline and related feature utilities
