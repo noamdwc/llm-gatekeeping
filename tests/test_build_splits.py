@@ -33,16 +33,26 @@ class TestBuildSplits:
         splits = build_splits(config_path, input_path)
         assert set(splits.keys()) == {"train", "val", "test", "unseen_val", "unseen_test"}
 
-    def test_no_prompt_hash_overlap_across_all_splits(self, splits_input, monkeypatch, tmp_path):
+    def test_no_prompt_hash_overlap_within_groups(self, splits_input, monkeypatch, tmp_path):
+        """Disjoint within main (train/val/test) and within unseen (unseen_val/unseen_test).
+
+        Cross-group overlap (main <-> unseen) is allowed by design: the same
+        prompt_hash can appear in train as a non-held-out attack variant and
+        in unseen_val as a held-out attack variant. This matches the
+        pre-existing test_unseen behavior.
+        """
         _patch_splits_dir(monkeypatch, tmp_path)
         config_path, input_path = splits_input
         splits = build_splits(config_path, input_path)
-        names = ["train", "val", "test", "unseen_val", "unseen_test"]
-        for i, a in enumerate(names):
-            for b in names[i + 1:]:
-                ha = set(splits[a]["prompt_hash"].unique())
-                hb = set(splits[b]["prompt_hash"].unique())
-                assert ha.isdisjoint(hb), f"{a}/{b} prompt_hash overlap"
+
+        for a, b in [("train", "val"), ("train", "test"), ("val", "test")]:
+            ha = set(splits[a]["prompt_hash"].unique())
+            hb = set(splits[b]["prompt_hash"].unique())
+            assert ha.isdisjoint(hb), f"{a}/{b} prompt_hash overlap (main group)"
+
+        hv = set(splits["unseen_val"]["prompt_hash"].unique())
+        ht = set(splits["unseen_test"]["prompt_hash"].unique())
+        assert hv.isdisjoint(ht), "unseen_val/unseen_test prompt_hash overlap"
 
     def test_held_out_attacks_only_in_unseen_splits(self, splits_input, monkeypatch, tmp_path):
         _patch_splits_dir(monkeypatch, tmp_path)
@@ -81,7 +91,13 @@ class TestBuildSplits:
             n_benign = (splits[name]["label_binary"] == "benign").sum()
             assert n_benign >= 1, f"{name} has no benign rows"
 
-    def test_benigns_do_not_overlap_across_splits(self, splits_input, monkeypatch, tmp_path):
+    def test_benign_rows_do_not_overlap_across_splits(self, splits_input, monkeypatch, tmp_path):
+        """Every benign prompt_hash lives in exactly one split.
+
+        Unlike adversarial rows (whose hashes may cross main <-> unseen by
+        design), benign rows are assigned to a single split so FPR is
+        measurable without double-counting.
+        """
         _patch_splits_dir(monkeypatch, tmp_path)
         config_path, input_path = splits_input
         splits = build_splits(config_path, input_path)
