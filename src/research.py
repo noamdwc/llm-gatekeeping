@@ -642,6 +642,36 @@ def _render_non_synthetic_benign_section(metrics: dict | None) -> str:
     return "\n".join(lines)
 
 
+def _render_per_source_binary_section(df: pd.DataFrame, pred_col: str) -> str:
+    """Markdown table of binary metrics per `source` value.
+
+    Returns empty string if the `source` column is missing or has only one value.
+    """
+    if "source" not in df.columns:
+        return ""
+    sources = df["source"].dropna().unique()
+    if len(sources) <= 1:
+        return ""
+
+    lines = [
+        "## Binary metrics per source",
+        "",
+        "| source | n | accuracy | adv_recall | benign_recall | adv_f1 | benign_f1 |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for src_name, sub in df.groupby("source", dropna=False):
+        if len(sub) == 0:
+            continue
+        m = binary_metrics(sub["label_binary"], sub[pred_col])
+        lines.append(
+            f"| {src_name} | {len(sub)} | {m['accuracy']:.3f} | "
+            f"{m['adversarial_recall']:.3f} | {m['benign_recall']:.3f} | "
+            f"{m['adversarial_f1']:.3f} | {m['benign_f1']:.3f} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def generate_ml_report(research_df: pd.DataFrame, output_path: str):
     """Generate ML-only evaluation report — evaluated on ML domain only (benign + unicode)."""
     # ML is a unicode specialist; NLP attacks are intentionally deferred to LLM
@@ -662,6 +692,9 @@ def generate_ml_report(research_df: pd.DataFrame, output_path: str):
     report = generate_report(df, binary, cat, types, cal, usage=usage,
                              title="ML Classifier Evaluation Report")
     report = f"{report}\n{_render_non_synthetic_benign_section(_non_synthetic_benign_metrics(df, 'ml_pred_binary'))}"
+    per_source = _render_per_source_binary_section(df, "ml_pred_binary")
+    if per_source:
+        report = f"{report}\n{per_source}"
     with open(output_path, "w") as f:
         f.write(report)
     print(f"  ML report saved → {output_path}")
@@ -709,6 +742,9 @@ def generate_hybrid_report(
     )
     report = f"{report}\n{render_routing_diagnostics_markdown(routing_diag)}"
     report = f"{report}\n{_render_non_synthetic_benign_section(_non_synthetic_benign_metrics(research_df, 'hybrid_pred_binary'))}"
+    per_source = _render_per_source_binary_section(research_df, "hybrid_pred_binary")
+    if per_source:
+        report = f"{report}\n{per_source}"
 
     is_clean = research_df.get("synth_validated")
     is_clean_benign = (
@@ -771,6 +807,9 @@ def generate_llm_report(research_df: pd.DataFrame, output_path: str):
     )
     report = generate_report(df, binary, cat, types, cal)
     report = f"{report}\n{_render_non_synthetic_benign_section(_non_synthetic_benign_metrics(df, 'llm_pred_binary'))}"
+    per_source = _render_per_source_binary_section(df, "llm_pred_binary")
+    if per_source:
+        report = f"{report}\n{per_source}"
     with open(output_path, "w") as f:
         f.write(report)
     print(f"  LLM report saved → {output_path} ({len(df)}/{len(research_df)} samples with LLM predictions)")
