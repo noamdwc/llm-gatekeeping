@@ -389,6 +389,73 @@ class TestTrainingLifecycle:
         assert result.train_history[0]["unseen_test_precision"] == 0.96
         assert result.train_history[0]["unseen_test_recall"] == 0.97
 
+    @patch("src.models.deberta_classifier.get_linear_schedule_with_warmup", return_value=FakeScheduler())
+    @patch("src.models.deberta_classifier.AdamW", side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr))
+    @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())
+    @patch("src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained", return_value=FakeHFModel())
+    @patch("src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer())
+    def test_train_calls_epoch_callback_with_unseen_metrics_before_returning(
+        self,
+        _mock_tokenizer,
+        _mock_model,
+        _mock_collator,
+        _mock_optimizer,
+        _mock_scheduler,
+        sample_config_with_deberta,
+    ):
+        cfg = sample_config_with_deberta.copy()
+        cfg["deberta"] = cfg["deberta"].copy()
+        cfg["deberta"]["num_epochs"] = 2
+        cfg["deberta"]["metric_for_best_model"] = "f1"
+
+        df_train = pd.DataFrame({
+            "modified_sample": ["a", "b", "c", "d"],
+            "label_binary": ["benign", "adversarial", "benign", "adversarial"],
+        })
+        df_val = pd.DataFrame({
+            "modified_sample": ["e", "f"],
+            "label_binary": ["benign", "adversarial"],
+        })
+        monitor_dfs = {
+            "unseen_val": pd.DataFrame({
+                "modified_sample": ["g", "h"],
+                "label_binary": ["benign", "adversarial"],
+            }),
+        }
+        seen_epochs = []
+
+        def on_epoch_end(epoch_metrics):
+            seen_epochs.append(epoch_metrics)
+            raise RuntimeError("stop after first callback")
+
+        clf = DeBERTaClassifier(cfg)
+        metrics = [
+            {
+                "accuracy": 0.8, "f1": 0.7, "macro_f1": 0.75, "precision": 0.7, "recall": 0.7,
+                "f1_benign": 0.8, "f1_adversarial": 0.7,
+            },
+            {
+                "accuracy": 0.4, "f1": 0.9, "macro_f1": 0.5, "precision": 0.91, "recall": 0.92,
+                "f1_benign": 0.2, "f1_adversarial": 0.9,
+            },
+        ]
+
+        with patch.object(clf, "_evaluate", side_effect=metrics):
+            with pytest.raises(RuntimeError, match="stop after first callback"):
+                clf.train(
+                    df_train,
+                    df_val,
+                    text_col="modified_sample",
+                    force_cpu=True,
+                    monitor_dfs=monitor_dfs,
+                    on_epoch_end=on_epoch_end,
+                )
+
+        assert seen_epochs[0]["epoch"] == 1
+        assert seen_epochs[0]["unseen_val_f1"] == 0.9
+        assert seen_epochs[0]["unseen_val_precision"] == 0.91
+        assert seen_epochs[0]["unseen_val_recall"] == 0.92
+
     @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())
     @patch("src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained", return_value=FakeHFModel())
     @patch("src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer())
@@ -506,25 +573,28 @@ class TestCLILifecycle:
             "unseen_val": unseen_val_df,
             "unseen_test": unseen_test_df,
         }
-        assert mock_wandb.log.call_count >= 3
+        train_kwargs["on_epoch_end"]({
+            "epoch": 2,
+            "train_loss": 0.2,
+            "eval_accuracy": 0.91,
+            "eval_f1": 0.81,
+            "eval_macro_f1": 0.82,
+            "eval_precision": 0.86,
+            "eval_recall": 0.76,
+            "unseen_val_f1": 0.74,
+            "unseen_val_precision": 0.75,
+            "unseen_val_recall": 0.76,
+        })
         assert any(
-            call.kwargs.get("step") == 1
+            call.kwargs.get("step") == 2
             and call.args
-            and call.args[0].get("eval/f1_adversarial") == 0.82
-            and call.args[0].get("eval/f1_benign") == 0.78
+            and call.args[0].get("eval/f1") == 0.81
+            and call.args[0].get("monitor/unseen_val/f1") == 0.74
+            and call.args[0].get("monitor/unseen_val/precision") == 0.75
+            and call.args[0].get("monitor/unseen_val/recall") == 0.76
             for call in mock_wandb.log.call_args_list
         )
-        assert any(
-            call.kwargs.get("step") == 1
-            and call.args
-            and call.args[0].get("monitor/unseen_val/f1") == 0.71
-            and call.args[0].get("monitor/unseen_val/precision") == 0.72
-            and call.args[0].get("monitor/unseen_val/recall") == 0.73
-            and call.args[0].get("monitor/unseen_test/f1") == 0.61
-            and call.args[0].get("monitor/unseen_test/precision") == 0.62
-            and call.args[0].get("monitor/unseen_test/recall") == 0.63
-            for call in mock_wandb.log.call_args_list
-        )
+        assert mock_wandb.log.call_count >= 4
         mock_wandb.log_artifact.assert_not_called()
         mock_wandb.finish.assert_called_once_with()
 

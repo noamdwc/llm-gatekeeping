@@ -6,7 +6,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -203,7 +203,8 @@ class DeBERTaClassifier:
               text_col: str, label_col: str = "label_binary",
               force_cpu: bool = False,
               debug: DebugConfig | None = None,
-              monitor_dfs: dict[str, pd.DataFrame] | None = None) -> TrainingResult:
+              monitor_dfs: dict[str, pd.DataFrame] | None = None,
+              on_epoch_end: Callable[[dict], None] | None = None) -> TrainingResult:
         if debug is None:
             debug = DebugConfig()
 
@@ -436,6 +437,8 @@ class DeBERTaClassifier:
                     for k, v in split_metrics.items()
                 })
             self.train_history.append(epoch_metrics)
+            if on_epoch_end is not None:
+                on_epoch_end(epoch_metrics)
 
             current_metric = val_metrics[self.metric_for_best_model]
 

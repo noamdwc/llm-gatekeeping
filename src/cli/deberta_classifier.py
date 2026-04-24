@@ -109,6 +109,28 @@ def load_monitor_splits() -> dict[str, pd.DataFrame]:
     return monitor_dfs
 
 
+def build_training_log_payload(epoch_metrics: dict) -> dict:
+    """Convert training history keys to WandB metric names."""
+    log_payload = {
+        "epoch": epoch_metrics["epoch"],
+        "train_loss": epoch_metrics["train_loss"],
+        "eval/accuracy": epoch_metrics["eval_accuracy"],
+        "eval/f1": epoch_metrics["eval_f1"],
+        "eval/macro_f1": epoch_metrics["eval_macro_f1"],
+        "eval/precision": epoch_metrics["eval_precision"],
+        "eval/recall": epoch_metrics["eval_recall"],
+    }
+    for metric_name, metric_value in epoch_metrics.items():
+        if metric_name.startswith("eval_f1_"):
+            log_payload[f"eval/{metric_name.removeprefix('eval_')}"] = metric_value
+        for split in MONITOR_SPLITS:
+            prefix = f"{split}_"
+            if metric_name.startswith(prefix):
+                monitor_metric = metric_name.removeprefix(prefix)
+                log_payload[f"monitor/{split}/{monitor_metric}"] = metric_value
+    return log_payload
+
+
 def save_predictions(df_split: pd.DataFrame, preds: pd.DataFrame,
                      split_name: str, text_col: str):
     """Merge ground truth with predictions and save parquet."""
@@ -249,29 +271,25 @@ def main():
 
         monitor_dfs = load_monitor_splits()
         clf = DeBERTaClassifier(cfg)
-        result = clf.train(df_train, df_val, text_col=text_col, label_col="label_binary",
-                           force_cpu=args.cpu, debug=debug, monitor_dfs=monitor_dfs)
+        on_epoch_end = None
+        if wandb.run is not None:
+            def on_epoch_end(epoch_metrics):
+                wandb.log(
+                    build_training_log_payload(epoch_metrics),
+                    step=epoch_metrics["epoch"],
+                )
 
-        if wandb.run is not None and result.train_history:
+        result = clf.train(df_train, df_val, text_col=text_col, label_col="label_binary",
+                           force_cpu=args.cpu, debug=debug, monitor_dfs=monitor_dfs,
+                           on_epoch_end=on_epoch_end)
+
+        if wandb.run is not None and result.train_history and on_epoch_end is None:
             for epoch_metrics in result.train_history:
-                log_payload = {
-                    "epoch": epoch_metrics["epoch"],
-                    "train_loss": epoch_metrics["train_loss"],
-                    "eval/accuracy": epoch_metrics["eval_accuracy"],
-                    "eval/f1": epoch_metrics["eval_f1"],
-                    "eval/macro_f1": epoch_metrics["eval_macro_f1"],
-                    "eval/precision": epoch_metrics["eval_precision"],
-                    "eval/recall": epoch_metrics["eval_recall"],
-                }
-                for metric_name, metric_value in epoch_metrics.items():
-                    if metric_name.startswith("eval_f1_"):
-                        log_payload[f"eval/{metric_name.removeprefix('eval_')}"] = metric_value
-                    for split in MONITOR_SPLITS:
-                        prefix = f"{split}_"
-                        if metric_name.startswith(prefix):
-                            monitor_metric = metric_name.removeprefix(prefix)
-                            log_payload[f"monitor/{split}/{monitor_metric}"] = metric_value
-                wandb.log(log_payload, step=epoch_metrics["epoch"])
+                wandb.log(
+                    build_training_log_payload(epoch_metrics),
+                    step=epoch_metrics["epoch"],
+                )
+        if wandb.run is not None:
             wandb.log({
                 "best_epoch": result.best_epoch,
                 "best_metric_name": result.best_metric_name,
