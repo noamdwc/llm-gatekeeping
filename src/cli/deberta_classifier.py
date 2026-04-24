@@ -58,7 +58,7 @@ GROUND_TRUTH_COLS = [
     "is_synthetic_benign",
 ]
 
-EVAL_SPLITS = ["val", "test", "test_unseen"]
+EVAL_SPLITS = ["val", "test", "unseen_val", "unseen_test"]
 
 
 def compute_split_metrics(df: pd.DataFrame, label_col: str = "label_binary") -> dict:
