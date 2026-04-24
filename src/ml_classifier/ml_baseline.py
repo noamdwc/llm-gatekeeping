@@ -295,18 +295,29 @@ class MLBaseline(BaseEstimator, ClassifierMixin):
                 "Ensure benign samples are present in the training split."
             )
 
-        X = self._build_features(df_train[text_col], fit=True)
+        X_full = self._build_features(df_train[text_col], fit=True)
 
         for level in ["label_binary", "label_category", "label_type"]:
-            y = df_train[level].values
+            if level == "label_binary":
+                df_level = df_train
+                X_level = X_full
+            else:
+                mask = df_train[level].notna()
+                n_dropped = int((~mask).sum())
+                if n_dropped:
+                    print(f"  [{level}] dropping {n_dropped} NaN-label rows before fit")
+                df_level = df_train[mask]
+                X_level = X_full[mask.values]
+
+            y = df_level[level].values
             le = LabelEncoder()
             y_enc = le.fit_transform(y)
             self.label_encoders[level] = le
 
             if level == "label_binary":
-                model, self.binary_calibrator = self._fit_binary_with_calibration(X, y_enc)
+                model, self.binary_calibrator = self._fit_binary_with_calibration(X_level, y_enc)
             else:
-                model = self._fit_level_model(X, y_enc, level)
+                model = self._fit_level_model(X_level, y_enc, level)
 
             self.models[level] = model
             print(f"  Trained {level}: {len(le.classes_)} classes")

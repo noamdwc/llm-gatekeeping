@@ -222,3 +222,42 @@ class TestMLBaseline:
             assert predicted.issubset(known), (
                 f"Unknown labels in pred_{level}: {predicted - known}"
             )
+
+
+def test_ml_baseline_trains_with_nan_category_rows(sample_config):
+    """Binary head uses all rows; category/type heads drop NaN-label rows."""
+    import pandas as pd
+    import numpy as np
+    from src.ml_classifier.ml_baseline import MLBaseline
+
+    df = pd.DataFrame({
+        "modified_sample": [
+            "abc def", "xyz qwe", "lmnop", "another text",
+            "safeguard benign one", "safeguard benign two",
+            "safeguard adversarial one", "safeguard adversarial two",
+        ],
+        "original_sample": ["a"] * 8,
+        "attack_name": ["Diacritcs", "Zero Width", None, None, None, None, None, None],
+        "label_binary": [
+            "adversarial", "adversarial", "benign", "benign",
+            "benign", "benign", "adversarial", "adversarial",
+        ],
+        "label_category": [
+            "unicode_attack", "unicode_attack", "benign", "benign",
+            np.nan, np.nan, np.nan, np.nan,
+        ],
+        "label_type": [
+            "Diacritcs", "Zero Width", "benign", "benign",
+            np.nan, np.nan, np.nan, np.nan,
+        ],
+        "source": ["mindgard"] * 4 + ["safeguard"] * 4,
+    })
+
+    model = MLBaseline(sample_config)
+    model.fit(df, "modified_sample")
+
+    assert set(model.label_encoders["label_binary"].classes_) == {"adversarial", "benign"}
+    cat_classes = set(model.label_encoders["label_category"].classes_)
+    type_classes = set(model.label_encoders["label_type"].classes_)
+    assert "nan" not in {str(c).lower() for c in cat_classes}
+    assert "nan" not in {str(c).lower() for c in type_classes}
