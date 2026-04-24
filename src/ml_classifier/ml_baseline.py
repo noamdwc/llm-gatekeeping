@@ -424,15 +424,23 @@ def evaluate_ml(model: MLBaseline, df: pd.DataFrame, text_col: str, split_name: 
 
     metrics = {}
     for level in ["label_binary", "label_category", "label_type"]:
-        y_true = df_eval[level].values
-        y_pred = preds[f"pred_{level}"].values
+        # Skip rows with NaN ground truth at this level (e.g. binary-only
+        # safeguard rows have no category/type label).
+        mask = df_eval[level].notna()
+        n_skipped = int((~mask).sum())
+        y_true = df_eval[level][mask].values
+        y_pred = preds[f"pred_{level}"][mask.values].values
+        if len(y_true) == 0:
+            print(f"\n--- {level} ---\n(no rows with ground truth at this level)")
+            continue
         acc = accuracy_score(y_true, y_pred)
         f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)
         metrics[f"{split_name}/{level}/accuracy"] = acc
         metrics[f"{split_name}/{level}/macro_f1"] = f1
 
         print(f"\n--- {level} ---")
-        print(f"Accuracy: {acc:.4f}  |  Macro F1: {f1:.4f}")
+        skip_note = f"  ({n_skipped} rows with NaN {level} skipped)" if n_skipped else ""
+        print(f"Accuracy: {acc:.4f}  |  Macro F1: {f1:.4f}{skip_note}")
         print(classification_report(y_true, y_pred, zero_division=0))
 
     if wandb.run is not None:
@@ -540,7 +548,7 @@ def main():
 
     # Also try unseen attacks if available (both unseen_val monitoring and unseen_test)
     unseen_dfs: dict[str, pd.DataFrame] = {}
-    for unseen_name in ("unseen_val", "unseen_test"):
+    for unseen_name in ("unseen_val", "unseen_test", "safeguard_test"):
         unseen_path = SPLITS_DIR / f"{unseen_name}.parquet"
         if unseen_path.exists():
             df_unseen = pd.read_parquet(unseen_path)

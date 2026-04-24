@@ -156,21 +156,33 @@ def build_splits(config_path: str = None, input_path: str = None) -> dict[str, p
         split_df.to_parquet(path, index=False)
         print(f"  {name}: {len(split_df)} rows -> {path}")
 
-    # Write held-out splits from training_datasets (binary-only test sets)
+    # Write held-out splits from training_datasets (binary-only test sets).
+    # Drop rows whose prompt_hash already appears in the training pool — upstream
+    # HF splits are not always disjoint, and a leaked prompt would inflate metrics.
+    training_pool_hashes: set = set()
+    for name in ("train", "val", "test", "unseen_val", "unseen_test"):
+        training_pool_hashes |= set(splits[name]["prompt_hash"])
+
     for ds_key in cfg.get("training_datasets", {}):
         df_held = load_safeguard_split(cfg, ds_key, "test_split")
+        n_before = len(df_held)
+        df_held = df_held[~df_held["prompt_hash"].isin(training_pool_hashes)].copy()
+        n_dropped = n_before - len(df_held)
+        if n_dropped:
+            print(
+                f"  {ds_key}_test: dropped {n_dropped} rows whose prompt_hash "
+                f"appears in training pool (upstream split contamination)"
+            )
+
         path = SPLITS_DIR / f"{ds_key}_test.parquet"
         df_held.to_parquet(path, index=False)
         print(f"  {ds_key}_test: {len(df_held)} rows -> {path}")
 
+        # Final guard: now must be disjoint
         held_hashes = set(df_held["prompt_hash"])
-        for name in ("train", "val", "test", "unseen_val", "unseen_test"):
-            other = set(splits[name]["prompt_hash"])
-            overlap = held_hashes & other
-            assert not overlap, (
-                f"prompt_hash leakage: {ds_key}_test overlaps {name} "
-                f"on {len(overlap)} hashes (e.g. {list(overlap)[:3]})"
-            )
+        assert held_hashes.isdisjoint(training_pool_hashes), (
+            f"{ds_key}_test still overlaps training pool after dedup"
+        )
 
         splits[f"{ds_key}_test"] = df_held
 

@@ -220,12 +220,14 @@ def preprocess(config_path: str = None, output_dir: str = None) -> pd.DataFrame:
         print(f"  {ds_key}: {len(df_extra)} rows")
         df = pd.concat([df, df_extra], ignore_index=True)
 
-    # Dedup combined frame by prompt_hash; Mindgard rows are first so they win
-    n_before_hash = len(df)
-    df = df.drop_duplicates(subset=["prompt_hash"], keep="first").reset_index(drop=True)
-    n_dropped_hash = n_before_hash - len(df)
-    if n_dropped_hash:
-        print(f"  Dropped {n_dropped_hash} prompt_hash duplicates after merge ({len(df)} remaining)")
+    # Dedup combined frame by exact text; Mindgard rows are first so they win.
+    # We dedup on the text column (not prompt_hash) because Mindgard adversarial
+    # variants legitimately share a prompt_hash with their benign original.
+    n_before_text = len(df)
+    df = df.drop_duplicates(subset=[text_col], keep="first").reset_index(drop=True)
+    n_dropped_text = n_before_text - len(df)
+    if n_dropped_text:
+        print(f"  Dropped {n_dropped_text} text duplicates after merge ({len(df)} remaining)")
 
     print("\nRow counts by source:")
     print(df["source"].value_counts(dropna=False).to_string())
