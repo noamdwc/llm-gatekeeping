@@ -33,16 +33,20 @@ labels:
     - TextBugger
     - TextFooler
 
-  # Attack types held out entirely for unseen-attack generalization testing
+  # Attack types held out entirely for unseen-attack generalization testing.
+  # Split 50/50 by prompt_hash between unseen_val (monitoring) and unseen_test (final).
   held_out_attacks:
     - Emoji Smuggling
     - Pruthi
+    - TextFooler
+    - BAE
 
 # Data splits
 splits:
   train: 0.7
   val: 0.15
   test: 0.15
+  unseen_val_ratio: 0.5   # fraction of held-out prompt_hashes -> unseen_val
   random_seed: 42
 
 # Benign set construction
