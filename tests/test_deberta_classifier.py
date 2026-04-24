@@ -1,6 +1,7 @@
 """Tests for DeBERTa classifier debug helpers, label validation, and lifecycle guards."""
 
 import json
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -388,6 +389,78 @@ class TestTrainingLifecycle:
         assert result.train_history[0]["unseen_test_f1"] == 0.95
         assert result.train_history[0]["unseen_test_precision"] == 0.96
         assert result.train_history[0]["unseen_test_recall"] == 0.97
+
+    @patch("src.models.deberta_classifier.get_linear_schedule_with_warmup", return_value=FakeScheduler())
+    @patch("src.models.deberta_classifier.AdamW", side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr))
+    @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())
+    @patch("src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained", return_value=FakeHFModel())
+    @patch("src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer())
+    def test_train_logs_unseen_monitor_metrics_each_epoch(
+        self,
+        _mock_tokenizer,
+        _mock_model,
+        _mock_collator,
+        _mock_optimizer,
+        _mock_scheduler,
+        sample_config_with_deberta,
+        caplog,
+    ):
+        cfg = sample_config_with_deberta.copy()
+        cfg["deberta"] = cfg["deberta"].copy()
+        cfg["deberta"]["num_epochs"] = 1
+        cfg["deberta"]["metric_for_best_model"] = "f1"
+
+        df_train = pd.DataFrame({
+            "modified_sample": ["a", "b", "c", "d"],
+            "label_binary": ["benign", "adversarial", "benign", "adversarial"],
+        })
+        df_val = pd.DataFrame({
+            "modified_sample": ["e", "f"],
+            "label_binary": ["benign", "adversarial"],
+        })
+        monitor_dfs = {
+            "unseen_val": pd.DataFrame({
+                "modified_sample": ["g", "h"],
+                "label_binary": ["benign", "adversarial"],
+            }),
+            "unseen_test": pd.DataFrame({
+                "modified_sample": ["i", "j"],
+                "label_binary": ["benign", "adversarial"],
+            }),
+        }
+
+        clf = DeBERTaClassifier(cfg)
+        metrics = [
+            {
+                "accuracy": 0.8, "f1": 0.7, "macro_f1": 0.75, "precision": 0.7, "recall": 0.7,
+                "f1_benign": 0.8, "f1_adversarial": 0.7,
+            },
+            {
+                "accuracy": 0.4, "f1": 0.9, "macro_f1": 0.5, "precision": 0.91, "recall": 0.92,
+                "f1_benign": 0.2, "f1_adversarial": 0.9,
+            },
+            {
+                "accuracy": 0.3, "f1": 0.95, "macro_f1": 0.4, "precision": 0.96, "recall": 0.97,
+                "f1_benign": 0.1, "f1_adversarial": 0.95,
+            },
+        ]
+
+        caplog.set_level(logging.INFO, logger="src.models.deberta_classifier")
+        with patch.object(clf, "_evaluate", side_effect=metrics):
+            clf.train(
+                df_train,
+                df_val,
+                text_col="modified_sample",
+                force_cpu=True,
+                monitor_dfs=monitor_dfs,
+            )
+
+        assert "unseen_val_f1=0.9000" in caplog.text
+        assert "unseen_val_prec=0.9100" in caplog.text
+        assert "unseen_val_rec=0.9200" in caplog.text
+        assert "unseen_test_f1=0.9500" in caplog.text
+        assert "unseen_test_prec=0.9600" in caplog.text
+        assert "unseen_test_rec=0.9700" in caplog.text
 
     @patch("src.models.deberta_classifier.get_linear_schedule_with_warmup", return_value=FakeScheduler())
     @patch("src.models.deberta_classifier.AdamW", side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr))

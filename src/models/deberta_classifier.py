@@ -38,6 +38,30 @@ from src.utils import build_sample_id
 logger = logging.getLogger(__name__)
 
 
+def _format_monitor_metrics(epoch_metrics: dict) -> str:
+    """Render compact per-split monitor metrics for the epoch log line."""
+    parts = []
+    split_names = sorted({
+        key.removesuffix("_f1")
+        for key in epoch_metrics
+        if (
+            key.endswith("_f1")
+            and not key.startswith("eval_")
+            and f"{key.removesuffix('_f1')}_precision" in epoch_metrics
+            and f"{key.removesuffix('_f1')}_recall" in epoch_metrics
+        )
+    })
+    for split in split_names:
+        parts.append(
+            f"{split}_f1={epoch_metrics[f'{split}_f1']:.4f} "
+            f"{split}_prec={epoch_metrics[f'{split}_precision']:.4f} "
+            f"{split}_rec={epoch_metrics[f'{split}_recall']:.4f}"
+        )
+    if not parts:
+        return ""
+    return " | " + " | ".join(parts)
+
+
 # ── Training result ──────────────────────────────────────────────────────────
 
 
@@ -452,6 +476,7 @@ class DeBERTaClassifier:
                 f"val_f1_adversarial={val_metrics['f1_adversarial']:.4f} "
                 f"val_prec={val_metrics['precision']:.4f} "
                 f"val_rec={val_metrics['recall']:.4f}"
+                f"{_format_monitor_metrics(epoch_metrics)}"
             )
 
             # Early stopping and best checkpointing on the configured metric
