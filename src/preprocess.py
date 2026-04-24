@@ -67,6 +67,38 @@ def build_prompt_hash(text: str) -> str:
     return hashlib.md5(text.strip().lower().encode()).hexdigest()[:12]
 
 
+def load_safeguard_split(cfg: dict, dataset_key: str, split_kind: str) -> pd.DataFrame:
+    """Load a single split of a binary-only training dataset (e.g. safeguard).
+
+    split_kind is the config key naming the HF split, e.g. 'train_split' or 'test_split'.
+    Returns a DataFrame in our internal schema with category/type NaN.
+    """
+    ds_cfg = cfg["training_datasets"][dataset_key]
+    hf_split = ds_cfg[split_kind]
+    text_col_in = ds_cfg["text_col"]
+    label_col_in = ds_cfg["label_col"]
+    label_map = ds_cfg["label_map"]
+
+    out_text_col = cfg["dataset"]["text_col"]
+    out_orig_col = cfg["dataset"]["original_text_col"]
+
+    raw = datasets.load_dataset(ds_cfg["name"], split=hf_split).to_pandas()
+
+    df = pd.DataFrame({
+        out_text_col: raw[text_col_in].astype(str).values,
+        out_orig_col: raw[text_col_in].astype(str).values,
+        "label_binary": raw[label_col_in].map(label_map).values,
+        "label_category": pd.Series([pd.NA] * len(raw), dtype="object"),
+        "label_type": pd.Series([pd.NA] * len(raw), dtype="object"),
+        "attack_name": pd.Series([pd.NA] * len(raw), dtype="object"),
+        "benign_source": pd.Series([pd.NA] * len(raw), dtype="object"),
+        "is_synthetic_benign": False,
+        "source": dataset_key,
+    })
+    df["prompt_hash"] = df[out_orig_col].fillna("").apply(build_prompt_hash)
+    return df
+
+
 def build_benign_set(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     """
     Construct benign examples from unique original prompts.
@@ -163,18 +195,40 @@ def preprocess(config_path: str = None, output_dir: str = None) -> pd.DataFrame:
     df_benign = add_hierarchical_labels_benign(df_benign)
     print(f"  Benign samples: {len(df_benign)}")
 
-    # Combine and drop duplicates
+    # Tag sources on Mindgard + benign rows
+    df_adv["source"] = "mindgard"
+    if "source" not in df_benign.columns:
+        df_benign["source"] = "benign"
+
+    # Combine Mindgard + benign first
     text_col = cfg["dataset"]["text_col"]
     df = pd.concat([df_adv, df_benign], ignore_index=True)
     n_before = len(df)
     df = df.drop_duplicates(subset=[text_col]).reset_index(drop=True)
     n_dropped = n_before - len(df)
     if n_dropped:
-        print(f"  Dropped {n_dropped} duplicate rows ({len(df)} remaining)")
+        print(f"  Dropped {n_dropped} duplicate text rows from Mindgard+benign ({len(df)} remaining)")
 
     # Add prompt hash for grouped splitting
     orig_col = cfg["dataset"]["original_text_col"]
     df["prompt_hash"] = df[orig_col].fillna("").apply(build_prompt_hash)
+
+    # Append rows from training_datasets (binary-only; category/type NaN)
+    for ds_key in cfg.get("training_datasets", {}):
+        print(f"Loading training dataset '{ds_key}' (train split)...")
+        df_extra = load_safeguard_split(cfg, ds_key, "train_split")
+        print(f"  {ds_key}: {len(df_extra)} rows")
+        df = pd.concat([df, df_extra], ignore_index=True)
+
+    # Dedup combined frame by prompt_hash; Mindgard rows are first so they win
+    n_before_hash = len(df)
+    df = df.drop_duplicates(subset=["prompt_hash"], keep="first").reset_index(drop=True)
+    n_dropped_hash = n_before_hash - len(df)
+    if n_dropped_hash:
+        print(f"  Dropped {n_dropped_hash} prompt_hash duplicates after merge ({len(df)} remaining)")
+
+    print("\nRow counts by source:")
+    print(df["source"].value_counts(dropna=False).to_string())
 
     # Save
     path = out / "full_dataset.parquet"
