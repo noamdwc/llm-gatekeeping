@@ -2,60 +2,60 @@ vars:
 - configs/default.yaml
 
 stages:
-  # # ── Stage 0: Generate Synthetic Benign (one stage per category — costs API tokens) ─────
-  # generate_synthetic_benign:
-  #   foreach:
-  #   - A
-  #   - B
-  #   - C
-  #   - D
-  #   - E
-  #   - F
-  #   do:
-  #     cmd: python -m src.cli.generate_synthetic_benign --category ${item}
-  #     deps:
-  #     - src/cli/generate_synthetic_benign.py
-  #     - src/synthetic_benign.py
-  #     - src/validators.py
-  #     - src/utils.py
-  #     params:
-  #     - configs/default.yaml:
-  #       - benign.synthetic
-  #       - llm
-  #     outs:
-  #     - data/processed/synthetic_benign/synthetic_benign_${item}.parquet
+  # ── Stage 0: Generate Synthetic Benign (one stage per category — costs API tokens) ─────
+  generate_synthetic_benign:
+    foreach:
+    - A
+    - B
+    - C
+    - D
+    - E
+    - F
+    do:
+      cmd: python -m src.cli.generate_synthetic_benign --category ${item}
+      deps:
+      - src/cli/generate_synthetic_benign.py
+      - src/synthetic_benign.py
+      - src/validators.py
+      - src/utils.py
+      params:
+      - configs/default.yaml:
+        - benign.synthetic
+        - llm
+      outs:
+      - data/processed/synthetic_benign/synthetic_benign_${item}.parquet
 
-  # # ── Stage 1: Preprocess ──────────────────────────────────────────────────
-  # preprocess:
-  #   cmd: python -m src.preprocess
-  #   deps:
-  #   - src/preprocess.py
-  #   - src/utils.py
-  #   - data/processed/synthetic_benign/
-  #   params:
-  #   - configs/default.yaml:
-  #     - dataset
-  #     - labels
-  #     - benign
-  #   outs:
-  #   - data/processed/full_dataset.parquet
+  # ── Stage 1: Preprocess ──────────────────────────────────────────────────
+  preprocess:
+    cmd: python -m src.preprocess
+    deps:
+    - src/preprocess.py
+    - src/utils.py
+    - data/processed/synthetic_benign/
+    params:
+    - configs/default.yaml:
+      - dataset
+      - labels
+      - benign
+    outs:
+    - data/processed/full_dataset.parquet
 
-  # # ── Stage 2: Build Splits ────────────────────────────────────────────────
-  # build_splits:
-  #   cmd: python -m src.build_splits
-  #   deps:
-  #   - src/build_splits.py
-  #   - src/utils.py
-  #   - data/processed/full_dataset.parquet
-  #   params:
-  #   - configs/default.yaml:
-  #     - splits
-  #     - labels.held_out_attacks
-  #   outs:
-  #   - data/processed/splits/train.parquet
-  #   - data/processed/splits/val.parquet
-  #   - data/processed/splits/test.parquet
-  #   - data/processed/splits/test_unseen.parquet
+  # ── Stage 2: Build Splits ────────────────────────────────────────────────
+  build_splits:
+    cmd: python -m src.build_splits
+    deps:
+    - src/build_splits.py
+    - src/utils.py
+    - data/processed/full_dataset.parquet
+    params:
+    - configs/default.yaml:
+      - splits
+      - labels.held_out_attacks
+    outs:
+    - data/processed/splits/train.parquet
+    - data/processed/splits/val.parquet
+    - data/processed/splits/test.parquet
+    - data/processed/splits/test_unseen.parquet
 
   # ── Stage 3: ML Model (train + research predictions) ─────────────────────
   ml_model:

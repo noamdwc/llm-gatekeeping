@@ -5,9 +5,9 @@ stages:
     deps:
     - path: data/processed/synthetic_benign/
       hash: md5
-      md5: 6687657dfe2b95b5a6ae298742438c98.dir
-      size: 316646
-      nfiles: 6
+      md5: a22b33c4657d7cffba7c762cf6933460.dir
+      size: 246271
+      nfiles: 5
     - path: src/preprocess.py
       hash: md5
       md5: 54b0196659ae7fef51bf9ec58cf409f0
@@ -1514,11 +1514,6 @@ stages:
       hash: md5
       md5: 626194e86be53d629ea95001c8b6c8ad
       size: 6808
-    - path: src/llm_classifier/
-      hash: md5
-      md5: 9a005b568526a74edb2f0e6d4c5c5bb8.dir
-      size: 201663
-      nfiles: 19
     - path: src/synthetic_benign.py
       hash: md5
       md5: 51f081e7004da498229289d193d7c8f2
@@ -1556,7 +1551,7 @@ stages:
           resume: true
           max_tokens_classifier: 200
           max_tokens_judge: 500
-          judge_confidence_threshold: 0.9
+          judge_confidence_threshold: 0.8
           capture_logprobs: true
           top_logprobs: 5
           few_shot:
@@ -1578,11 +1573,6 @@ stages:
       hash: md5
       md5: 626194e86be53d629ea95001c8b6c8ad
       size: 6808
-    - path: src/llm_classifier/
-      hash: md5
-      md5: 9a005b568526a74edb2f0e6d4c5c5bb8.dir
-      size: 201663
-      nfiles: 19
     - path: src/synthetic_benign.py
       hash: md5
       md5: 51f081e7004da498229289d193d7c8f2
@@ -1620,7 +1610,7 @@ stages:
           resume: true
           max_tokens_classifier: 200
           max_tokens_judge: 500
-          judge_confidence_threshold: 0.9
+          judge_confidence_threshold: 0.8
           capture_logprobs: true
           top_logprobs: 5
           few_shot:
@@ -1642,11 +1632,6 @@ stages:
       hash: md5
       md5: 626194e86be53d629ea95001c8b6c8ad
       size: 6808
-    - path: src/llm_classifier/
-      hash: md5
-      md5: 9a005b568526a74edb2f0e6d4c5c5bb8.dir
-      size: 201663
-      nfiles: 19
     - path: src/synthetic_benign.py
       hash: md5
       md5: 51f081e7004da498229289d193d7c8f2
@@ -1684,7 +1669,7 @@ stages:
           resume: true
           max_tokens_classifier: 200
           max_tokens_judge: 500
-          judge_confidence_threshold: 0.9
+          judge_confidence_threshold: 0.8
           capture_logprobs: true
           top_logprobs: 5
           few_shot:
@@ -1706,11 +1691,6 @@ stages:
       hash: md5
       md5: 626194e86be53d629ea95001c8b6c8ad
       size: 6808
-    - path: src/llm_classifier/
-      hash: md5
-      md5: 9a005b568526a74edb2f0e6d4c5c5bb8.dir
-      size: 201663
-      nfiles: 19
     - path: src/synthetic_benign.py
       hash: md5
       md5: 51f081e7004da498229289d193d7c8f2
@@ -1748,7 +1728,7 @@ stages:
           resume: true
           max_tokens_classifier: 200
           max_tokens_judge: 500
-          judge_confidence_threshold: 0.9
+          judge_confidence_threshold: 0.8
           capture_logprobs: true
           top_logprobs: 5
           few_shot:
@@ -1770,11 +1750,6 @@ stages:
       hash: md5
       md5: 626194e86be53d629ea95001c8b6c8ad
       size: 6808
-    - path: src/llm_classifier/
-      hash: md5
-      md5: 9a005b568526a74edb2f0e6d4c5c5bb8.dir
-      size: 201663
-      nfiles: 19
     - path: src/synthetic_benign.py
       hash: md5
       md5: 51f081e7004da498229289d193d7c8f2
@@ -1812,7 +1787,7 @@ stages:
           resume: true
           max_tokens_classifier: 200
           max_tokens_judge: 500
-          judge_confidence_threshold: 0.9
+          judge_confidence_threshold: 0.8
           capture_logprobs: true
           top_logprobs: 5
           few_shot:
