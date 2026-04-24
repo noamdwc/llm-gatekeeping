@@ -58,7 +58,7 @@ GROUND_TRUTH_COLS = [
     "is_synthetic_benign",
 ]
 
-EVAL_SPLITS = ["val", "test", "unseen_val", "unseen_test"]
+EVAL_SPLITS = ["val", "test", "unseen_val", "unseen_test", "safeguard_test"]
 MONITOR_SPLITS = ["unseen_val", "unseen_test"]
 
 
