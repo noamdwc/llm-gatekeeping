@@ -118,9 +118,9 @@ ml:
 deberta:
   model_name: "microsoft/deberta-v3-base"
   max_length: 128
-  num_epochs: 15
-  batch_size: 16
-  eval_batch_size: 16
+  num_epochs: 5
+  batch_size: 8
+  eval_batch_size: 8
   max_grad_norm: 0.5
   learning_rate: 5.0e-6
   warmup_ratio: 0.1
@@ -180,6 +180,18 @@ baselines:
     positive_label: "INJECTION"
     max_length: 512
 
+# Datasets merged into train/val/test (binary-only; category/type masked NaN)
+training_datasets:
+  safeguard:
+    name: "xTRam1/safe-guard-prompt-injection"
+    train_split: "train"
+    test_split: "test"
+    text_col: "text"
+    label_col: "label"
+    label_map:
+      1: "adversarial"
+      0: "benign"
+
 # External datasets for generalization evaluation (binary-only)
 external_datasets:
   deepset:
@@ -198,14 +210,6 @@ external_datasets:
     label_map:
       jailbreak: "adversarial"
       benign: "benign"
-  safeguard:
-    name: "xTRam1/safe-guard-prompt-injection"
-    split: "test"
-    text_col: "text"
-    label_col: "label"
-    label_map:
-      1: "adversarial"
-      0: "benign"
   # spml:
   #   name: "reshabhs/SPML_Chatbot_Prompt_Injection"
   #   split: "train"
