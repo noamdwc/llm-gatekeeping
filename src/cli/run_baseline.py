@@ -10,7 +10,7 @@ from src.baselines.hf_detector import HFDetector
 from src.eval_external import load_external_dataset
 from src.utils import BASELINES_DIR, SPLITS_DIR, ensure_dirs, load_config
 
-INTERNAL_SPLITS = ["val", "test", "test_unseen"]
+INTERNAL_SPLITS = ["val", "test", "unseen_val", "unseen_test"]
 EXTERNAL_KEYS = ["deepset", "jackhhao", "safeguard"]
 
 

@@ -9,11 +9,11 @@
 #   ./run_inference.sh --mode ml --split test               # ML-only, instant
 #   ./run_inference.sh --mode hybrid --split test --limit 100  # Hybrid (API tokens)
 #   ./run_inference.sh --mode llm --split test --limit 50      # LLM-only (API tokens)
-#   ./run_inference.sh --mode ml --split test_unseen           # Generalization test
+#   ./run_inference.sh --mode ml --split unseen_test           # Generalization test
 #
 # Options:
 #   --mode MODE       ml | hybrid | llm (default: ml)
-#   --split SPLIT     test | val | test_unseen (default: test)
+#   --split SPLIT     test | val | unseen_val | unseen_test (default: test)
 #   --limit N         Max samples for LLM/hybrid (default: 100)
 #   --config PATH     Config YAML (default: configs/default.yaml)
 #   --no-wandb        Disable wandb logging

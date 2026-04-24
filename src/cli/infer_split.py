@@ -129,7 +129,7 @@ def infer_ml_split(split: str, config_path: str | None = None) -> tuple[pd.DataF
 def main():
     parser = argparse.ArgumentParser(description="Infer on a split parquet and generate report")
     parser.add_argument("--mode", choices=["ml"], default="ml")
-    parser.add_argument("--split", default="test", choices=["test", "val", "test_unseen"])
+    parser.add_argument("--split", default="test", choices=["test", "val", "unseen_val", "unseen_test"])
     parser.add_argument("--config", default=None, help="Path to config YAML")
     parser.add_argument("--output", default=None, help="Output report path (markdown)")
     args = parser.parse_args()
