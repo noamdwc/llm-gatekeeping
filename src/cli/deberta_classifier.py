@@ -15,11 +15,15 @@ import os
 os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
 
 import argparse
+from copy import deepcopy
+from dataclasses import dataclass
 import json
 import logging
 import sys
+from pathlib import Path
 
 import pandas as pd
+import torch
 import wandb
 from sklearn.metrics import (
     accuracy_score,
@@ -39,7 +43,6 @@ from src.utils import (
     PREDICTIONS_DIR,
     SPLITS_DIR,
     build_sample_id,
-    ensure_dirs,
     load_config,
 )
 
@@ -60,6 +63,179 @@ GROUND_TRUTH_COLS = [
 
 EVAL_SPLITS = ["val", "test", "unseen_val", "unseen_test", "safeguard_test"]
 MONITOR_SPLITS = ["unseen_val", "unseen_test"]
+REQUIRED_SPLITS = ["train", "val"]
+REQUIRED_LABELS = ["benign", "adversarial"]
+
+
+@dataclass(frozen=True)
+class RuntimePaths:
+    splits_dir: Path
+    artifacts_dir: Path
+    predictions_dir: Path
+    reports_dir: Path
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="DeBERTa classifier training and evaluation")
+    parser.add_argument("--config", default=None)
+    parser.add_argument("--no-wandb", action="store_true", help="Disable wandb (unused, for CLI compat)")
+    parser.add_argument("--research", action="store_true",
+                        help="Train + predict on all splits + save reports")
+    parser.add_argument("--train-only", action="store_true", help="Only train, skip prediction")
+    parser.add_argument("--predict-only", action="store_true", help="Only predict from saved model")
+    parser.add_argument("--cpu", action="store_true", help="Force training/inference on CPU")
+    parser.add_argument("--splits-dir", default=None,
+                        help="Directory containing train/val/eval split parquet files")
+    parser.add_argument("--artifacts-dir", default=None,
+                        help="Directory for DeBERTa model artifacts")
+    parser.add_argument("--output-dir", default=None,
+                        help="Alias for --artifacts-dir")
+    parser.add_argument("--predictions-dir", default=None,
+                        help="Directory for prediction parquet outputs")
+    parser.add_argument("--reports-dir", default=None,
+                        help="Directory for DeBERTa report outputs")
+    parser.add_argument("--wandb-project", default=None,
+                        help="Override W&B project name")
+    parser.add_argument("--wandb-run-name", default=None,
+                        help="Override W&B run name")
+    parser.add_argument("--device", choices=["auto", "cpu", "cuda", "mps"], default="auto",
+                        help="Training/inference device. Defaults to auto.")
+    parser.add_argument("--num-epochs", type=int, default=None,
+                        help="Override configs/default.yaml deberta.num_epochs")
+    parser.add_argument("--batch-size", type=int, default=None,
+                        help="Override configs/default.yaml deberta.batch_size")
+    parser.add_argument("--learning-rate", type=float, default=None,
+                        help="Override configs/default.yaml deberta.learning_rate")
+
+    # Debug flags
+    debug_group = parser.add_argument_group("debug", "Numeric debug instrumentation")
+    debug_group.add_argument("--debug-numerics", action="store_true",
+                             help="Enable numeric debug instrumentation")
+    debug_group.add_argument("--debug-first-n-batches", type=int, default=3,
+                             help="Number of batches for verbose debug logging (default: 3)")
+    debug_group.add_argument("--debug-save-bad-batch", action="store_true",
+                             help="Save batch artifacts when NaN is detected")
+    debug_group.add_argument("--debug-stop-on-nan", action="store_true", default=True,
+                             help="Stop training on first NaN (default: true)")
+    debug_group.add_argument("--debug-log-param-stats", action="store_true",
+                             help="Log parameter statistics during debug batches")
+    debug_group.add_argument("--debug-log-batch-text", action="store_true",
+                             help="Log decoded batch text during debug batches")
+
+    sanity_group = parser.add_argument_group("sanity", "Sanity forward-only mode")
+    sanity_group.add_argument("--sanity-forward-only", action="store_true",
+                              help="Run forward passes only (no backward/optimizer)")
+    sanity_group.add_argument("--sanity-batches", type=int, default=3,
+                              help="Number of batches for sanity forward (default: 3)")
+    return parser
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.artifacts_dir and args.output_dir and Path(args.artifacts_dir) != Path(args.output_dir):
+        parser.error("--artifacts-dir and --output-dir refer to the same destination; provide only one")
+    return args
+
+
+def resolve_runtime_paths(args: argparse.Namespace) -> RuntimePaths:
+    artifacts_dir = args.artifacts_dir or args.output_dir
+    return RuntimePaths(
+        splits_dir=Path(args.splits_dir) if args.splits_dir else SPLITS_DIR,
+        artifacts_dir=Path(artifacts_dir) if artifacts_dir else DEBERTA_ARTIFACTS_DIR,
+        predictions_dir=Path(args.predictions_dir) if args.predictions_dir else PREDICTIONS_DIR,
+        reports_dir=Path(args.reports_dir) if args.reports_dir else DEBERTA_REPORTS_DIR,
+    )
+
+
+def resolve_wandb_settings(args: argparse.Namespace) -> tuple[str, str]:
+    return (
+        args.wandb_project or "llm-gatekeeping",
+        args.wandb_run_name or "deberta-classifier",
+    )
+
+
+def apply_training_overrides(cfg: dict, args: argparse.Namespace) -> dict:
+    cfg = deepcopy(cfg)
+    dcfg = cfg["deberta"]
+    if args.num_epochs is not None:
+        dcfg["num_epochs"] = args.num_epochs
+    if args.batch_size is not None:
+        dcfg["batch_size"] = args.batch_size
+    if args.learning_rate is not None:
+        dcfg["learning_rate"] = args.learning_rate
+    return cfg
+
+
+def resolve_device(device: str, force_cpu: bool = False) -> str:
+    if force_cpu:
+        if device not in (None, "auto", "cpu"):
+            raise SystemExit("--cpu cannot be combined with --device other than cpu/auto")
+        return "cpu"
+    if device in (None, "auto"):
+        if torch.backends.mps.is_available():
+            return "mps"
+        if torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
+    if device == "cuda" and not torch.cuda.is_available():
+        raise SystemExit("Requested device 'cuda' is not available")
+    if device == "mps" and not torch.backends.mps.is_available():
+        raise SystemExit("Requested device 'mps' is not available")
+    return device
+
+
+def _validate_split_frame(path: Path, df: pd.DataFrame, text_col: str, label_order: list[str]):
+    if not isinstance(df, pd.DataFrame):
+        return
+    missing_cols = [c for c in [text_col, "label_binary"] if c not in df.columns]
+    if missing_cols:
+        raise SystemExit(f"Split {path} missing required columns: {missing_cols}")
+    invalid_labels = sorted(set(df["label_binary"].dropna()) - set(label_order))
+    if invalid_labels:
+        raise SystemExit(f"Split {path} has invalid label_binary values: {invalid_labels}")
+    if df["label_binary"].isna().any():
+        raise SystemExit(f"Split {path} has missing label_binary values")
+
+
+def validate_split_inputs(
+    splits_dir: Path,
+    text_col: str,
+    label_order: list[str],
+    optional_splits: list[str] | None = None,
+) -> dict[str, pd.DataFrame]:
+    split_dfs = {}
+    for split in REQUIRED_SPLITS:
+        path = splits_dir / f"{split}.parquet"
+        if not path.exists():
+            raise SystemExit(f"Missing required split: {path}")
+        df = pd.read_parquet(path)
+        _validate_split_frame(path, df, text_col, label_order)
+        split_dfs[split] = df
+
+    for split in optional_splits if optional_splits is not None else EVAL_SPLITS:
+        if split in split_dfs:
+            continue
+        path = splits_dir / f"{split}.parquet"
+        if not path.exists():
+            continue
+        df = pd.read_parquet(path)
+        _validate_split_frame(path, df, text_col, label_order)
+        split_dfs[split] = df
+    return split_dfs
+
+
+def ensure_writable_dirs(paths: list[Path]):
+    for path in paths:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".write_test"
+        try:
+            probe.write_text("ok")
+        except OSError as exc:
+            raise SystemExit(f"Output directory is not writable: {path}") from exc
+        finally:
+            if probe.exists():
+                probe.unlink()
 
 
 def compute_split_metrics(df: pd.DataFrame, label_col: str = "label_binary") -> dict:
@@ -96,11 +272,11 @@ def compute_non_synthetic_benign_metrics(df: pd.DataFrame, label_col: str = "lab
     return metrics
 
 
-def load_monitor_splits() -> dict[str, pd.DataFrame]:
+def load_monitor_splits(splits_dir: Path) -> dict[str, pd.DataFrame]:
     """Load unseen splits for training-time monitoring when available."""
     monitor_dfs = {}
     for split in MONITOR_SPLITS:
-        split_path = SPLITS_DIR / f"{split}.parquet"
+        split_path = splits_dir / f"{split}.parquet"
         if not split_path.exists():
             logger.warning(f"Monitor split {split} not found, skipping.")
             continue
@@ -132,15 +308,15 @@ def build_training_log_payload(epoch_metrics: dict) -> dict:
 
 
 def save_predictions(df_split: pd.DataFrame, preds: pd.DataFrame,
-                     split_name: str, text_col: str):
+                     split_name: str, text_col: str, predictions_dir: Path):
     """Merge ground truth with predictions and save parquet."""
     gt_cols = [c for c in GROUND_TRUTH_COLS if c in df_split.columns]
     gt = df_split[gt_cols].reset_index(drop=True)
     out = pd.concat([gt, preds.reset_index(drop=True)], axis=1)
     out.insert(0, "sample_id", out[text_col].apply(build_sample_id))
 
-    PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
-    path = PREDICTIONS_DIR / f"deberta_predictions_{split_name}.parquet"
+    predictions_dir.mkdir(parents=True, exist_ok=True)
+    path = predictions_dir / f"deberta_predictions_{split_name}.parquet"
     out.to_parquet(path, index=False)
     logger.info(f"Predictions saved → {path} ({out.shape})")
 
@@ -178,48 +354,38 @@ def generate_summary(all_metrics: dict) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="DeBERTa classifier training and evaluation")
-    parser.add_argument("--config", default=None)
-    parser.add_argument("--no-wandb", action="store_true", help="Disable wandb (unused, for CLI compat)")
-    parser.add_argument("--research", action="store_true",
-                        help="Train + predict on all splits + save reports")
-    parser.add_argument("--train-only", action="store_true", help="Only train, skip prediction")
-    parser.add_argument("--predict-only", action="store_true", help="Only predict from saved model")
-    parser.add_argument("--cpu", action="store_true", help="Force training/inference on CPU")
+    args = parse_args()
 
-    # Debug flags
-    debug_group = parser.add_argument_group("debug", "Numeric debug instrumentation")
-    debug_group.add_argument("--debug-numerics", action="store_true",
-                             help="Enable numeric debug instrumentation")
-    debug_group.add_argument("--debug-first-n-batches", type=int, default=3,
-                             help="Number of batches for verbose debug logging (default: 3)")
-    debug_group.add_argument("--debug-save-bad-batch", action="store_true",
-                             help="Save batch artifacts when NaN is detected")
-    debug_group.add_argument("--debug-stop-on-nan", action="store_true", default=True,
-                             help="Stop training on first NaN (default: true)")
-    debug_group.add_argument("--debug-log-param-stats", action="store_true",
-                             help="Log parameter statistics during debug batches")
-    debug_group.add_argument("--debug-log-batch-text", action="store_true",
-                             help="Log decoded batch text during debug batches")
-
-    sanity_group = parser.add_argument_group("sanity", "Sanity forward-only mode")
-    sanity_group.add_argument("--sanity-forward-only", action="store_true",
-                              help="Run forward passes only (no backward/optimizer)")
-    sanity_group.add_argument("--sanity-batches", type=int, default=3,
-                              help="Number of batches for sanity forward (default: 3)")
-
-    args = parser.parse_args()
-
-    cfg = load_config(args.config)
+    cfg = apply_training_overrides(load_config(args.config), args)
     text_col = cfg["dataset"]["text_col"]
-    ensure_dirs()
-
     dcfg = cfg["deberta"]
+    label_order = dcfg.get("label_order", REQUIRED_LABELS)
+    runtime_paths = resolve_runtime_paths(args)
+    selected_device = resolve_device(args.device, force_cpu=args.cpu)
+
+    should_train = not args.predict_only
+    should_predict = not args.train_only
+    optional_splits = []
+    if should_train:
+        optional_splits.extend(MONITOR_SPLITS)
+    if should_predict:
+        optional_splits.extend(EVAL_SPLITS)
+    split_dfs = validate_split_inputs(
+        runtime_paths.splits_dir,
+        text_col,
+        label_order,
+        optional_splits=optional_splits,
+    )
+    output_dirs = [runtime_paths.artifacts_dir]
+    if should_predict:
+        output_dirs.extend([runtime_paths.predictions_dir, runtime_paths.reports_dir])
+    ensure_writable_dirs(output_dirs)
 
     if not args.no_wandb:
+        wandb_project, wandb_run_name = resolve_wandb_settings(args)
         wandb.init(
-            project="llm-gatekeeping",
-            name="deberta-classifier",
+            project=wandb_project,
+            name=wandb_run_name,
             config={
                 "model_name": dcfg["model_name"],
                 "max_length": dcfg["max_length"],
@@ -236,6 +402,11 @@ def main():
                 "train_only": args.train_only,
                 "predict_only": args.predict_only,
                 "force_cpu": args.cpu,
+                "device": selected_device,
+                "splits_dir": str(runtime_paths.splits_dir),
+                "artifacts_dir": str(runtime_paths.artifacts_dir),
+                "predictions_dir": str(runtime_paths.predictions_dir),
+                "reports_dir": str(runtime_paths.reports_dir),
                 "debug_numerics": args.debug_numerics,
                 "sanity_forward_only": args.sanity_forward_only,
             },
@@ -253,14 +424,11 @@ def main():
         sanity_batches=args.sanity_batches,
     )
 
-    should_train = not args.predict_only
-    should_predict = not args.train_only
-
     # ── Train ─────────────────────────────────────────────────────────────
     if should_train:
         logger.info("Loading train/val splits...")
-        df_train = pd.read_parquet(SPLITS_DIR / "train.parquet")
-        df_val = pd.read_parquet(SPLITS_DIR / "val.parquet")
+        df_train = split_dfs["train"]
+        df_val = split_dfs["val"]
         logger.info(f"Train: {len(df_train)}, Val: {len(df_val)}")
 
         if wandb.run is not None:
@@ -269,7 +437,11 @@ def main():
                 "val_samples": len(df_val),
             })
 
-        monitor_dfs = load_monitor_splits()
+        monitor_dfs = {
+            split: split_dfs[split]
+            for split in MONITOR_SPLITS
+            if split in split_dfs
+        }
         clf = DeBERTaClassifier(cfg)
         on_epoch_end = None
         if wandb.run is not None:
@@ -280,7 +452,7 @@ def main():
                 )
 
         result = clf.train(df_train, df_val, text_col=text_col, label_col="label_binary",
-                           force_cpu=args.cpu, debug=debug, monitor_dfs=monitor_dfs,
+                           force_cpu=args.cpu, device=selected_device, debug=debug, monitor_dfs=monitor_dfs,
                            on_epoch_end=on_epoch_end)
 
         if wandb.run is not None and result.train_history and on_epoch_end is None:
@@ -314,30 +486,30 @@ def main():
                 logger.error(f"  debug artifacts: {result.debug_artifact_paths}")
             sys.exit(1)
 
-        clf.save(DEBERTA_ARTIFACTS_DIR)
-        logger.info(f"Model saved to {DEBERTA_ARTIFACTS_DIR}")
+        clf.save(runtime_paths.artifacts_dir)
+        logger.info(f"Model saved to {runtime_paths.artifacts_dir}")
 
         if wandb.run is not None:
             wandb.log({"training_success": 1})
 
     # ── Predict + Evaluate ────────────────────────────────────────────────
     if should_predict:
-        clf = DeBERTaClassifier.load(DEBERTA_ARTIFACTS_DIR, cfg, force_cpu=args.cpu)
+        clf = DeBERTaClassifier.load(runtime_paths.artifacts_dir, cfg,
+                                     force_cpu=args.cpu, device=selected_device)
 
         all_metrics = {}
         all_reports = {}
 
         for split in EVAL_SPLITS:
-            split_path = SPLITS_DIR / f"{split}.parquet"
-            if not split_path.exists():
+            if split not in split_dfs:
                 logger.warning(f"Split {split} not found, skipping.")
                 continue
 
-            df_split = pd.read_parquet(split_path)
+            df_split = split_dfs[split]
             logger.info(f"Predicting on {split} ({len(df_split)} samples)...")
 
             preds = clf.predict(df_split, text_col)
-            save_predictions(df_split, preds, split, text_col)
+            save_predictions(df_split, preds, split, text_col, runtime_paths.predictions_dir)
 
             # Merge for metrics
             merged = pd.concat([df_split.reset_index(drop=True), preds.reset_index(drop=True)], axis=1)
@@ -360,19 +532,19 @@ def main():
             print(report)
 
         # Save reports
-        DEBERTA_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        runtime_paths.reports_dir.mkdir(parents=True, exist_ok=True)
 
-        (DEBERTA_REPORTS_DIR / "metrics.json").write_text(
+        (runtime_paths.reports_dir / "metrics.json").write_text(
             json.dumps(all_metrics, indent=2)
         )
-        (DEBERTA_REPORTS_DIR / "classification_report.json").write_text(
+        (runtime_paths.reports_dir / "classification_report.json").write_text(
             json.dumps(all_reports, indent=2)
         )
 
         summary = generate_summary(all_metrics)
-        (DEBERTA_REPORTS_DIR / "summary.md").write_text(summary)
+        (runtime_paths.reports_dir / "summary.md").write_text(summary)
 
-        logger.info(f"Reports saved to {DEBERTA_REPORTS_DIR}")
+        logger.info(f"Reports saved to {runtime_paths.reports_dir}")
 
     if wandb.run is not None:
         wandb.finish()

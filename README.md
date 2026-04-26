@@ -74,6 +74,29 @@ dvc repro eval_new
 dvc repro eval_new_external@deepset
 ```
 
+### Colab DeBERTa Training
+
+Use `notebooks/colab_train_deberta.ipynb` for GPU training in Google Colab without DVC. Upload or sync the split files to:
+
+```text
+/content/drive/MyDrive/data/llm-gatekeeping/data/processed/splits/
+```
+
+Required splits are `train.parquet` and `val.parquet`; optional evaluation splits are `test.parquet`, `unseen_val.parquet`, `unseen_test.parquet`, and `safeguard_test.parquet`. The notebook mounts Drive, installs `requirements.txt`, logs into W&B, validates GPU/splits/labels/output directories, then runs the existing CLI with Drive-backed outputs:
+
+```bash
+python -m src.cli.deberta_classifier --research \
+  --splits-dir /content/drive/MyDrive/data/llm-gatekeeping/data/processed/splits \
+  --artifacts-dir /content/drive/MyDrive/data/llm-gatekeeping/artifacts/deberta_classifier \
+  --predictions-dir /content/drive/MyDrive/data/llm-gatekeeping/data/processed/predictions \
+  --reports-dir /content/drive/MyDrive/data/llm-gatekeeping/reports/deberta_classifier \
+  --device cuda \
+  --wandb-project llm-gatekeeping \
+  --wandb-run-name deberta-colab
+```
+
+Local and DVC defaults are unchanged; `dvc repro deberta_model` still uses the repo-local paths from `dvc.yaml`.
+
 `eval_new` writes:
 - `reports/research/eval_report_ml.md`
 - `reports/research/eval_report_llm.md`

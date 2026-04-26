@@ -162,7 +162,9 @@ class DeBERTaClassifier:
 
     # ── Training ──────────────────────────────────────────────────────────────
 
-    def _select_device(self, force_cpu: bool = False) -> torch.device:
+    def _select_device(self, force_cpu: bool = False, device: str | None = None) -> torch.device:
+        if device and device != "auto":
+            return torch.device(device)
         if force_cpu:
             return torch.device("cpu")
         return torch.device("mps" if torch.backends.mps.is_available() else
@@ -226,6 +228,7 @@ class DeBERTaClassifier:
     def train(self, df_train: pd.DataFrame, df_val: pd.DataFrame,
               text_col: str, label_col: str = "label_binary",
               force_cpu: bool = False,
+              device: str | None = None,
               debug: DebugConfig | None = None,
               monitor_dfs: dict[str, pd.DataFrame] | None = None,
               on_epoch_end: Callable[[dict], None] | None = None) -> TrainingResult:
@@ -244,9 +247,9 @@ class DeBERTaClassifier:
             dtype=torch.float32,
         )
 
-        device = self._select_device(force_cpu)
-        self.model.to(device)
-        logger.info(f"Training on device: {device}")
+        selected_device = self._select_device(force_cpu, device)
+        self.model.to(selected_device)
+        logger.info(f"Training on device: {selected_device}")
 
         train_labels = [self.label2id[l] for l in df_train[label_col]]
         val_labels = [self.label2id[l] for l in df_val[label_col]]
@@ -263,7 +266,7 @@ class DeBERTaClassifier:
         # Compute class weights to handle imbalanced data
         classes = np.arange(len(self.label_order))
         weights = compute_class_weight("balanced", classes=classes, y=np.array(train_labels))
-        class_weights = torch.tensor(weights, dtype=torch.float32).to(device)
+        class_weights = torch.tensor(weights, dtype=torch.float32).to(selected_device)
         logger.info(f"Class weights: {dict(zip(self.label_order, weights))}")
         loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights)
 
@@ -295,7 +298,7 @@ class DeBERTaClassifier:
 
         # Sanity forward-only mode
         if debug.sanity_forward_only:
-            return self._sanity_forward(train_loader, device, debug, train_texts)
+            return self._sanity_forward(train_loader, selected_device, debug, train_texts)
 
         total_steps = len(train_loader) * self.num_epochs
         warmup_steps = int(total_steps * self.warmup_ratio)
@@ -319,7 +322,7 @@ class DeBERTaClassifier:
             n_batches = 0
 
             for step, batch in enumerate(train_loader):
-                batch = {k: v.to(device) for k, v in batch.items()}
+                batch = {k: v.to(selected_device) for k, v in batch.items()}
                 verbose = debug.enabled and step < debug.first_n_batches
 
                 # [A] PRE-FORWARD
@@ -448,14 +451,14 @@ class DeBERTaClassifier:
             avg_loss = epoch_loss / max(n_batches, 1)
 
             # Evaluate
-            val_metrics = self._evaluate(val_loader, device)
+            val_metrics = self._evaluate(val_loader, selected_device)
             epoch_metrics = {
                 "epoch": epoch + 1,
                 "train_loss": avg_loss,
                 **{f"eval_{k}": v for k, v in val_metrics.items()},
             }
             for split_name, monitor_loader in monitor_loaders.items():
-                split_metrics = self._evaluate(monitor_loader, device)
+                split_metrics = self._evaluate(monitor_loader, selected_device)
                 epoch_metrics.update({
                     f"{split_name}_{k}": v
                     for k, v in split_metrics.items()
@@ -650,7 +653,7 @@ class DeBERTaClassifier:
         logger.info(f"Model saved to {output_dir}")
 
     @classmethod
-    def load(cls, output_dir, cfg: dict, force_cpu: bool = False):
+    def load(cls, output_dir, cfg: dict, force_cpu: bool = False, device: str | None = None):
         output_dir = Path(output_dir)
 
         instance = cls(cfg)
@@ -663,9 +666,9 @@ class DeBERTaClassifier:
             output_dir / "model", dtype=torch.float32,
         )
 
-        device = instance._select_device(force_cpu)
-        instance.model.to(device)
-        logger.info(f"Model loaded on device: {device}")
+        selected_device = instance._select_device(force_cpu, device)
+        instance.model.to(selected_device)
+        logger.info(f"Model loaded on device: {selected_device}")
 
         # Warn if loaded model has non-finite params
         bad_params = find_nonfinite_params(instance.model)
