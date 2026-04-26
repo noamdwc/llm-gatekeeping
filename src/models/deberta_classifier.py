@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
+import pytorch_lightning as pl
 import torch
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from sklearn.utils.class_weight import compute_class_weight
@@ -101,6 +102,257 @@ class PromptDataset(Dataset):
         if self.labels is not None:
             item["labels"] = torch.tensor(self.labels[idx], dtype=torch.long)
         return item
+
+
+class _LightningDeBERTaModule(pl.LightningModule):
+    """Lightning wrapper that preserves the existing manual training semantics."""
+
+    def __init__(
+        self,
+        classifier: "DeBERTaClassifier",
+        class_weights: torch.Tensor,
+        debug: DebugConfig,
+        train_loader_len: int,
+        total_steps: int,
+        warmup_steps: int,
+    ):
+        super().__init__()
+        self.classifier = classifier
+        self.model = classifier.model
+        self.tokenizer = classifier.tokenizer
+        self.debug = debug
+        self.train_loader_len = train_loader_len
+        self.total_steps = total_steps
+        self.warmup_steps = warmup_steps
+        self.max_grad_norm = classifier.max_grad_norm
+        self.logging_steps = classifier.logging_steps
+        self.learning_rate = classifier.learning_rate
+        self.weight_decay = classifier.weight_decay
+        self.automatic_optimization = False
+        self.register_buffer("class_weights", class_weights.detach().clone())
+        self.epoch_loss = 0.0
+        self.n_batches = 0
+        self.failure_result: TrainingResult | None = None
+        self._manual_scheduler = None
+
+    def configure_optimizers(self):
+        optimizer = AdamW(
+            self.model.parameters(),
+            lr=self.learning_rate,
+            weight_decay=self.weight_decay,
+        )
+        self._manual_scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            self.warmup_steps,
+            self.total_steps,
+        )
+        return optimizer
+
+    def on_train_epoch_start(self):
+        self.epoch_loss = 0.0
+        self.n_batches = 0
+
+    def _dump_failure_artifact(
+        self, epoch: int, step: int, stage: str, batch, loss, logits,
+    ) -> list[str]:
+        if not self.debug.save_bad_batch:
+            return []
+        texts = self.tokenizer.batch_decode(batch["input_ids"], skip_special_tokens=True)
+        path = dump_bad_batch(
+            "artifacts/deberta_classifier",
+            epoch,
+            step,
+            stage,
+            batch,
+            loss,
+            logits,
+            texts,
+        )
+        return [str(path)]
+
+    def _record_failure(
+        self,
+        reason: str,
+        epoch: int,
+        step: int,
+        stage: str,
+        batch,
+        loss,
+        logits,
+        first_bad_param: str | None = None,
+    ):
+        logger.error(reason)
+        self.failure_result = TrainingResult(
+            success=False,
+            failed_reason=reason,
+            first_bad_epoch=epoch,
+            first_bad_step=step,
+            first_bad_stage=stage,
+            first_bad_param=first_bad_param,
+            debug_artifact_paths=self._dump_failure_artifact(epoch, step, stage, batch, loss, logits),
+        )
+        self.trainer.should_stop = True
+
+    def training_step(self, batch, batch_idx):
+        if self.failure_result is not None:
+            return None
+
+        epoch = int(self.current_epoch)
+        verbose = self.debug.enabled and batch_idx < self.debug.first_n_batches
+
+        if verbose:
+            for key, value in batch.items():
+                if isinstance(value, torch.Tensor):
+                    problems = check_tensor_finite(f"input.{key}", value)
+                    if problems:
+                        logger.warning(f"Pre-forward: {problems}")
+            if self.debug.log_batch_text:
+                texts = self.tokenizer.batch_decode(batch["input_ids"], skip_special_tokens=True)
+                logger.info(f"Batch {batch_idx} texts: {texts[:3]}")
+
+        optimizer = self.optimizers()
+        scheduler = self._manual_scheduler
+        optimizer.zero_grad()
+
+        outputs = self.model(**batch)
+        logits = outputs.logits
+        loss_fn = torch.nn.CrossEntropyLoss(weight=self.class_weights.to(logits.device))
+        loss = loss_fn(logits, batch["labels"])
+
+        forward_problems = check_tensor_finite("loss", loss) + check_tensor_finite("logits", logits)
+        if verbose:
+            logger.info(
+                f"  [B] post-forward step {batch_idx}: "
+                f"loss={loss.item():.6f} "
+                f"logits={summarize_tensor('logits', logits)}"
+            )
+        if forward_problems:
+            reason = (
+                f"Non-finite at epoch {epoch} step {batch_idx} (forward): "
+                f"{forward_problems}"
+            )
+            self._record_failure(reason, epoch, batch_idx, "forward", batch, loss, logits)
+            return loss.detach()
+
+        self.manual_backward(loss)
+
+        bad_grads = find_nonfinite_grads(self.model)
+        if bad_grads:
+            first_name = bad_grads[0][0]
+            reason = (
+                f"Non-finite grad at epoch {epoch} step {batch_idx}: "
+                f"{len(bad_grads)} params, first={first_name}"
+            )
+            self._record_failure(reason, epoch, batch_idx, "backward", batch, loss, logits, first_name)
+            return loss.detach()
+
+        if verbose and self.debug.log_param_stats:
+            log_param_stats(self.model, logger)
+
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+        optimizer.step()
+        if scheduler is not None:
+            scheduler.step()
+
+        bad_params = find_nonfinite_params(self.model)
+        if bad_params:
+            first_name = bad_params[0][0]
+            reason = (
+                f"Non-finite params after optimizer step at epoch {epoch} "
+                f"step {batch_idx}: {len(bad_params)} params, first={first_name}"
+            )
+            self._record_failure(reason, epoch, batch_idx, "post_step", batch, loss, logits, first_name)
+            return loss.detach()
+
+        if verbose:
+            logger.info(f"  [D] post-optimizer step {batch_idx}: params OK")
+
+        self.epoch_loss += loss.item()
+        self.n_batches += 1
+
+        if batch_idx % self.logging_steps == 0:
+            lr = scheduler.get_last_lr()[0] if scheduler is not None else self.learning_rate
+            logger.info(
+                f"  epoch {epoch} step {batch_idx}/{self.train_loader_len} "
+                f"loss={loss.item():.4f} lr={lr:.2e}"
+            )
+        return loss.detach()
+
+
+class _DeBERTaEpochEndCallback(pl.Callback):
+    """Runs the existing evaluation/history/checkpoint logic at Lightning epoch end."""
+
+    def __init__(
+        self,
+        classifier: "DeBERTaClassifier",
+        val_loader: DataLoader,
+        monitor_loaders: dict[str, DataLoader],
+        selected_device: torch.device,
+        on_epoch_end: Callable[[dict], None] | None,
+    ):
+        self.classifier = classifier
+        self.val_loader = val_loader
+        self.monitor_loaders = monitor_loaders
+        self.selected_device = selected_device
+        self.on_epoch_end = on_epoch_end
+        self.best_metric = float("-inf")
+        self.patience_counter = 0
+        self.stopped_early = False
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        if pl_module.failure_result is not None:
+            return
+
+        epoch = int(trainer.current_epoch)
+        avg_loss = pl_module.epoch_loss / max(pl_module.n_batches, 1)
+
+        val_metrics = self.classifier._evaluate(self.val_loader, self.selected_device)
+        epoch_metrics = {
+            "epoch": epoch + 1,
+            "train_loss": avg_loss,
+            **{f"eval_{key}": value for key, value in val_metrics.items()},
+        }
+        for split_name, monitor_loader in self.monitor_loaders.items():
+            split_metrics = self.classifier._evaluate(monitor_loader, self.selected_device)
+            epoch_metrics.update({
+                f"{split_name}_{key}": value
+                for key, value in split_metrics.items()
+            })
+
+        self.classifier.train_history.append(epoch_metrics)
+        if self.on_epoch_end is not None:
+            self.on_epoch_end(epoch_metrics)
+
+        current_metric = val_metrics[self.classifier.metric_for_best_model]
+        logger.info(
+            f"Epoch {epoch + 1}/{self.classifier.num_epochs} — "
+            f"train_loss={avg_loss:.4f} | "
+            f"val_acc={val_metrics['accuracy']:.4f} "
+            f"val_f1={val_metrics['f1']:.4f} "
+            f"val_macro_f1={val_metrics['macro_f1']:.4f} "
+            f"val_f1_benign={val_metrics['f1_benign']:.4f} "
+            f"val_f1_adversarial={val_metrics['f1_adversarial']:.4f} "
+            f"val_prec={val_metrics['precision']:.4f} "
+            f"val_rec={val_metrics['recall']:.4f}"
+            f"{_format_monitor_metrics(epoch_metrics)}"
+        )
+
+        if current_metric > self.best_metric:
+            self.best_metric = current_metric
+            self.patience_counter = 0
+            self.classifier._update_best_checkpoint(epoch + 1, current_metric)
+        else:
+            self.patience_counter += 1
+            if (
+                self.classifier.early_stopping_patience > 0
+                and self.patience_counter >= self.classifier.early_stopping_patience
+            ):
+                logger.info(
+                    f"Early stopping at epoch {epoch + 1} "
+                    f"(patience={self.classifier.early_stopping_patience})"
+                )
+                self.stopped_early = True
+                trainer.should_stop = True
 
 
 # ── Classifier ───────────────────────────────────────────────────────────────
@@ -266,9 +518,8 @@ class DeBERTaClassifier:
         # Compute class weights to handle imbalanced data
         classes = np.arange(len(self.label_order))
         weights = compute_class_weight("balanced", classes=classes, y=np.array(train_labels))
-        class_weights = torch.tensor(weights, dtype=torch.float32).to(selected_device)
+        class_weights = torch.tensor(weights, dtype=torch.float32)
         logger.info(f"Class weights: {dict(zip(self.label_order, weights))}")
-        loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights)
 
         train_texts = df_train[text_col].tolist()
         train_ds = PromptDataset(self.tokenizer, train_texts, train_labels, self.max_length)
@@ -303,196 +554,47 @@ class DeBERTaClassifier:
         total_steps = len(train_loader) * self.num_epochs
         warmup_steps = int(total_steps * self.warmup_ratio)
 
-        optimizer = AdamW(self.model.parameters(), lr=self.learning_rate,
-                          weight_decay=self.weight_decay)
-        scheduler = get_linear_schedule_with_warmup(optimizer, warmup_steps, total_steps)
-
         if debug.enabled and debug.log_param_stats:
             log_param_stats(self.model, logger)
 
         self.train_history = []
-        best_metric = float("-inf")
-        patience_counter = 0
-        failure_result = None
-        stopped_early = False
 
-        for epoch in range(self.num_epochs):
-            self.model.train()
-            epoch_loss = 0.0
-            n_batches = 0
+        lightning_module = _LightningDeBERTaModule(
+            classifier=self,
+            class_weights=class_weights,
+            debug=debug,
+            train_loader_len=len(train_loader),
+            total_steps=total_steps,
+            warmup_steps=warmup_steps,
+        )
+        epoch_callback = _DeBERTaEpochEndCallback(
+            classifier=self,
+            val_loader=val_loader,
+            monitor_loaders=monitor_loaders,
+            selected_device=selected_device,
+            on_epoch_end=on_epoch_end,
+        )
+        trainer = pl.Trainer(
+            accelerator=selected_device.type,
+            devices=1,
+            max_epochs=self.num_epochs,
+            callbacks=[epoch_callback],
+            enable_checkpointing=False,
+            logger=False,
+            enable_model_summary=False,
+            enable_progress_bar=False,
+            num_sanity_val_steps=0,
+        )
+        trainer.fit(lightning_module, train_dataloaders=train_loader)
 
-            for step, batch in enumerate(train_loader):
-                batch = {k: v.to(selected_device) for k, v in batch.items()}
-                verbose = debug.enabled and step < debug.first_n_batches
-
-                # [A] PRE-FORWARD
-                if verbose:
-                    for k, v in batch.items():
-                        if isinstance(v, torch.Tensor):
-                            problems = check_tensor_finite(f"input.{k}", v)
-                            if problems:
-                                logger.warning(f"Pre-forward: {problems}")
-                    if debug.log_batch_text:
-                        texts = self.tokenizer.batch_decode(
-                            batch["input_ids"], skip_special_tokens=True)
-                        logger.info(f"Batch {step} texts: {texts[:3]}")
-
-                optimizer.zero_grad()
-                outputs = self.model(**batch)
-                logits = outputs.logits
-                loss = loss_fn(logits, batch["labels"])
-
-                # [B] POST-FORWARD
-                loss_problems = check_tensor_finite("loss", loss)
-                logits_problems = check_tensor_finite("logits", logits)
-                forward_problems = loss_problems + logits_problems
-
-                if verbose:
-                    logger.info(f"  [B] post-forward step {step}: "
-                                f"loss={loss.item():.6f} "
-                                f"logits={summarize_tensor('logits', logits)}")
-
-                if forward_problems:
-                    reason = (f"Non-finite at epoch {epoch} step {step} (forward): "
-                              f"{forward_problems}")
-                    logger.error(reason)
-                    artifact_paths = []
-                    if debug.save_bad_batch:
-                        texts = self.tokenizer.batch_decode(
-                            batch["input_ids"], skip_special_tokens=True)
-                        p = dump_bad_batch("artifacts/deberta_classifier", epoch, step,
-                                           "forward", batch, loss, logits, texts)
-                        artifact_paths.append(str(p))
-                    failure_result = TrainingResult(
-                        success=False,
-                        failed_reason=reason,
-                        first_bad_epoch=epoch,
-                        first_bad_step=step,
-                        first_bad_stage="forward",
-                        debug_artifact_paths=artifact_paths,
-                    )
-                    break
-
-                loss.backward()
-
-                # [C] POST-BACKWARD
-                bad_grads = find_nonfinite_grads(self.model)
-                if bad_grads:
-                    first_name = bad_grads[0][0]
-                    reason = (f"Non-finite grad at epoch {epoch} step {step}: "
-                              f"{len(bad_grads)} params, first={first_name}")
-                    logger.error(reason)
-                    artifact_paths = []
-                    if debug.save_bad_batch:
-                        texts = self.tokenizer.batch_decode(
-                            batch["input_ids"], skip_special_tokens=True)
-                        p = dump_bad_batch("artifacts/deberta_classifier", epoch, step,
-                                           "backward", batch, loss, logits, texts)
-                        artifact_paths.append(str(p))
-                    failure_result = TrainingResult(
-                        success=False,
-                        failed_reason=reason,
-                        first_bad_epoch=epoch,
-                        first_bad_step=step,
-                        first_bad_stage="backward",
-                        first_bad_param=first_name,
-                        debug_artifact_paths=artifact_paths,
-                    )
-                    break
-
-                if verbose and debug.log_param_stats:
-                    log_param_stats(self.model, logger)
-
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
-                optimizer.step()
-                scheduler.step()
-
-                # [D] POST-OPTIMIZER
-                bad_params = find_nonfinite_params(self.model)
-                if bad_params:
-                    first_name = bad_params[0][0]
-                    reason = (f"Non-finite params after optimizer step at epoch {epoch} "
-                              f"step {step}: {len(bad_params)} params, first={first_name}")
-                    logger.error(reason)
-                    artifact_paths = []
-                    if debug.save_bad_batch:
-                        texts = self.tokenizer.batch_decode(
-                            batch["input_ids"], skip_special_tokens=True)
-                        p = dump_bad_batch("artifacts/deberta_classifier", epoch, step,
-                                           "post_step", batch, loss, logits, texts)
-                        artifact_paths.append(str(p))
-                    failure_result = TrainingResult(
-                        success=False,
-                        failed_reason=reason,
-                        first_bad_epoch=epoch,
-                        first_bad_step=step,
-                        first_bad_stage="post_step",
-                        first_bad_param=first_name,
-                        debug_artifact_paths=artifact_paths,
-                    )
-                    break
-
-                if verbose:
-                    logger.info(f"  [D] post-optimizer step {step}: params OK")
-
-                epoch_loss += loss.item()
-                n_batches += 1
-
-                if step % self.logging_steps == 0:
-                    lr = scheduler.get_last_lr()[0]
-                    logger.info(f"  epoch {epoch} step {step}/{len(train_loader)} "
-                                f"loss={loss.item():.4f} lr={lr:.2e}")
-
-            if failure_result is not None:
-                logger.error(f"Stopping training due to numeric failure at epoch {epoch}")
-                failure_result.train_history = self.train_history
-                return failure_result
-
-            avg_loss = epoch_loss / max(n_batches, 1)
-
-            # Evaluate
-            val_metrics = self._evaluate(val_loader, selected_device)
-            epoch_metrics = {
-                "epoch": epoch + 1,
-                "train_loss": avg_loss,
-                **{f"eval_{k}": v for k, v in val_metrics.items()},
-            }
-            for split_name, monitor_loader in monitor_loaders.items():
-                split_metrics = self._evaluate(monitor_loader, selected_device)
-                epoch_metrics.update({
-                    f"{split_name}_{k}": v
-                    for k, v in split_metrics.items()
-                })
-            self.train_history.append(epoch_metrics)
-            if on_epoch_end is not None:
-                on_epoch_end(epoch_metrics)
-
-            current_metric = val_metrics[self.metric_for_best_model]
-
-            logger.info(
-                f"Epoch {epoch + 1}/{self.num_epochs} — "
-                f"train_loss={avg_loss:.4f} | "
-                f"val_acc={val_metrics['accuracy']:.4f} "
-                f"val_f1={val_metrics['f1']:.4f} "
-                f"val_macro_f1={val_metrics['macro_f1']:.4f} "
-                f"val_f1_benign={val_metrics['f1_benign']:.4f} "
-                f"val_f1_adversarial={val_metrics['f1_adversarial']:.4f} "
-                f"val_prec={val_metrics['precision']:.4f} "
-                f"val_rec={val_metrics['recall']:.4f}"
-                f"{_format_monitor_metrics(epoch_metrics)}"
+        if lightning_module.failure_result is not None:
+            failure_result = lightning_module.failure_result
+            logger.error(
+                f"Stopping training due to numeric failure at epoch "
+                f"{failure_result.first_bad_epoch}"
             )
-
-            # Early stopping and best checkpointing on the configured metric
-            if current_metric > best_metric:
-                best_metric = current_metric
-                patience_counter = 0
-                self._update_best_checkpoint(epoch + 1, current_metric)
-            else:
-                patience_counter += 1
-                if self.early_stopping_patience > 0 and patience_counter >= self.early_stopping_patience:
-                    logger.info(f"Early stopping at epoch {epoch + 1} (patience={self.early_stopping_patience})")
-                    stopped_early = True
-                    break
+            failure_result.train_history = self.train_history
+            return failure_result
 
         self._restore_best_checkpoint()
         logger.info("Training complete.")
@@ -502,7 +604,7 @@ class DeBERTaClassifier:
             best_epoch=self.best_checkpoint["epoch"] if self.best_checkpoint else None,
             best_metric_name=self.metric_for_best_model,
             best_metric_value=self.best_checkpoint["metric_value"] if self.best_checkpoint else None,
-            stopped_early=stopped_early,
+            stopped_early=epoch_callback.stopped_early,
         )
 
     def _evaluate(self, val_loader, device):

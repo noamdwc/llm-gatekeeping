@@ -260,6 +260,32 @@ class FakeHFModel(nn.Module):
 
 
 class TestTrainingLifecycle:
+    @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())
+    @patch("src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained", return_value=FakeHFModel())
+    @patch("src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer())
+    def test_train_delegates_loop_to_lightning_trainer(
+        self,
+        _mock_tokenizer,
+        _mock_model,
+        _mock_collator,
+        sample_config_with_deberta,
+    ):
+        df_train = pd.DataFrame({
+            "modified_sample": ["a", "b", "c", "d"],
+            "label_binary": ["benign", "adversarial", "benign", "adversarial"],
+        })
+        df_val = pd.DataFrame({
+            "modified_sample": ["e", "f"],
+            "label_binary": ["benign", "adversarial"],
+        })
+
+        clf = DeBERTaClassifier(sample_config_with_deberta)
+
+        with patch("src.models.deberta_classifier.pl.Trainer") as MockTrainer:
+            MockTrainer.return_value.fit.side_effect = RuntimeError("trainer fit called")
+            with pytest.raises(RuntimeError, match="trainer fit called"):
+                clf.train(df_train, df_val, text_col="modified_sample", force_cpu=True)
+
     @patch("src.models.deberta_classifier.get_linear_schedule_with_warmup", return_value=FakeScheduler())
     @patch("src.models.deberta_classifier.AdamW", side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr))
     @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())

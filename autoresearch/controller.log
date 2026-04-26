@@ -1,0 +1,91 @@
+[2026-03-22 13:32:49] Fatal controller error: Command '['git', 'restore', '--source=HEAD', '--staged', '--worktree', 'autoresearch/experiment.py']' returned non-zero exit status 128.
+[2026-03-22 13:33:08] Fatal controller error: Command '['git', 'restore', '--source=HEAD', '--worktree', 'autoresearch/experiment.py']' returned non-zero exit status 128.
+[2026-03-22 14:25:40] Starting experiment 1: benign conf 94 (353efca)
+[2026-03-22 14:33:28] Finished benign conf 94: score=0.8922 best=0.9028 status=discard
+[2026-03-22 14:33:28] Starting experiment 2: benign conf 96 (bed00f3)
+[14:37:57] Starting orchestrator (20h budget)
+[14:37:57] --- Experiment 1 | best=0.9028 (86caba7) ---
+[14:39:52] Starting orchestrator (20h budget)
+[14:39:52] --- Experiment 1 | best=0.9028 (86caba7) ---
+[14:41:08] Starting orchestrator (4.0h budget)
+[14:41:08] --- Experiment 1 | best=0.9028 (86caba7) ---
+[14:41:50] Committed 68c6fdc: changed FEW_SHOT_BENIGN_CONFIDENCE from 96 to 95 while keeping the higher NLP exemplar count and other settings unchanged
+[14:49:18] DISCARD score=0.9028 (best=0.9028)
+[14:49:18] --- Experiment 2 | best=0.9028 (86caba7) ---
+[14:50:18] Committed 4547047: disabled the judge's deterministic benign-task override by clearing BENIGN_TASK_INTENT_PATTERNS
+[14:57:46] DISCARD score=0.9028 (best=0.9028)
+[14:57:46] --- Experiment 3 | best=0.9028 (86caba7) ---
+[14:58:34] Committed 147a19e: switched FEW_SHOT_MODE from static to dynamic while keeping the current higher NLP exemplar configuration unchanged
+[15:06:02] DISCARD score=0.9028 (best=0.9028)
+[15:06:02] --- Experiment 4 | best=0.9028 (86caba7) ---
+[15:07:12] Committed 3126848: switched FEW_SHOT_MODE from dynamic to static to match the current fallback behavior directly
+[15:14:41] DISCARD score=0.9028 (best=0.9028)
+[15:14:41] --- Experiment 5 | best=0.9028 (86caba7) ---
+[15:15:21] Committed 008f68d: made the judge more conservative about overriding adversarial predictions to benign by requiring a clearly identifiable benign task and no exact bypass evidence before flipping them
+[15:22:50] DISCARD score=0.9028 (best=0.9028)
+[15:22:50] NOTIFY: autoresearch status\nExperiments: 5 (0K 5D 0C)\nBest: 0.9028
+[15:22:58] --- Experiment 6 | best=0.9028 (86caba7) ---
+[15:23:31] Committed 1129505: fixed the classifier prompt's contradictory NLP evidence rule so adversarial NLP attacks require `evidence=""` while non-NLP adversarial labels still require exact copied evidence
+[15:31:26] DISCARD score=0.8751 (best=0.9028)
+[15:31:26] --- Experiment 7 | best=0.9028 (86caba7) ---
+[15:32:10] Committed cd21d21: reverted the classifier prompt's NLP/evidence constraint change so all adversarial labels must again include exact copied evidence from the input prompt
+[15:39:40] DISCARD score=0.9028 (best=0.9028)
+[15:39:40] --- Experiment 8 | best=0.9028 (86caba7) ---
+[15:41:15] Committed 0ffd72c: reduced N_UNICODE_EXAMPLES from 2 to 1 while keeping the stronger 6-per-type NLP few-shot coverage unchanged
+[15:49:02] DISCARD score=0.8817 (best=0.9028)
+[15:49:02] --- Experiment 9 | best=0.9028 (86caba7) ---
+[15:49:24] Committed 6acc94c: changed N_UNICODE_EXAMPLES from 1 to 2 to restore the stronger unicode few-shot coverage from the best-scoring configuration
+[15:56:53] DISCARD score=0.9028 (best=0.9028)
+[15:56:53] --- Experiment 10 | best=0.9028 (86caba7) ---
+[15:58:03] Committed 211f6c8: added explicit classifier prompt instructions to stop copying few-shot confidence values and to use a calibrated 0-100 confidence range with clear decisions kept at 85-99 and borderline cases lower
+[16:07:00] DISCARD score=0.8807 (best=0.9028)
+[16:07:00] NOTIFY: autoresearch status\nExperiments: 10 (0K 10D 0C)\nBest: 0.9028
+[16:07:10] --- Experiment 11 | best=0.9028 (86caba7) ---
+[16:07:59] Committed e39df4c: removed the classifier prompt's explicit anti-confidence-copy calibration instructions while keeping the current higher NLP few-shot configuration unchanged
+[16:15:28] DISCARD score=0.9028 (best=0.9028)
+[16:15:28] --- Experiment 12 | best=0.9028 (86caba7) ---
+[16:17:34] Committed 6d3987f: disabled the judge's deterministic benign-task override by setting BENIGN_TASK_OVERRIDE to False
+[16:25:03] DISCARD score=0.9028 (best=0.9028)
+[16:25:03] --- Experiment 13 | best=0.9028 (86caba7) ---
+[16:26:12] Committed 567ad78: increased N_NLP_EXAMPLES from 6 to 7 while keeping the current best-scoring static few-shot and confidence settings unchanged
+[16:33:49] DISCARD score=0.8755 (best=0.9028)
+[16:33:49] --- Experiment 14 | best=0.9028 (86caba7) ---
+[16:34:21] Committed fd20cac: changed N_NLP_EXAMPLES from 7 back to 6 to restore the best-scoring higher-NLP-exemplar configuration
+[16:41:50] DISCARD score=0.9028 (best=0.9028)
+[16:41:50] --- Experiment 15 | best=0.9028 (86caba7) ---
+[16:42:25] Committed b87a0c0: reduced N_NLP_EXAMPLES from 6 to 5 while keeping the current best-scoring static few-shot and confidence settings unchanged
+[16:50:12] DISCARD score=0.9024 (best=0.9028)
+[16:50:12] NOTIFY: autoresearch status\nExperiments: 15 (0K 15D 0C)\nBest: 0.9028
+[16:50:26] --- Experiment 16 | best=0.9028 (86caba7) ---
+[16:51:07] Committed a036670: increased N_NLP_EXAMPLES from 5 to 6 to restore the best-scoring higher-NLP-exemplar configuration
+[16:58:35] DISCARD score=0.9028 (best=0.9028)
+[16:58:35] --- Experiment 17 | best=0.9028 (86caba7) ---
+[16:59:50] Committed 8bda0dd: lowered FEW_SHOT_ATTACK_CONFIDENCE from 84 to 82 while keeping the current best-scoring higher-NLP static few-shot configuration unchanged
+[17:08:54] DISCARD score=0.8697 (best=0.9028)
+[17:08:54] --- Experiment 18 | best=0.9028 (86caba7) ---
+[17:09:24] Committed 15b407e: restored FEW_SHOT_ATTACK_CONFIDENCE from 82 to 84 to recover the best-performing higher-NLP static few-shot configuration
+[17:16:53] DISCARD score=0.9028 (best=0.9028)
+[17:16:53] --- Experiment 19 | best=0.9028 (86caba7) ---
+[17:17:46] Committed df19770: disabled the judge in the current best-performing configuration by lowering JUDGE_CONFIDENCE_THRESHOLD from 0.8 to 0.5
+[17:25:12] DISCARD score=0.9028 (best=0.9028)
+[17:25:12] --- Experiment 20 | best=0.9028 (86caba7) ---
+[17:26:25] Committed 0e317a5: lowered FEW_SHOT_ATTACK_CONFIDENCE from 84 to 83 while keeping the current best-performing higher-NLP static few-shot configuration unchanged
+[17:39:25] DISCARD score=0.8755 (best=0.9028)
+[17:39:26] NOTIFY: autoresearch status\nExperiments: 20 (0K 20D 0C)\nBest: 0.9028
+[17:39:37] --- Experiment 21 | best=0.9028 (86caba7) ---
+[17:40:15] Committed 9bf2cb5: restored FEW_SHOT_ATTACK_CONFIDENCE from 83 to 84 to recover the best-performing higher-NLP static few-shot configuration
+[17:47:42] DISCARD score=0.9028 (best=0.9028)
+[17:47:42] --- Experiment 22 | best=0.9028 (86caba7) ---
+[17:49:18] Committed 0e6eb49: raised JUDGE_CONFIDENCE_THRESHOLD from 0.5 to 0.8 to restore judge review for low-confidence uncertain cases
+[17:56:49] DISCARD score=0.9028 (best=0.9028)
+[17:56:49] --- Experiment 23 | best=0.9028 (86caba7) ---
+[17:57:46] Committed c21307a: raised FEW_SHOT_ATTACK_CONFIDENCE from 84 to 85 while keeping the current best-performing higher-NLP static few-shot configuration unchanged
+[18:07:15] DISCARD score=0.8695 (best=0.9028)
+[18:07:16] --- Experiment 24 | best=0.9028 (86caba7) ---
+[18:08:10] Committed 07c5c14: changed FEW_SHOT_ATTACK_CONFIDENCE from 85 to 84 to restore the best-performing higher-NLP static few-shot configuration
+[18:15:44] DISCARD score=0.9028 (best=0.9028)
+[18:15:44] --- Experiment 25 | best=0.9028 (86caba7) ---
+[18:16:59] Committed bf786aa: added explicit classifier prompt guidance that normal productivity requests and code/log/json/yaml/XML-like content are benign by default, and that instruction-like wording alone is not adversarial wi
+[19:51:19] Starting orchestrator (4.0h budget)
+[19:51:19] --- Experiment 1 | best=-1.0000 (none) ---
+[19:51:21] Committed 3b39414: Error: Input must be provided either through stdin or as a prompt argument when using --print

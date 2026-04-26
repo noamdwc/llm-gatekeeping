@@ -1,0 +1,66 @@
+Running stage 'deberta_model':
+> python -m src.cli.deberta_classifier --research
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /Users/noamc/.netrc.
+wandb: Currently logged in as: the-doctor (the-doctor-ml) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: setting up run 8w6bl11j
+wandb: Tracking run with wandb version 0.24.2
+wandb: Run data is saved locally in /Users/noamc/repos/llm-gatekeeping/wandb/run-20260424_223036-8w6bl11j
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run deberta-classifier
+wandb: ⭐️ View project at https://wandb.ai/the-doctor-ml/llm-gatekeeping
+wandb: 🚀 View run at https://wandb.ai/the-doctor-ml/llm-gatekeeping/runs/8w6bl11j
+INFO | Loading train/val splits...
+INFO | Train: 12352, Val: 2557
+INFO | Monitor unseen_val: 1881
+INFO | Monitor unseen_test: 1894
+INFO | HTTP Request: HEAD https://huggingface.co/microsoft/deberta-v3-base/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/microsoft/deberta-v3-base/8ccc9b6f36199bec6961081d44eb72fb3f7353f3/config.json "HTTP/1.1 200 OK"
+INFO | HTTP Request: HEAD https://huggingface.co/microsoft/deberta-v3-base/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/microsoft/deberta-v3-base/8ccc9b6f36199bec6961081d44eb72fb3f7353f3/tokenizer_config.json "HTTP/1.1 200 OK"
+INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/deberta-v3-base/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/deberta-v3-base/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/deberta-v3-base "HTTP/1.1 200 OK"
+INFO | HTTP Request: HEAD https://huggingface.co/microsoft/deberta-v3-base/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/microsoft/deberta-v3-base/8ccc9b6f36199bec6961081d44eb72fb3f7353f3/config.json "HTTP/1.1 200 OK"
+INFO | HTTP Request: HEAD https://huggingface.co/microsoft/deberta-v3-base/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+Loading weights:   0%|          | 0/198 [00:00<?, ?it/s]INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/deberta-v3-base "HTTP/1.1 200 OK"
+INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/deberta-v3-base/commits/main "HTTP/1.1 200 OK"
+INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/deberta-v3-base/discussions?p=0 "HTTP/1.1 200 OK"
+Loading weights:   2%|▏         | 3/198 [00:00<00:36,  5.27it/s]Loading weights: 100%|██████████| 198/198 [00:00<00:00, 345.66it/s]
+[1mDebertaV2ForSequenceClassification LOAD REPORT[0m from: microsoft/deberta-v3-base
+Key                                     | Status     | 
+----------------------------------------+------------+-
+mask_predictions.LayerNorm.bias         | UNEXPECTED | 
+lm_predictions.lm_head.LayerNorm.weight | UNEXPECTED | 
+mask_predictions.dense.weight           | UNEXPECTED | 
+mask_predictions.classifier.bias        | UNEXPECTED | 
+mask_predictions.classifier.weight      | UNEXPECTED | 
+lm_predictions.lm_head.LayerNorm.bias   | UNEXPECTED | 
+lm_predictions.lm_head.dense.weight     | UNEXPECTED | 
+lm_predictions.lm_head.bias             | UNEXPECTED | 
+mask_predictions.LayerNorm.weight       | UNEXPECTED | 
+mask_predictions.dense.bias             | UNEXPECTED | 
+lm_predictions.lm_head.dense.bias       | UNEXPECTED | 
+pooler.dense.bias                       | MISSING    | 
+pooler.dense.weight                     | MISSING    | 
+classifier.bias                         | MISSING    | 
+classifier.weight                       | MISSING    | 
+
+[3mNotes:
+- UNEXPECTED[3m	:can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING[3m	:those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.[0m
+INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/deberta-v3-base/commits/refs%2Fpr%2F14 "HTTP/1.1 200 OK"
+INFO | HTTP Request: HEAD https://huggingface.co/microsoft/deberta-v3-base/resolve/refs%2Fpr%2F14/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+INFO | HTTP Request: HEAD https://huggingface.co/microsoft/deberta-v3-base/resolve/refs%2Fpr%2F14/model.safetensors "HTTP/1.1 302 Found"
+INFO | Training on device: mps
+INFO | Label distribution:
+INFO |   benign (id=0): 4297
+INFO |   adversarial (id=1): 8055
+INFO | Class weights: {'benign': np.float64(1.437281824528741), 'adversarial': np.float64(0.7667287399130974)}
+INFO |   epoch 0 step 0/1544 loss=0.7031 lr=6.48e-09
+INFO |   epoch 0 step 50/1544 loss=0.6070 lr=3.30e-07
+INFO |   epoch 0 step 100/1544 loss=0.6569 lr=6.54e-07
+INFO |   epoch 0 step 150/1544 loss=0.6946 lr=9.78e-07
+INFO |   epoch 0 step 200/1544 loss=0.5802 lr=1.30e-06
+INFO |   epoch 0 step 250/1544 loss=0.3959 lr=1.63e-06
+INFO |   epoch 0 step 300/1544 loss=0.5728 lr=1.95e-06

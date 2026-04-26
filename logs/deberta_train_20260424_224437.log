@@ -1,0 +1,411 @@
+WARNING: Process '/Users/noamc/miniconda3/envs/llm_gate/bin/dvc repro -s deberta_model' with (Pid 72347), in RWLock-file 'artifacts/deberta_classifier/model' had been killed. Auto removed it from the lock file.
+WARNING: Process '/Users/noamc/miniconda3/envs/llm_gate/bin/dvc repro -s deberta_model' with (Pid 72347), in RWLock-file 'artifacts/deberta_classifier/model' had been killed. Auto removed it from the lock file.
+Running stage 'deberta_model':
+> python -m src.cli.deberta_classifier --research
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /Users/noamc/.netrc.
+wandb: Currently logged in as: the-doctor (the-doctor-ml) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: setting up run 98n7b5zm
+wandb: Tracking run with wandb version 0.24.2
+wandb: Run data is saved locally in /Users/noamc/repos/llm-gatekeeping/wandb/run-20260424_224446-98n7b5zm
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run deberta-classifier
+wandb: ⭐️ View project at https://wandb.ai/the-doctor-ml/llm-gatekeeping
+wandb: 🚀 View run at https://wandb.ai/the-doctor-ml/llm-gatekeeping/runs/98n7b5zm
+INFO | Loading train/val splits...
+INFO | Train: 12352, Val: 2557
+INFO | Monitor unseen_val: 1881
+INFO | Monitor unseen_test: 1894
+INFO | HTTP Request: HEAD https://huggingface.co/microsoft/deberta-v3-base/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/microsoft/deberta-v3-base/8ccc9b6f36199bec6961081d44eb72fb3f7353f3/config.json "HTTP/1.1 200 OK"
+INFO | HTTP Request: HEAD https://huggingface.co/microsoft/deberta-v3-base/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/microsoft/deberta-v3-base/8ccc9b6f36199bec6961081d44eb72fb3f7353f3/tokenizer_config.json "HTTP/1.1 200 OK"
+INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/deberta-v3-base/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/deberta-v3-base/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/deberta-v3-base "HTTP/1.1 200 OK"
+INFO | HTTP Request: HEAD https://huggingface.co/microsoft/deberta-v3-base/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/microsoft/deberta-v3-base/8ccc9b6f36199bec6961081d44eb72fb3f7353f3/config.json "HTTP/1.1 200 OK"
+INFO | HTTP Request: HEAD https://huggingface.co/microsoft/deberta-v3-base/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+Loading weights:   0%|          | 0/198 [00:00<?, ?it/s]INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/deberta-v3-base "HTTP/1.1 200 OK"
+INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/deberta-v3-base/commits/main "HTTP/1.1 200 OK"
+Loading weights:   2%|▏         | 3/198 [00:00<00:25,  7.55it/s]Loading weights: 100%|██████████| 198/198 [00:00<00:00, 493.42it/s]
+[1mDebertaV2ForSequenceClassification LOAD REPORT[0m from: microsoft/deberta-v3-base
+Key                                     | Status     | 
+----------------------------------------+------------+-
+mask_predictions.classifier.weight      | UNEXPECTED | 
+mask_predictions.LayerNorm.bias         | UNEXPECTED | 
+lm_predictions.lm_head.LayerNorm.weight | UNEXPECTED | 
+lm_predictions.lm_head.dense.bias       | UNEXPECTED | 
+mask_predictions.dense.weight           | UNEXPECTED | 
+mask_predictions.classifier.bias        | UNEXPECTED | 
+mask_predictions.dense.bias             | UNEXPECTED | 
+lm_predictions.lm_head.bias             | UNEXPECTED | 
+mask_predictions.LayerNorm.weight       | UNEXPECTED | 
+lm_predictions.lm_head.dense.weight     | UNEXPECTED | 
+lm_predictions.lm_head.LayerNorm.bias   | UNEXPECTED | 
+pooler.dense.weight                     | MISSING    | 
+classifier.bias                         | MISSING    | 
+classifier.weight                       | MISSING    | 
+pooler.dense.bias                       | MISSING    | 
+
+[3mNotes:
+- UNEXPECTED[3m	:can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING[3m	:those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.[0m
+INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/deberta-v3-base/discussions?p=0 "HTTP/1.1 200 OK"
+INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/deberta-v3-base/commits/refs%2Fpr%2F14 "HTTP/1.1 200 OK"
+INFO | Training on device: mps
+INFO | Label distribution:
+INFO |   benign (id=0): 4297
+INFO |   adversarial (id=1): 8055
+INFO | Class weights: {'benign': np.float64(1.437281824528741), 'adversarial': np.float64(0.7667287399130974)}
+INFO | HTTP Request: HEAD https://huggingface.co/microsoft/deberta-v3-base/resolve/refs%2Fpr%2F14/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+INFO | HTTP Request: HEAD https://huggingface.co/microsoft/deberta-v3-base/resolve/refs%2Fpr%2F14/model.safetensors "HTTP/1.1 302 Found"
+INFO |   epoch 0 step 0/1544 loss=0.6570 lr=6.48e-09
+INFO |   epoch 0 step 50/1544 loss=0.6833 lr=3.30e-07
+INFO |   epoch 0 step 100/1544 loss=0.6373 lr=6.54e-07
+INFO |   epoch 0 step 150/1544 loss=0.6066 lr=9.78e-07
+INFO |   epoch 0 step 200/1544 loss=0.5154 lr=1.30e-06
+INFO |   epoch 0 step 250/1544 loss=0.5809 lr=1.63e-06
+INFO |   epoch 0 step 300/1544 loss=0.4656 lr=1.95e-06
+INFO |   epoch 0 step 350/1544 loss=0.3923 lr=2.27e-06
+INFO |   epoch 0 step 400/1544 loss=0.6418 lr=2.60e-06
+INFO |   epoch 0 step 450/1544 loss=0.3444 lr=2.92e-06
+INFO |   epoch 0 step 500/1544 loss=0.1562 lr=3.24e-06
+INFO |   epoch 0 step 550/1544 loss=0.2894 lr=3.57e-06
+INFO |   epoch 0 step 600/1544 loss=0.1345 lr=3.89e-06
+INFO |   epoch 0 step 650/1544 loss=0.0793 lr=4.22e-06
+INFO |   epoch 0 step 700/1544 loss=0.5991 lr=4.54e-06
+INFO |   epoch 0 step 750/1544 loss=0.1317 lr=4.86e-06
+INFO |   epoch 0 step 800/1544 loss=0.0067 lr=4.98e-06
+INFO |   epoch 0 step 850/1544 loss=0.0045 lr=4.94e-06
+INFO |   epoch 0 step 900/1544 loss=0.9000 lr=4.91e-06
+INFO |   epoch 0 step 950/1544 loss=0.0018 lr=4.87e-06
+INFO |   epoch 0 step 1000/1544 loss=0.0056 lr=4.84e-06
+INFO |   epoch 0 step 1050/1544 loss=0.0039 lr=4.80e-06
+INFO |   epoch 0 step 1100/1544 loss=1.1129 lr=4.76e-06
+INFO |   epoch 0 step 1150/1544 loss=0.0036 lr=4.73e-06
+INFO |   epoch 0 step 1200/1544 loss=0.5886 lr=4.69e-06
+INFO |   epoch 0 step 1250/1544 loss=0.0019 lr=4.66e-06
+INFO |   epoch 0 step 1300/1544 loss=0.0556 lr=4.62e-06
+INFO |   epoch 0 step 1350/1544 loss=0.0014 lr=4.58e-06
+INFO |   epoch 0 step 1400/1544 loss=0.0012 lr=4.55e-06
+INFO |   epoch 0 step 1450/1544 loss=0.0029 lr=4.51e-06
+INFO |   epoch 0 step 1500/1544 loss=0.0007 lr=4.48e-06
+INFO | Epoch 1/5 — train_loss=0.3499 | val_acc=0.9507 val_f1=0.9610 val_macro_f1=0.9470 val_f1_benign=0.9330 val_f1_adversarial=0.9610 val_prec=0.9610 val_rec=0.9610 | unseen_test_f1=0.9486 unseen_test_prec=0.9339 unseen_test_rec=0.9637 | unseen_val_f1=0.9574 unseen_val_prec=0.9523 unseen_val_rec=0.9625
+INFO |   epoch 1 step 0/1544 loss=0.0098 lr=4.44e-06
+INFO |   epoch 1 step 50/1544 loss=0.0092 lr=4.41e-06
+INFO |   epoch 1 step 100/1544 loss=0.7855 lr=4.37e-06
+INFO |   epoch 1 step 150/1544 loss=0.0032 lr=4.34e-06
+INFO |   epoch 1 step 200/1544 loss=0.0007 lr=4.30e-06
+INFO |   epoch 1 step 250/1544 loss=0.0021 lr=4.26e-06
+INFO |   epoch 1 step 300/1544 loss=0.0027 lr=4.23e-06
+INFO |   epoch 1 step 350/1544 loss=1.5177 lr=4.19e-06
+INFO |   epoch 1 step 400/1544 loss=0.0025 lr=4.16e-06
+INFO |   epoch 1 step 450/1544 loss=0.0013 lr=4.12e-06
+INFO |   epoch 1 step 500/1544 loss=0.0035 lr=4.08e-06
+INFO |   epoch 1 step 550/1544 loss=0.0017 lr=4.05e-06
+INFO |   epoch 1 step 600/1544 loss=0.0005 lr=4.01e-06
+INFO |   epoch 1 step 650/1544 loss=0.7852 lr=3.98e-06
+INFO |   epoch 1 step 700/1544 loss=0.7376 lr=3.94e-06
+INFO |   epoch 1 step 750/1544 loss=0.7024 lr=3.90e-06
+INFO |   epoch 1 step 800/1544 loss=0.0029 lr=3.87e-06
+INFO |   epoch 1 step 850/1544 loss=0.0071 lr=3.83e-06
+INFO |   epoch 1 step 900/1544 loss=0.0117 lr=3.80e-06
+INFO |   epoch 1 step 950/1544 loss=0.9631 lr=3.76e-06
+INFO |   epoch 1 step 1000/1544 loss=0.0036 lr=3.72e-06
+INFO |   epoch 1 step 1050/1544 loss=0.7126 lr=3.69e-06
+INFO |   epoch 1 step 1100/1544 loss=0.0119 lr=3.65e-06
+INFO |   epoch 1 step 1150/1544 loss=0.0023 lr=3.62e-06
+INFO |   epoch 1 step 1200/1544 loss=0.0019 lr=3.58e-06
+INFO |   epoch 1 step 1250/1544 loss=0.0109 lr=3.54e-06
+INFO |   epoch 1 step 1300/1544 loss=0.0005 lr=3.51e-06
+INFO |   epoch 1 step 1350/1544 loss=0.0010 lr=3.47e-06
+INFO |   epoch 1 step 1400/1544 loss=0.0043 lr=3.44e-06
+INFO |   epoch 1 step 1450/1544 loss=0.0061 lr=3.40e-06
+INFO |   epoch 1 step 1500/1544 loss=0.6044 lr=3.36e-06
+wandb-core(99233) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(459) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(1690) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(2048) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(2525) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(2744) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(3081) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(3401) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(3720) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(4054) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(4388) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(5381) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(6552) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(7467) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(8575) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(9667) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(10814) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(11884) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(13145) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(14251) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(14858) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(15211) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(15548) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(15887) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(16225) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(16558) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(16867) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(17087) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(17399) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(17707) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(18024) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(18338) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(18672) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(19018) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(20231) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(21323) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(22514) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(23618) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(24763) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(25848) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(26945) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(28240) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(29537) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(29947) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(30280) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(30769) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(31065) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(31386) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(31649) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(31948) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(32270) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(32586) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(32900) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(33252) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(34266) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(35229) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(36171) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(37279) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(38233) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(39229) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(40165) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(40973) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(41940) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(42255) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(42581) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(42894) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(43211) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(43527) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(43825) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(44187) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(44484) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(44784) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(45105) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(45399) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(45718) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(46021) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(46257) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(46521) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(46858) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(47193) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(47552) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(47858) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(48140) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(48594) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(48901) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(49206) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(49472) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(49642) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(49931) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(50205) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(50490) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(50747) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(50957) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(51222) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(51468) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(51726) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(52005) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(52346) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(52626) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(52898) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(53156) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(53382) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(53594) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(53845) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(54119) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(54413) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(54644) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(54983) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(55152) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(55385) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(55632) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(55859) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(56096) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(56306) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(56572) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(56787) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(57004) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(57210) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(57368) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(57566) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(57822) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(58047) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(58291) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(58460) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(58658) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(58913) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(59102) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(59295) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(59483) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(59660) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(59848) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(60003) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(60192) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(60767) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(61381) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(62003) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(62724) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(63325) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(63894) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(64460) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(65338) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(65530) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(65674) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(65803) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(65955) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(66111) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(66250) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(66389) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(66537) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(66672) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(66795) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(66968) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(67116) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(67279) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(67417) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(67574) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(67644) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(67789) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(67942) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(68079) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(68229) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(68396) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(68579) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(68689) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(68810) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(68963) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(69109) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(69247) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(69372) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(69613) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(69749) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(69868) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(69991) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(70133) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(70284) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(70496) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(70622) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(70773) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(70882) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(70993) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(71132) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(71294) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(71421) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(71549) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(71657) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(71776) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(71896) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(72018) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(72142) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(72272) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(72451) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(73020) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(73458) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(74082) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(74813) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(75472) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(76120) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(76628) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(76946) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(77061) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(77169) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(77306) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(77448) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(77579) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(77704) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(77835) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(77960) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(78069) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(78200) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(78319) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(78464) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(78621) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(78756) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(78914) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(79068) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(79199) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(79319) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(79451) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(79582) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(79704) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(79831) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(79919) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(80034) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(80147) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(80337) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(80540) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(80670) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(80702) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+INFO | Epoch 2/5 — train_loss=0.2115 | val_acc=0.9562 val_f1=0.9655 val_macro_f1=0.9528 val_f1_benign=0.9400 val_f1_adversarial=0.9655 val_prec=0.9619 val_rec=0.9691 | unseen_test_f1=0.9485 unseen_test_prec=0.9347 unseen_test_rec=0.9628 | unseen_val_f1=0.9597 unseen_val_prec=0.9533 unseen_val_rec=0.9661
+INFO |   epoch 2 step 0/1544 loss=0.0002 lr=3.33e-06
+wandb-core(80726) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(80741) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+INFO |   epoch 2 step 50/1544 loss=0.0011 lr=3.30e-06
+wandb-core(80748) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(80761) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+INFO |   epoch 2 step 100/1544 loss=0.0014 lr=3.26e-06
+wandb-core(80768) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(80769) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+INFO |   epoch 2 step 150/1544 loss=0.6815 lr=3.22e-06
+wandb-core(80770) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(80771) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+INFO |   epoch 2 step 200/1544 loss=0.0027 lr=3.19e-06
+wandb-core(81140) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(81143) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+wandb-core(81145) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+Error: command buffer exited with error status.
+	The Metal Performance Shaders operations encoded on it may not have completed.
+	Error: 
+	(null)
+	Internal Error (00000001:Internal Error)
+	<AGXG14XFamilyCommandBuffer: 0xa0fb04af0>
+    label = <none> 
+    device = <AGXG14SDevice: 0x31ba0d800>
+        name = Apple M2 Pro 
+    commandQueue = <AGXG14XFamilyCommandQueue: 0x31b64d400>
+        label = <none> 
+        device = <AGXG14SDevice: 0x31ba0d800>
+            name = Apple M2 Pro 
+    retainedReferences = 1
+Error: command buffer exited with error status.
+	The Metal Performance Shaders operations encoded on it may not have completed.
+	Error: 
+	(null)
+	Internal Error (00000001:Internal Error)
+	<AGXG14XFamilyCommandBuffer: 0xa05835fe0>
+    label = <none> 
+    device = <AGXG14SDevice: 0x31ba0d800>
+        name = Apple M2 Pro 
+    commandQueue = <AGXG14XFamilyCommandQueue: 0x31b64d400>
+        label = <none> 
+        device = <AGXG14SDevice: 0x31ba0d800>
+            name = Apple M2 Pro 
+    retainedReferences = 1
+Error: command buffer exited with error status.
+	The Metal Performance Shaders operations encoded on it may not have completed.
+	Error: 
+	(null)
+	Internal Error (00000001:Internal Error)
+	<AGXG14XFamilyCommandBuffer: 0xa05835fe0>
+    label = <none> 
+    device = <AGXG14SDevice: 0x31ba0d800>
+        name = Apple M2 Pro 
+    commandQueue = <AGXG14XFamilyCommandQueue: 0x31b64d400>
+        label = <none> 
+        device = <AGXG14SDevice: 0x31ba0d800>
+            name = Apple M2 Pro 
+    retainedReferences = 1

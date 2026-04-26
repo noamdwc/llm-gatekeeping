@@ -1,0 +1,45 @@
+============================================================
+autoresearch routing eval
+============================================================
+  Unicode types: 12
+  ML threshold: 0.85
+  DeBERTa threshold: 0.93
+  LLM threshold: 0.9
+  Margin threshold: 2.0
+  Risk threshold: 0.5
+  Risk model loaded (threshold=0.5)
+  [binary calibration] enabled
+Model loaded ← /Users/noamc/repos/llm-gatekeeping/data/processed/models/ml_baseline.pkl
+Loading weights:   0%|          | 0/202 [00:00<?, ?it/s]Loading weights: 100%|██████████| 202/202 [00:00<00:00, 4700.31it/s]
+  DeBERTa model loaded
+
+--- val ---
+  N=1847 (1548 adv, 299 ben)
+  val_score: 0.8753
+  accuracy: 0.9540
+  adv_f1: 0.9731, ben_f1: 0.8405
+  FPR: 0.2508, FNR: 0.0065
+
+--- deepset ---
+  N=116 (60 adv, 56 ben)
+  deepset_score: 0.6028
+  accuracy: 0.6121
+  adv_f1: 0.6341, ben_f1: 0.5872
+  FPR: 0.4286, FNR: 0.3500
+
+--- jackhhao ---
+Traceback (most recent call last):
+  File "/Users/noamc/repos/llm-gatekeeping/autoresearch/prepare.py", line 336, in <module>
+    main()
+    ~~~~^^
+  File "/Users/noamc/repos/llm-gatekeeping/autoresearch/prepare.py", line 286, in main
+    ml_ext, deb_ext, llm_ext = load_external_predictions(
+                               ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        ds_key, ds_cfg, cfg, ml_model, deberta_model)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/noamc/repos/llm-gatekeeping/autoresearch/prepare.py", line 195, in load_external_predictions
+    deberta_df = deberta_model.predict(df, text_col)
+  File "/Users/noamc/repos/llm-gatekeeping/src/models/deberta_classifier.py", line 512, in predict
+    probs = torch.softmax(logits.float(), dim=-1).cpu().numpy()
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+KeyboardInterrupt

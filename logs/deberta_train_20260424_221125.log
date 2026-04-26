@@ -1,0 +1,2 @@
+Running stage 'generate_synthetic_benign@A':
+> python -m src.cli.generate_synthetic_benign --category A
