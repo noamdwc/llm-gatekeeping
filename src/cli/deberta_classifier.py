@@ -353,9 +353,7 @@ def generate_summary(all_metrics: dict) -> str:
     return "\n".join(lines)
 
 
-def main():
-    args = parse_args()
-
+def run_deberta(args: argparse.Namespace):
     cfg = apply_training_overrides(load_config(args.config), args)
     text_col = cfg["dataset"]["text_col"]
     dcfg = cfg["deberta"]
@@ -548,6 +546,10 @@ def main():
 
     if wandb.run is not None:
         wandb.finish()
+
+
+def main():
+    run_deberta(parse_args())
 
 
 if __name__ == "__main__":
