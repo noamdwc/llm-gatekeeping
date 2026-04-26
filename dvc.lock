@@ -81,8 +81,8 @@ stages:
       size: 3330798
     - path: src/build_splits.py
       hash: md5
-      md5: b73963e040ab28472232da020fa80735
-      size: 3041
+      md5: 1f01f56e35bc369ee8b73911666972bb
+      size: 6775
     - path: src/utils.py
       hash: md5
       md5: aa5d2f6b993e019e3d85b3e13a53f23e
@@ -92,28 +92,35 @@ stages:
         labels.held_out_attacks:
         - Emoji Smuggling
         - Pruthi
+        - TextFooler
+        - BAE
         splits:
           train: 0.7
           val: 0.15
           test: 0.15
+          unseen_val_ratio: 0.5
           random_seed: 42
     outs:
     - path: data/processed/splits/test.parquet
       hash: md5
-      md5: 47bcb4c4d8c041c03abf1090a4bf6179
-      size: 380357
-    - path: data/processed/splits/test_unseen.parquet
-      hash: md5
-      md5: e43d8355c4f8634d825bcc9a3b021488
-      size: 524218
+      md5: a349e89979211c99a5800c03ab0155c9
+      size: 405178
     - path: data/processed/splits/train.parquet
       hash: md5
-      md5: a72dd2ca5052759088e4f88c52fb6e06
-      size: 2145496
+      md5: 0d6067db5f89a79bfb698f62498b234f
+      size: 1788070
+    - path: data/processed/splits/unseen_test.parquet
+      hash: md5
+      md5: 0cc2c49f7795960c00df0c136b1e108f
+      size: 460518
+    - path: data/processed/splits/unseen_val.parquet
+      hash: md5
+      md5: 7f6c8142b15fc31fb3272d8a03509ede
+      size: 442081
     - path: data/processed/splits/val.parquet
       hash: md5
-      md5: 266f7b14ce982b4fb2439aa3a7b24e6b
-      size: 413191
+      md5: d150c52c7bb37f9f6c441c115a34ef07
+      size: 492848
   ml_model:
     cmd: python -m src.ml_classifier.ml_baseline --research --no-wandb
     deps:
