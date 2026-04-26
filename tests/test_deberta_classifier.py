@@ -555,6 +555,62 @@ class TestTrainingLifecycle:
         assert seen_epochs[0]["unseen_val_precision"] == 0.91
         assert seen_epochs[0]["unseen_val_recall"] == 0.92
 
+    @patch("src.models.deberta_classifier.get_linear_schedule_with_warmup", return_value=FakeScheduler())
+    @patch("src.models.deberta_classifier.AdamW", side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr))
+    @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())
+    @patch("src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained", return_value=FakeHFModel())
+    @patch("src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer())
+    def test_train_calls_batch_callback_during_fit(
+        self,
+        _mock_tokenizer,
+        _mock_model,
+        _mock_collator,
+        _mock_optimizer,
+        _mock_scheduler,
+        sample_config_with_deberta,
+    ):
+        cfg = sample_config_with_deberta.copy()
+        cfg["deberta"] = cfg["deberta"].copy()
+        cfg["deberta"]["num_epochs"] = 1
+        cfg["deberta"]["batch_size"] = 2
+        cfg["deberta"]["logging_steps"] = 1
+
+        df_train = pd.DataFrame({
+            "modified_sample": ["a", "b", "c", "d"],
+            "label_binary": ["benign", "adversarial", "benign", "adversarial"],
+        })
+        df_val = pd.DataFrame({
+            "modified_sample": ["e", "f"],
+            "label_binary": ["benign", "adversarial"],
+        })
+        batch_metrics = []
+
+        clf = DeBERTaClassifier(cfg)
+
+        with patch.object(clf, "_evaluate", return_value={
+            "accuracy": 0.8,
+            "f1": 0.7,
+            "macro_f1": 0.75,
+            "precision": 0.7,
+            "recall": 0.7,
+            "f1_benign": 0.8,
+            "f1_adversarial": 0.7,
+        }):
+            clf.train(
+                df_train,
+                df_val,
+                text_col="modified_sample",
+                force_cpu=True,
+                on_train_batch_end=batch_metrics.append,
+            )
+
+        assert len(batch_metrics) == 2
+        assert batch_metrics[0]["epoch"] == 1
+        assert batch_metrics[0]["batch"] == 1
+        assert batch_metrics[0]["global_step"] == 1
+        assert "train_loss_step" in batch_metrics[0]
+        assert "learning_rate" in batch_metrics[0]
+
     @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())
     @patch("src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained", return_value=FakeHFModel())
     @patch("src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer())

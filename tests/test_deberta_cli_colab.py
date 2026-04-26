@@ -121,4 +121,22 @@ def test_run_deberta_accepts_parsed_args(monkeypatch, tmp_path, sample_config_wi
 
     assert calls["cfg"]["deberta"]["batch_size"] == sample_config_with_deberta["deberta"]["batch_size"]
     assert calls["train_kwargs"]["device"] == "cpu"
+    assert calls["train_kwargs"]["on_train_batch_end"] is None
     assert calls["save_dir"] == tmp_path / "artifacts"
+
+
+def test_build_training_batch_log_payload_uses_wandb_metric_names():
+    payload = cli.build_training_batch_log_payload({
+        "epoch": 2,
+        "batch": 3,
+        "global_step": 13,
+        "train_loss_step": 0.42,
+        "learning_rate": 5e-6,
+    })
+
+    assert payload == {
+        "epoch": 2,
+        "train/batch": 3,
+        "train/loss_step": 0.42,
+        "train/learning_rate": 5e-6,
+    }

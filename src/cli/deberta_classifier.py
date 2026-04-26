@@ -307,6 +307,16 @@ def build_training_log_payload(epoch_metrics: dict) -> dict:
     return log_payload
 
 
+def build_training_batch_log_payload(batch_metrics: dict) -> dict:
+    """Convert training batch metrics to WandB metric names."""
+    return {
+        "epoch": batch_metrics["epoch"],
+        "train/batch": batch_metrics["batch"],
+        "train/loss_step": batch_metrics["train_loss_step"],
+        "train/learning_rate": batch_metrics["learning_rate"],
+    }
+
+
 def save_predictions(df_split: pd.DataFrame, preds: pd.DataFrame,
                      split_name: str, text_col: str, predictions_dir: Path):
     """Merge ground truth with predictions and save parquet."""
@@ -442,16 +452,22 @@ def run_deberta(args: argparse.Namespace):
         }
         clf = DeBERTaClassifier(cfg)
         on_epoch_end = None
+        on_train_batch_end = None
         if wandb.run is not None:
             def on_epoch_end(epoch_metrics):
                 wandb.log(
                     build_training_log_payload(epoch_metrics),
                     step=epoch_metrics["epoch"],
                 )
+            def on_train_batch_end(batch_metrics):
+                wandb.log(
+                    build_training_batch_log_payload(batch_metrics),
+                    step=batch_metrics["global_step"],
+                )
 
         result = clf.train(df_train, df_val, text_col=text_col, label_col="label_binary",
                            force_cpu=args.cpu, device=selected_device, debug=debug, monitor_dfs=monitor_dfs,
-                           on_epoch_end=on_epoch_end)
+                           on_epoch_end=on_epoch_end, on_train_batch_end=on_train_batch_end)
 
         if wandb.run is not None and result.train_history and on_epoch_end is None:
             for epoch_metrics in result.train_history:

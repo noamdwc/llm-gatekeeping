@@ -115,6 +115,7 @@ class _LightningDeBERTaModule(pl.LightningModule):
         train_loader_len: int,
         total_steps: int,
         warmup_steps: int,
+        on_train_batch_end: Callable[[dict], None] | None,
     ):
         super().__init__()
         self.classifier = classifier
@@ -134,6 +135,7 @@ class _LightningDeBERTaModule(pl.LightningModule):
         self.n_batches = 0
         self.failure_result: TrainingResult | None = None
         self._manual_scheduler = None
+        self._train_batch_callback = on_train_batch_end
 
     def configure_optimizers(self):
         optimizer = AdamW(
@@ -272,6 +274,15 @@ class _LightningDeBERTaModule(pl.LightningModule):
 
         if batch_idx % self.logging_steps == 0:
             lr = scheduler.get_last_lr()[0] if scheduler is not None else self.learning_rate
+            batch_metrics = {
+                "epoch": epoch + 1,
+                "batch": batch_idx + 1,
+                "global_step": int(self.global_step),
+                "train_loss_step": float(loss.detach().cpu()),
+                "learning_rate": float(lr),
+            }
+            if self._train_batch_callback is not None:
+                self._train_batch_callback(batch_metrics)
             logger.info(
                 f"  epoch {epoch} step {batch_idx}/{self.train_loader_len} "
                 f"loss={loss.item():.4f} lr={lr:.2e}"
@@ -483,7 +494,8 @@ class DeBERTaClassifier:
               device: str | None = None,
               debug: DebugConfig | None = None,
               monitor_dfs: dict[str, pd.DataFrame] | None = None,
-              on_epoch_end: Callable[[dict], None] | None = None) -> TrainingResult:
+              on_epoch_end: Callable[[dict], None] | None = None,
+              on_train_batch_end: Callable[[dict], None] | None = None) -> TrainingResult:
         if debug is None:
             debug = DebugConfig()
 
@@ -558,6 +570,7 @@ class DeBERTaClassifier:
             log_param_stats(self.model, logger)
 
         self.train_history = []
+        self.model.train()
 
         lightning_module = _LightningDeBERTaModule(
             classifier=self,
@@ -566,6 +579,7 @@ class DeBERTaClassifier:
             train_loader_len=len(train_loader),
             total_steps=total_steps,
             warmup_steps=warmup_steps,
+            on_train_batch_end=on_train_batch_end,
         )
         epoch_callback = _DeBERTaEpochEndCallback(
             classifier=self,
@@ -584,6 +598,10 @@ class DeBERTaClassifier:
             enable_model_summary=False,
             enable_progress_bar=False,
             num_sanity_val_steps=0,
+        )
+        logger.info(
+            f"Starting Lightning trainer.fit: epochs={self.num_epochs}, "
+            f"train_batches={len(train_loader)}, val_batches={len(val_loader)}"
         )
         trainer.fit(lightning_module, train_dataloaders=train_loader)
 
