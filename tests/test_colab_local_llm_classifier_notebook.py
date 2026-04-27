@@ -96,6 +96,8 @@ def test_notebook_filters_invalid_checkpoint_and_final_rows():
     source = _all_source()
 
     assert "def valid_prediction_mask(df: pd.DataFrame) -> pd.Series" in source
+    assert "required_non_null_columns = ['sample_id', *PREDICTION_COLUMNS]" in source
+    assert "df[required_non_null_columns].notna().all(axis=1)" in source
     assert "valid_checkpoint_df = checkpoint_df[valid_prediction_mask(checkpoint_df)].copy()" in source
     assert "invalid_checkpoint_rows = len(checkpoint_df) - len(valid_checkpoint_df)" in source
     assert "final_df = final_df[valid_prediction_mask(final_df)].copy()" in source
@@ -106,6 +108,7 @@ def test_notebook_encodes_parse_failures_explicitly():
     source = _all_source()
 
     assert "if not isinstance(payload, dict) or not payload:" in source
+    assert "raw_response_text = raw_response_text or ''" in source
     assert "'confidence': 0.0" in source
     assert "'evidence': 'parse_failure'" in source
     assert "'reason': 'classifier response could not be parsed'" in source
