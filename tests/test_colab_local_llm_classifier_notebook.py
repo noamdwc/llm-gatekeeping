@@ -40,6 +40,19 @@ def test_notebook_uses_current_classifier_model_and_vllm_backend():
     assert "api_key='EMPTY'" in source
 
 
+def test_notebook_captures_vllm_startup_logs_for_debugging():
+    source = _all_source()
+
+    assert "VLLM_LOG_PATH" in source
+    assert "vllm_server_{SPLIT}_{OUTPUT_SUFFIX}.log" in source
+    assert "stdout=vllm_log_file" in source
+    assert "stderr=subprocess.STDOUT" in source
+    assert "def tail_log(path: Path, line_count: int = 80) -> str" in source
+    assert "def raise_vllm_startup_error(reason: str) -> None" in source
+    assert "Last vLLM log lines" in source
+    assert "print(f'vLLM log path: {VLLM_LOG_PATH}')" in source
+
+
 def test_notebook_reuses_project_classifier_helpers():
     source = _all_source()
 
