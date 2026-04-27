@@ -35,7 +35,10 @@ def test_notebook_uses_current_classifier_model_and_vllm_backend():
     source = _all_source()
 
     assert "MODEL_ID = 'meta/llama-3.1-8b-instruct'" in source
+    assert "HF_MODEL_ID = 'meta-llama/Llama-3.1-8B-Instruct'" in source
     assert "python -m vllm.entrypoints.openai.api_server" in source
+    assert "'--model', HF_MODEL_ID" in source
+    assert "'--served-model-name', MODEL_ID" in source
     assert "VLLM_BASE_URL = 'http://127.0.0.1:8000/v1'" in source
     assert "api_key='EMPTY'" in source
 
