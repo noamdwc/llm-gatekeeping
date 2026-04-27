@@ -46,7 +46,7 @@ The first executable cell should define user-editable settings:
 - `BRANCH`: default `zero_shot_nlp_attack`, matching the existing Colab notebook
 - `SPLIT`: default `val`
 - `LIMIT`: default `5` for smoke testing; set to `None` for a full split
-- `MODEL_ID`: default `Qwen/Qwen2.5-7B-Instruct`, an HF-accessible instruct model suitable for a first Colab vLLM implementation
+- `MODEL_ID`: default `meta/llama-3.1-8b-instruct`, matching the current classifier model in `configs/default.yaml`
 - `TENSOR_PARALLEL_SIZE`
 - `GPU_MEMORY_UTILIZATION`
 - `MAX_MODEL_LEN`
