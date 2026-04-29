@@ -51,12 +51,41 @@ def test_notebook_uses_current_classifier_model_and_transformers_backend():
     assert "MODEL_ID = 'meta/llama-3.1-8b-instruct'" in source
     assert "HF_MODEL_ID = 'meta-llama/Llama-3.1-8B-Instruct'" in source
     assert "MODEL_PROVIDER_NAME = 'transformers-local'" in source
+    assert "MAX_MODEL_LEN = 4096" in source
     assert "AutoTokenizer.from_pretrained" in source
     assert "AutoModelForCausalLM.from_pretrained" in source
     assert "model.generate(**model_inputs, **generation_kwargs)" in source
+    assert "BitsAndBytesConfig" in source
+    assert "LOAD_IN_4BIT = False" in source
+    assert "quantization_config = None" in source
+    assert "if LOAD_IN_4BIT:" in source
     assert "python -m vllm.entrypoints.openai.api_server" not in source
     assert "VLLM_BASE_URL" not in source
     assert "api_key='EMPTY'" not in source
+
+
+def test_notebook_captures_logprobs_by_default():
+    source = _all_source()
+
+    assert "LOCAL_CAPTURE_LOGPROBS = True" in source
+    assert "'output_scores': LOCAL_CAPTURE_LOGPROBS" in source
+    assert "if LOCAL_CAPTURE_LOGPROBS" in source
+
+
+def test_notebook_treats_cuda_oom_as_fatal():
+    source = _all_source()
+
+    assert "except torch.cuda.OutOfMemoryError:" in source
+    assert "raise" in source
+
+
+def test_notebook_batches_transformers_generation():
+    source = _all_source()
+
+    assert "def batched_rows(df: pd.DataFrame, batch_size: int):" in source
+    assert "def classify_texts(texts: list[str]) -> list[dict]:" in source
+    assert "for batch_rows in tqdm(batched_rows(pending_df, BATCH_SIZE)" in source
+    assert "results = classify_texts(texts)" in source
 
 
 def test_notebook_defines_batch_output_targets_and_paths():
@@ -144,6 +173,7 @@ def test_notebook_filters_invalid_checkpoint_and_final_rows():
     source = _all_source()
 
     assert "def valid_prediction_mask(df: pd.DataFrame) -> pd.Series" in source
+    assert "successful_checkpoint_df = valid_checkpoint_df[valid_checkpoint_df['llm_parse_success'].eq(True)].copy()" in source
     assert "required_non_null_columns = ['sample_id', *PREDICTION_COLUMNS]" in source
     assert "df[required_non_null_columns].notna().all(axis=1)" in source
     assert "valid_checkpoint_df = checkpoint_df[valid_prediction_mask(checkpoint_df)].copy()" in source
