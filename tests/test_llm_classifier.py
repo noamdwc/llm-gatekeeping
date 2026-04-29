@@ -3,6 +3,7 @@
 import json
 import time
 from collections import defaultdict
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, call
 
 import openai
@@ -1310,9 +1311,10 @@ class TestCallLlmRetry:
             }
         ]
 
-    def test_call_llm_requests_logprobs_by_default(self, sample_config):
+    def test_call_llm_requests_logprobs_by_default_for_openai(self, sample_config):
         sample_config["llm"]["top_logprobs"] = 4
         clf = _make_classifier(sample_config)
+        clf._provider = SimpleNamespace(name="openai")
         response = self._make_response('{"label": "benign", "confidence": 90}')
         mock_client = MagicMock()
         mock_client.chat.completions.create = MagicMock(return_value=response)
@@ -1323,6 +1325,21 @@ class TestCallLlmRetry:
         _, kwargs = mock_client.chat.completions.create.call_args
         assert kwargs["logprobs"] is True
         assert kwargs["top_logprobs"] == 4
+
+    def test_call_llm_skips_logprobs_for_nim(self, sample_config):
+        sample_config["llm"]["top_logprobs"] = 4
+        clf = _make_classifier(sample_config)
+        clf._provider = SimpleNamespace(name="nim")
+        response = self._make_response('{"label": "benign", "confidence": 90}')
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = MagicMock(return_value=response)
+        clf._get_client = MagicMock(return_value=mock_client)
+
+        clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
+
+        _, kwargs = mock_client.chat.completions.create.call_args
+        assert "logprobs" not in kwargs
+        assert "top_logprobs" not in kwargs
 
     def test_call_llm_can_disable_logprobs_explicitly(self, sample_config):
         sample_config["llm"]["capture_logprobs"] = False

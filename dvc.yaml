@@ -5,7 +5,7 @@ stages:
   # ── Stage 0: Generate Synthetic Benign (one stage per category — costs API tokens) ─────
   generate_synthetic_benign:
     foreach:
-    - A
+    # - A
     - B
     - C
     - D
