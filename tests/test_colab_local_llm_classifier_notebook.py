@@ -31,29 +31,46 @@ def test_notebook_exists_and_targets_colab_gpu():
     assert nb["metadata"]["kernelspec"]["name"] == "python3"
 
 
-def test_notebook_uses_current_classifier_model_and_vllm_backend():
+def test_notebook_code_cells_are_valid_python_or_colab_magics():
+    nb = _notebook()
+
+    for cell in nb["cells"]:
+        if cell.get("cell_type") != "code":
+            continue
+        source = "".join(cell.get("source", []))
+        normalized = "\n".join(
+            "pass" if line.startswith("%") else line
+            for line in source.splitlines()
+        )
+        compile(normalized, f"{NOTEBOOK}:{cell.get('id')}", "exec")
+
+
+def test_notebook_uses_current_classifier_model_and_transformers_backend():
     source = _all_source()
 
     assert "MODEL_ID = 'meta/llama-3.1-8b-instruct'" in source
     assert "HF_MODEL_ID = 'meta-llama/Llama-3.1-8B-Instruct'" in source
-    assert "python -m vllm.entrypoints.openai.api_server" in source
-    assert "'--model', HF_MODEL_ID" in source
-    assert "'--served-model-name', MODEL_ID" in source
-    assert "VLLM_BASE_URL = 'http://127.0.0.1:8000/v1'" in source
-    assert "api_key='EMPTY'" in source
+    assert "MODEL_PROVIDER_NAME = 'transformers-local'" in source
+    assert "AutoTokenizer.from_pretrained" in source
+    assert "AutoModelForCausalLM.from_pretrained" in source
+    assert "model.generate(**model_inputs, **generation_kwargs)" in source
+    assert "python -m vllm.entrypoints.openai.api_server" not in source
+    assert "VLLM_BASE_URL" not in source
+    assert "api_key='EMPTY'" not in source
 
 
-def test_notebook_captures_vllm_startup_logs_for_debugging():
+def test_notebook_defines_batch_output_targets_and_paths():
     source = _all_source()
 
-    assert "VLLM_LOG_PATH" in source
-    assert "vllm_server_{SPLIT}_{OUTPUT_SUFFIX}.log" in source
-    assert "stdout=vllm_log_file" in source
-    assert "stderr=subprocess.STDOUT" in source
-    assert "def tail_log(path: Path, line_count: int = 80) -> str" in source
-    assert "def raise_vllm_startup_error(reason: str) -> None" in source
-    assert "Last vLLM log lines" in source
-    assert "print(f'vLLM log path: {VLLM_LOG_PATH}')" in source
+    assert "MAIN_SPLITS = ['train', 'val', 'test', 'unseen_val', 'unseen_test', 'safeguard_test']" in source
+    assert "EXTERNAL_DATASETS = ['deepset', 'jackhhao']" in source
+    assert "PREDICTIONS_EXTERNAL_DIR = f'{DRIVE_ROOT}/data/processed/predictions_external'" in source
+    assert "def make_main_target(split: str) -> dict:" in source
+    assert "def make_external_target(dataset_key: str) -> dict:" in source
+    assert "llm_checkpoint_{split}_{OUTPUT_SUFFIX}.parquet" in source
+    assert "llm_predictions_{split}_{OUTPUT_SUFFIX}.parquet" in source
+    assert "llm_checkpoint_external_{dataset_key}_{OUTPUT_SUFFIX}.parquet" in source
+    assert "llm_predictions_external_{dataset_key}.parquet" in source
 
 
 def test_notebook_reuses_project_classifier_helpers():
@@ -62,6 +79,20 @@ def test_notebook_reuses_project_classifier_helpers():
     assert "from src.llm_classifier.llm_classifier import build_few_shot_examples" in source
     assert "from src.llm_classifier.prompts import build_classifier_messages" in source
     assert "from src.utils import build_sample_id, load_config" in source
+    assert "from src.eval_external import load_external_dataset" in source
+
+
+def test_notebook_loads_main_and_external_targets_separately():
+    source = _all_source()
+
+    assert "train_df = pd.read_parquet(train_path)" in source
+    assert "def load_main_target_df(target: dict) -> pd.DataFrame:" in source
+    assert "def load_external_target_df(target: dict) -> pd.DataFrame:" in source
+    assert "cfg['external_datasets'][dataset_key]" in source
+    assert "load_external_dataset(ds_cfg)" in source
+    assert "def prepare_target_df(target: dict) -> pd.DataFrame:" in source
+    assert "if target['kind'] == 'main':" in source
+    assert "elif target['kind'] == 'external':" in source
 
 
 def test_output_contract_is_classifier_only():
@@ -102,10 +133,11 @@ def test_notebook_has_checkpoint_and_resume_logic():
     source = _all_source()
 
     assert "CHECKPOINT_EVERY = 50" in source
-    assert "CHECKPOINT_PATH" in source
+    assert "target['checkpoint_path']" in source
     assert "completed_ids" in source
     assert "sample_id" in source
     assert "to_parquet" in source
+    assert "def run_target(target: dict) -> dict:" in source
 
 
 def test_notebook_filters_invalid_checkpoint_and_final_rows():
@@ -117,7 +149,7 @@ def test_notebook_filters_invalid_checkpoint_and_final_rows():
     assert "valid_checkpoint_df = checkpoint_df[valid_prediction_mask(checkpoint_df)].copy()" in source
     assert "invalid_checkpoint_rows = len(checkpoint_df) - len(valid_checkpoint_df)" in source
     assert "final_df = final_df[valid_prediction_mask(final_df)].copy()" in source
-    assert "assert valid_prediction_mask(out_df).all()" in source
+    assert "assert_valid_output(out_df, target)" in source
 
 
 def test_notebook_encodes_parse_failures_explicitly():
@@ -128,3 +160,15 @@ def test_notebook_encodes_parse_failures_explicitly():
     assert "'confidence': 0.0" in source
     assert "'evidence': 'parse_failure'" in source
     assert "'reason': 'classifier response could not be parsed'" in source
+
+
+def test_notebook_runs_all_targets_and_reports_summary():
+    source = _all_source()
+
+    assert "TARGETS = [make_main_target(split) for split in MAIN_SPLITS]" in source
+    assert "TARGETS.extend(make_external_target(dataset_key) for dataset_key in EXTERNAL_DATASETS)" in source
+    assert "run_results = []" in source
+    assert "for target in TARGETS:" in source
+    assert "run_results.append(run_target(target))" in source
+    assert "Batch output summary" in source
+    assert "failure_status" in source
