@@ -182,6 +182,25 @@ def test_notebook_filters_invalid_checkpoint_and_final_rows():
     assert "assert_valid_output(out_df, target)" in source
 
 
+def test_notebook_rejects_all_parse_failure_outputs():
+    source = _all_source()
+
+    assert "def assert_has_parsed_rows(out_df: pd.DataFrame, target: dict) -> None:" in source
+    assert "parse_success_count = int(out_df['llm_parse_success'].eq(True).sum())" in source
+    assert "raise AssertionError(f\"{target['progress_label']} produced zero parsed classifier rows" in source
+    assert "assert_has_parsed_rows(final_df, target)" in source
+    assert "assert_has_parsed_rows(out_df, target)" in source
+
+
+def test_notebook_prints_parse_failure_diagnostics():
+    source = _all_source()
+
+    assert "def print_parse_diagnostics(out_df: pd.DataFrame, target: dict, limit: int = 5) -> None:" in source
+    assert "llm_raw_response_text" in source
+    assert "llm_evidence" in source
+    assert "Parse successes:" in source
+
+
 def test_notebook_encodes_parse_failures_explicitly():
     source = _all_source()
 
