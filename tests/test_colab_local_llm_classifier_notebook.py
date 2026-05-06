@@ -88,6 +88,12 @@ def test_notebook_batches_transformers_generation():
     assert "results = classify_texts(texts)" in source
 
 
+def test_notebook_left_pads_decoder_only_generation_inputs():
+    source = _all_source()
+
+    assert "tokenizer.padding_side = 'left'" in source
+
+
 def test_notebook_defines_batch_output_targets_and_paths():
     source = _all_source()
 
