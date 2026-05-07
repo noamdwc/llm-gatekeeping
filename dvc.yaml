@@ -147,6 +147,28 @@ stages:
     outs:
     - data/processed/predictions/llm_predictions_val.parquet
 
+  # ── Stage 4c: Judge Colab Local Classifier Outputs ────────────────────
+  judge_colab_local_predictions:
+    foreach:
+    - train
+    - val
+    - test
+    - unseen_val
+    - unseen_test
+    - safeguard_test
+    do:
+      cmd: python -m src.cli.judge_colab_local_predictions --split ${item}
+      deps:
+      - data/processed/predictions/llm_predictions_${item}_colab_local_classifier.parquet
+      - src/cli/judge_colab_local_predictions.py
+      - src/llm_classifier/
+      - src/utils.py
+      params:
+      - configs/default.yaml:
+        - llm
+      outs:
+      - data/processed/predictions/llm_predictions_${item}_colab_local_judged.parquet
+
   # ── Stage 5: Research (merge predictions + hybrid routing + reports) ─────
   research:
     cmd: python -m src.research --split test
