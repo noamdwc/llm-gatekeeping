@@ -75,6 +75,17 @@ def test_notebook_captures_logprobs_by_default():
     assert "'top_logprobs': top_logprobs" in source
 
 
+def test_notebook_only_sets_sampling_generation_flags_when_sampling():
+    source = _all_source()
+
+    assert "do_sample = cfg['llm']['temperature'] > 0" in source
+    assert "'do_sample': do_sample" in source
+    assert "if do_sample:" in source
+    assert "generation_kwargs['temperature'] = max(float(cfg['llm']['temperature']), 1e-6)" in source
+    assert "generation_kwargs['top_p'] = float(cfg['llm'].get('top_p', 1.0))" in source
+    assert "'temperature': max(float(cfg['llm']['temperature']), 1e-6)" not in source
+
+
 def test_notebook_treats_cuda_oom_as_fatal():
     source = _all_source()
 
