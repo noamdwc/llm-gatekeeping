@@ -8,10 +8,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
+from lightgbm import LGBMClassifier
 from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 
 from src.logprob_margin import (
     extract_margin_features,
@@ -226,8 +225,7 @@ class EscalatingModel:
         feature_cols: list[str] | None = None,
     ) -> "EscalatingModel":
         pipeline = Pipeline([
-            ("scaler", StandardScaler()),
-            ("lr", LogisticRegression(C=1.0, max_iter=1000, random_state=42)),
+            ("lgbm", LGBMClassifier(random_state=42, verbosity=-1)),
         ])
         pipeline.fit(X, y)
         return EscalatingModel(pipeline=pipeline, feature_cols=feature_cols)

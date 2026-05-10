@@ -23,7 +23,7 @@ NLP sub-types (TextFooler, BERT-Attack, BAE, etc.) are currently collapsed into 
 - **LLM** (`src/llm_classifier/llm_classifier.py`) — classifier + conditional judge calls via NVIDIA NIM (or OpenAI). Supports static and dynamic few-shot retrieval.
 - **Hybrid** (`src/hybrid_router.py`) — routes each sample through the configured cascade: fast ML first, DeBERTa and/or LLM for uncertain cases, with abstention when confidence remains insufficient.
 - **Benign risk model** (`src/benign_risk_model.py`) — post-hoc LogisticRegression trained on hybrid margin traces + DeBERTa probabilities to flag false-positive-prone benigns. Outputs `data/processed/models/risk_model.pkl` and `reports/posthoc_benign_risk_model.md`.
-- **Escalating model POC** (`src/escalating_model.py`) — offline LogisticRegression that joins Colab/local LLM classifier predictions with DeBERTa predictions and estimates whether the cheap/local LLM output should be escalated to the stronger judge. It is separate from `risk_model`, which remains the abstain-resolution model over hybrid router traces.
+- **Escalating model POC** (`src/escalating_model.py`) — offline LightGBM classifier that joins Colab/local LLM classifier predictions with DeBERTa predictions and estimates whether the cheap/local LLM output should be escalated to the stronger judge. It is separate from `risk_model`, which remains the abstain-resolution model over hybrid router traces.
 
 > **Status note:** Hosted NVIDIA NIM endpoints no longer expose `logprobs`, which the LLM classifier path uses for token-level confidence. The planned direction is to run the classifier model locally to restore logprob-based confidence, while retaining hosted providers (NIM/OpenAI) for judge calls. This migration has not landed yet.
 

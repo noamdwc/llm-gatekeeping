@@ -223,6 +223,8 @@ class TestEscalatingModel:
         ds = _make_training_dataset()
         model = EscalatingModel.train(ds.X, ds.y, list(ESCALATING_FEATURE_COLS))
 
+        assert model.pipeline.named_steps["lgbm"].__class__.__name__ == "LGBMClassifier"
+
         scores = model.predict_escalation_batch(ds.df)
 
         assert len(scores) == len(ds.df)
