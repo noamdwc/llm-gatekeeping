@@ -23,6 +23,7 @@ NLP sub-types (TextFooler, BERT-Attack, BAE, etc.) are currently collapsed into 
 - **LLM** (`src/llm_classifier/llm_classifier.py`) — classifier + conditional judge calls via NVIDIA NIM (or OpenAI). Supports static and dynamic few-shot retrieval.
 - **Hybrid** (`src/hybrid_router.py`) — routes each sample through the configured cascade: fast ML first, DeBERTa and/or LLM for uncertain cases, with abstention when confidence remains insufficient.
 - **Benign risk model** (`src/benign_risk_model.py`) — post-hoc LogisticRegression trained on hybrid margin traces + DeBERTa probabilities to flag false-positive-prone benigns. Outputs `data/processed/models/risk_model.pkl` and `reports/posthoc_benign_risk_model.md`.
+- **Escalating model POC** (`src/escalating_model.py`) — offline LogisticRegression that joins Colab/local LLM classifier predictions with DeBERTa predictions and estimates whether the cheap/local LLM output should be escalated to the stronger judge. It is separate from `risk_model`, which remains the abstain-resolution model over hybrid router traces.
 
 > **Status note:** Hosted NVIDIA NIM endpoints no longer expose `logprobs`, which the LLM classifier path uses for token-level confidence. The planned direction is to run the classifier model locally to restore logprob-based confidence, while retaining hosted providers (NIM/OpenAI) for judge calls. This migration has not landed yet.
 
@@ -128,12 +129,16 @@ preprocess → build_splits
                 ↓
         research(+_val) → train_risk_model → risk_model
                 ↓
+        train_escalating_model   (offline POC; no router integration)
+                ↓
 research_external_llm@{ds} → research_external@{ds} → eval_new_external@{ds}
                 ↓
               eval_new   (writes the canonical eval reports)
 ```
 
 `research`/`research_val` produce `research_<split>.parquet` plus `hybrid_margin_trace_<split>.parquet`. `train_risk_model` consumes the val trace + DeBERTa val predictions to produce `risk_model.pkl`, which is then used by `research` (post-hoc benign filter). `risk_model` is the post-hoc evaluation stage that writes `reports/posthoc_benign_risk_model.md` and ROC/PR/calibration plots under `reports/artifacts/`.
+
+`train_escalating_model` is an offline POC stage. It trains on val Colab/local classifier predictions joined with DeBERTa val predictions, then ranks cheap/local LLM mistakes on test, unseen-attack, and safeguard splits. It emits only `escalation_score`; choosing a judge-call threshold and integrating with runtime routing are later phases.
 
 #### Run a single stage
 
@@ -145,6 +150,7 @@ dvc repro llm_classifier
 dvc repro research
 dvc repro train_risk_model
 dvc repro risk_model
+dvc repro train_escalating_model
 dvc repro research_external@deepset
 dvc repro eval_new
 dvc repro eval_new_external@deepset
@@ -178,6 +184,7 @@ DVC computes only the new stage; existing `research_external@...` outputs remain
 - `configs/default.yaml:llm` → `llm_classifier(+_val)` and `research_external_llm@*` and downstream.
 - `configs/default.yaml:hybrid.ml_confidence_threshold` → `research`, `research_val`, all `research_external@{ds}`, `eval_new`, `eval_new_external@{ds}`. Does **not** re-run training or LLM stages.
 - `configs/default.yaml:hybrid.risk_model` → `train_risk_model`, `research`, `research_val`, `risk_model`, and `eval_new`.
+- `configs/default.yaml:hybrid.escalating_model` → `train_escalating_model`.
 - One external dataset config `external_datasets.<key>` → only `research_external_llm@<key>` and `research_external@<key>` and `eval_new_external@<key>`.
 
 ### Inference pipeline (lightweight, bash)
@@ -229,9 +236,20 @@ python -m src.cli.benign_risk_model \
     --trace data/processed/research/hybrid_margin_trace_test.parquet \
     --split test
 
-# 9. Generate canonical evaluation reports (main + external)
+# 9. Train the offline escalating model POC
+python -m src.cli.train_escalating_model
+
+# 10. Generate canonical evaluation reports (main + external)
 python -m src.cli.eval_new --split test --config configs/default.yaml
 ```
+
+The escalating model writes:
+- `data/processed/models/escalating_model.pkl`
+- `data/processed/research/escalating_model_eval_<split>.parquet`
+- `data/processed/research/escalating_model_summary.csv`
+- `reports/escalating_model_poc.md`
+
+Unlike `risk_model`, this model does not resolve hybrid abstains from router trace columns. It predicts whether the cheap Colab/local LLM classifier path is likely wrong and should be escalated to the judge.
 
 ### External datasets (additive + cached with DVC)
 
@@ -306,7 +324,7 @@ Tracked metrics include per-level accuracy/F1, LLM token usage, latency, routing
 ## Project Structure
 
 ```
-configs/default.yaml              # All configuration (labels, splits, thresholds, ml/deberta/llm/hybrid/risk_model)
+configs/default.yaml              # All configuration (labels, splits, thresholds, ml/deberta/llm/hybrid models)
 src/
   preprocess.py                   # Dataset loading + benign set construction
   build_splits.py                 # Grouped train/val/test splits
@@ -316,6 +334,7 @@ src/
   embeddings.py                   # ExemplarBank for dynamic few-shot retrieval
   hybrid_router.py                # ML gate + LLM escalation
   benign_risk_model.py            # Post-hoc benign risk model (LogisticRegression)
+  escalating_model.py             # Offline POC judge-escalation model
   synthetic_benign.py             # Synthetic benign prompt generation (categories A–F)
   validators.py                   # HeuristicBenignValidator, JudgeBenignValidator, DeduplicateFilter
   ml_classifier/ml_baseline.py    # Char-level ML classifier
@@ -326,6 +345,7 @@ src/
     predict.py                    # Classify arbitrary text (stdin or file) → JSON
     deberta_classifier.py         # Train/predict DeBERTa per hierarchy level
     train_risk_model.py           # Fit risk_model.pkl from val trace + DeBERTa
+    train_escalating_model.py     # Fit escalating_model.pkl from Colab/local + DeBERTa predictions
     benign_risk_model.py          # Post-hoc evaluation of the benign risk model
     research_external.py          # Research artifacts for one external dataset
     eval_new.py                   # Generate canonical markdown reports
@@ -343,6 +363,7 @@ data/processed/
   models/
     ml_baseline.pkl
     risk_model.pkl                # Post-hoc benign risk model
+    escalating_model.pkl          # Offline judge-escalation POC model
   predictions/
     ml_predictions_*.parquet
     deberta_predictions_*.parquet
@@ -354,6 +375,8 @@ data/processed/
     hybrid_margin_trace_<split>.parquet
     posthoc_benign_risk_predictions.parquet
     posthoc_benign_risk_summary.csv
+    escalating_model_eval_<split>.parquet
+    escalating_model_summary.csv
   research_external/
     research_external_<ds>.parquet
   baselines/                      # Per-baseline prediction parquets
@@ -366,6 +389,7 @@ reports/
   baselines/                      # comparison_report.md
   artifacts/                      # benign_risk_roc.png, benign_risk_pr.png, benign_risk_calibration.png
   posthoc_benign_risk_model.md
+  escalating_model_poc.md
 ```
 
 ## ML Features

@@ -235,6 +235,35 @@ stages:
     outs:
     - data/processed/models/risk_model.pkl
 
+  # ── Stage 5c2: Train Escalating Model POC ────────────────────────────────
+  train_escalating_model:
+    cmd: python -m src.cli.train_escalating_model
+    deps:
+    - src/escalating_model.py
+    - src/cli/train_escalating_model.py
+    - data/processed/predictions/llm_predictions_val_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_val.parquet
+    - data/processed/predictions/llm_predictions_test_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_test.parquet
+    - data/processed/predictions/llm_predictions_unseen_val_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_unseen_val.parquet
+    - data/processed/predictions/llm_predictions_unseen_test_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_unseen_test.parquet
+    - data/processed/predictions/llm_predictions_safeguard_test_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_safeguard_test.parquet
+    params:
+    - configs/default.yaml:
+      - hybrid.escalating_model
+    outs:
+    - data/processed/models/escalating_model.pkl
+    - data/processed/research/escalating_model_eval_test.parquet
+    - data/processed/research/escalating_model_eval_unseen_val.parquet
+    - data/processed/research/escalating_model_eval_unseen_test.parquet
+    - data/processed/research/escalating_model_eval_safeguard_test.parquet
+    - data/processed/research/escalating_model_summary.csv
+    - reports/escalating_model_poc.md:
+        cache: false
+
   # ── Stage 6: External LLM Predictions (one stage per dataset) ────────────
   research_external_llm:
     foreach: ${external_datasets}

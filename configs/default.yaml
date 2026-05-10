@@ -161,6 +161,11 @@ hybrid:
     enabled: true
     threshold: 0.5
     model_path: "data/processed/models/risk_model.pkl"
+  # Offline POC model for deciding whether the cheap Colab/local LLM classifier
+  # output should be escalated to the stronger judge. Disabled for runtime use.
+  escalating_model:
+    enabled: false
+    model_path: "data/processed/models/escalating_model.pkl"
 
 # Evaluation
 evaluation:

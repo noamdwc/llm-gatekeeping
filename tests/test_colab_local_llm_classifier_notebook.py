@@ -68,8 +68,11 @@ def test_notebook_captures_logprobs_by_default():
     source = _all_source()
 
     assert "LOCAL_CAPTURE_LOGPROBS = True" in source
+    assert "LOCAL_TOP_LOGPROBS = 5" in source
     assert "'output_scores': LOCAL_CAPTURE_LOGPROBS" in source
     assert "if LOCAL_CAPTURE_LOGPROBS" in source
+    assert "torch.topk(log_probs, k=top_k)" in source
+    assert "'top_logprobs': top_logprobs" in source
 
 
 def test_notebook_treats_cuda_oom_as_fatal():
