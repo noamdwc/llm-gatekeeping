@@ -1925,28 +1925,28 @@ stages:
     - path: 
         data/processed/predictions/llm_predictions_safeguard_test_colab_local_classifier.parquet
       hash: md5
-      md5: c8f09a7a9459ccf5b657512dfd30a604
-      size: 1880225
+      md5: f998493993faa9923c0ab35ef6691d5b
+      size: 12010233
     - path: 
         data/processed/predictions/llm_predictions_test_colab_local_classifier.parquet
       hash: md5
-      md5: f427e2429d552d48bb961e82594029ce
-      size: 4172965
+      md5: e3616a57015fe6c805c6ce209c9cd669
+      size: 28082727
     - path: 
         data/processed/predictions/llm_predictions_unseen_test_colab_local_classifier.parquet
       hash: md5
-      md5: 4064ffb3afedf67c4ea1d53a5e4e639d
-      size: 3000365
+      md5: 8de1594b1a62565ce49163906c6f6d59
+      size: 18129319
     - path: 
         data/processed/predictions/llm_predictions_unseen_val_colab_local_classifier.parquet
       hash: md5
-      md5: a117bfc431bb712f0202f1abcfa5ae2e
-      size: 2872095
+      md5: 3bc0576fd668fa9c2fe255dc4fea5978
+      size: 17663342
     - path: 
         data/processed/predictions/llm_predictions_val_colab_local_classifier.parquet
       hash: md5
-      md5: 2de3a4c6bb003e6b90563d60d1995b9a
-      size: 3583127
+      md5: 6f6c2e5ade717635bd9f2325161ddc63
+      size: 25830206
     - path: src/cli/train_escalating_model.py
       hash: md5
       md5: b0fb33a2a8ebf34ed9c7c0b0a7a953fa
@@ -1963,29 +1963,29 @@ stages:
     outs:
     - path: data/processed/models/escalating_model.pkl
       hash: md5
-      md5: d36e8dd37c61db77572e65700d39bf19
+      md5: 2a0b8d96916465fa56a46350e7af81ad
       size: 1902
     - path: data/processed/research/escalating_model_eval_safeguard_test.parquet
       hash: md5
-      md5: 567e44b4ef638bdf464e6567badc66be
-      size: 1911168
+      md5: 756236f9ea9bd5f2514f9bcc66ba9364
+      size: 12019186
     - path: data/processed/research/escalating_model_eval_test.parquet
       hash: md5
-      md5: cf2d4b3059fbff807437fa415ea82af0
-      size: 4208307
+      md5: 797da579bf4eb2dc4fde7c638480fc80
+      size: 28074441
     - path: data/processed/research/escalating_model_eval_unseen_test.parquet
       hash: md5
-      md5: 24b8fe09952241c5f0af15c03e729793
-      size: 3023233
+      md5: e85a8cb9eead40b52d86c6034e5469ed
+      size: 18105840
     - path: data/processed/research/escalating_model_eval_unseen_val.parquet
       hash: md5
-      md5: ba65e2a5a782d3977ae7992a4ab1237a
-      size: 2895073
+      md5: dcc732c544aca9c0aa06184fff89b70f
+      size: 17642272
     - path: data/processed/research/escalating_model_summary.csv
       hash: md5
-      md5: c257a2ab2e40362b8166b25affe84b90
-      size: 793
+      md5: f1ca9d6aee33eb7f6ef09a58f12fceab
+      size: 791
     - path: reports/escalating_model_poc.md
       hash: md5
-      md5: 139edda4a20ba80bb5116adfcd7d08a4
+      md5: e2b3c78dc3ee31f41185be94afdf5958
       size: 1987
