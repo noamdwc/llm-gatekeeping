@@ -7,6 +7,7 @@ data/
 .coverage
 .cursor/
 .cache/
+.claude/scheduled_tasks.lock
 *.pt
 interview_prep.md
 interview_prep_he.md
