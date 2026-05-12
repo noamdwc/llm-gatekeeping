@@ -220,8 +220,8 @@ documented-deferred rather than missing:
   point used by `final_verdict_report`.
 - `research`, `research_val`, `research_safeguard_test`, `train_risk_model`,
   `eval_new`, `research_external*`, `eval_new_external@*` — these are
-  downstream of the deferred LLM stages and/or of `preprocess`/`build_splits`
-  drift. They will go green once a fresh upstream repro is run.
+  downstream of the deferred LLM stages. They will go green once the
+  hosted `llm_predictions_{split}.parquet` artifacts are available again.
 
 `judge_colab_local_predictions@unseen_val` was removed from the foreach list
 because its output is not consumed by `final_verdict_report` or any other

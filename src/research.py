@@ -280,7 +280,7 @@ def compute_hybrid_routing(
     deberta_fastpath_benign = np.zeros(len(ml_df), dtype=bool)
     deberta_fastpath_adv = np.zeros(len(ml_df), dtype=bool)
     if deberta_df is not None:
-        deberta_indexed = deberta_df.set_index("sample_id")
+        deberta_indexed = deberta_df.drop_duplicates("sample_id", keep="first").set_index("sample_id")
         matched = ml_df["sample_id"].isin(deberta_indexed.index)
         if matched.any():
             matched_ids = ml_df.loc[matched, "sample_id"]

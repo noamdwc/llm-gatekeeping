@@ -285,6 +285,31 @@ class TestComputeHybridRouting:
         }
         assert set(result.columns) == expected
 
+    def test_deberta_fast_path_dedupes_duplicate_sample_ids(self):
+        """DeBERTa predictions with duplicate sample_id rows must not broadcast-fail.
+
+        Regression: in `safeguard_test`, deberta_predictions had 1555 rows /
+        1552 unique sample_ids. `set_index(...).loc[matched_ids]` over a
+        duplicate-label index expanded the lookup result to 1561 rows and
+        raised ``operands could not be broadcast together with shapes
+        (1561,) (1555,)``.
+        """
+        ml_df = self._make_ml_df([0.5, 0.5, 0.5], preds_binary=["adversarial"] * 3)
+        llm_df = self._make_llm_df(3)
+        deberta_df = pd.DataFrame({
+            "sample_id": list(ml_df["sample_id"]) + [ml_df["sample_id"].iloc[0]],
+            "deberta_pred_binary": ["benign", "adversarial", "benign", "benign"],
+            "deberta_conf_binary": [0.99, 0.99, 0.99, 0.99],
+        })
+        result = compute_hybrid_routing(
+            ml_df,
+            llm_df,
+            threshold=0.85,
+            deberta_df=deberta_df,
+            deberta_confidence_threshold=0.93,
+        )
+        assert len(result) == len(ml_df)
+
     def test_benign_predictions_always_escalate_when_llm_available(self):
         """High-confidence benign ML predictions should route to LLM."""
         ml_df = self._make_ml_df([0.99, 0.95], preds_binary=["benign", "benign"])
