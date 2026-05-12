@@ -117,9 +117,10 @@ class APIRateLimiter:
         self._base_cooldown = cooldown_on_429
         self._max_concurrency = max(max_concurrency, 1)
 
-        # Adaptive state
+        # Adaptive state. target_rpm <= 0 disables token-bucket spacing while
+        # preserving the concurrency gate and global cooldown behavior.
         effective_rpm = target_rpm * 0.9  # 10% safety margin
-        self._min_interval = 60.0 / max(effective_rpm, 1)
+        self._min_interval = 0.0 if target_rpm <= 0 else 60.0 / max(effective_rpm, 1)
         self._initial_min_interval = self._min_interval
         self._consecutive_429s = 0
         self._last_429_time = 0.0
@@ -138,6 +139,8 @@ class APIRateLimiter:
     def effective_rpm(self) -> float:
         """Current effective requests per minute after any throttling."""
         with self._lock:
+            if self._min_interval <= 0:
+                return float("inf")
             return 60.0 / self._min_interval
 
     # -- public API --------------------------------------------------------
@@ -146,9 +149,9 @@ class APIRateLimiter:
         """Return a context-manager that gates one API request.
 
         Blocks until:
-          1. Any global cooldown has elapsed.
-          2. The token-bucket interval has passed.
-          3. A concurrency slot is available.
+          1. A concurrency slot is available.
+          2. Any global cooldown has elapsed.
+          3. The token-bucket interval has passed.
         """
         return _AcquireContext(self)
 
@@ -189,7 +192,7 @@ class APIRateLimiter:
             # Adaptive slowdown: halve the effective RPM (double the interval)
             # Floor at 6 RPM (10s between requests)
             new_interval = min(self._min_interval * 1.5, 10.0)
-            if new_interval > self._min_interval:
+            if self._min_interval > 0 and new_interval > self._min_interval:
                 self._min_interval = new_interval
                 effective = 60.0 / self._min_interval
                 logger.info(f"Rate throttled to {effective:.1f} RPM after {self._consecutive_429s} consecutive 429s")
@@ -207,7 +210,7 @@ class APIRateLimiter:
             if now - self._last_429_time < 30.0:
                 return
             # Recover 10% toward the original rate
-            if self._min_interval > self._initial_min_interval * 1.01:
+            if self._min_interval > 0 and self._min_interval > self._initial_min_interval * 1.01:
                 self._min_interval = max(
                     self._initial_min_interval,
                     self._min_interval * 0.9,
@@ -226,16 +229,20 @@ class APIRateLimiter:
     # -- internals ---------------------------------------------------------
 
     def _wait_for_slot(self):
-        """Block until rate-limit window + cooldown have passed, then claim a semaphore slot."""
+        """Claim a semaphore slot, then block until cooldown/rate windows pass."""
         t0 = time.monotonic()
 
-        # 1. Wait for global cooldown
+        # 1. Concurrency gate. This must happen before cooldown checks so
+        # workers queued behind the semaphore cannot bypass a later cooldown.
+        self._semaphore.acquire()
+
+        # 2. Wait for global cooldown
         with self._lock:
             remaining = self._cooldown_until - time.monotonic()
         if remaining > 0:
             time.sleep(remaining)
 
-        # 2. Token-bucket: space out requests
+        # 3. Token-bucket: space out requests
         with self._lock:
             now = time.monotonic()
             # Re-check cooldown (might have been extended while we slept)
@@ -245,12 +252,9 @@ class APIRateLimiter:
                 now = time.monotonic()
 
             wait = self._last_dispatch + self._min_interval - now
-            if wait > 0:
+            if self._min_interval > 0 and wait > 0:
                 time.sleep(wait)
             self._last_dispatch = time.monotonic()
-
-        # 3. Concurrency gate
-        self._semaphore.acquire()
 
         waited = time.monotonic() - t0
         if waited > 0.01:

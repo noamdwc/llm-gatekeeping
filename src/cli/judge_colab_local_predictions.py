@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +86,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--threshold-only",
         action="store_true",
         help="Only run judge below the configured threshold. Default is research mode: judge every row.",
+    )
+    parser.add_argument(
+        "--max-concurrency",
+        type=int,
+        default=None,
+        help="Max parallel judge workers. Defaults to config llm.max_concurrency.",
+    )
+    parser.add_argument(
+        "--target-rpm",
+        type=float,
+        default=None,
+        help="Target judge requests per minute. Defaults to config llm.target_rpm.",
+    )
+    parser.add_argument(
+        "--cooldown-on-429",
+        type=float,
+        default=None,
+        help="Global cooldown seconds after a 429. Defaults to config llm.cooldown_on_429.",
     )
     args = parser.parse_args(argv)
     if args.input is None:
@@ -180,30 +200,59 @@ def apply_judge_to_predictions(
     classifier: HierarchicalLLMClassifier,
     *,
     threshold_only: bool = False,
+    max_workers: int | None = None,
 ) -> pd.DataFrame:
     threshold = float(classifier.cfg.get("llm", {}).get("judge_confidence_threshold", 0.8))
-    rows: list[dict[str, Any]] = []
+    workers = max_workers if max_workers is not None else int(
+        classifier.cfg.get("llm", {}).get("max_concurrency", 1)
+    )
+    workers = max(1, int(workers))
 
-    for _, row in tqdm(
-        predictions.iterrows(),
-        total=len(predictions),
-        desc="Judging Colab predictions",
-    ):
+    def process_row(idx: int, row: pd.Series) -> tuple[int, dict[str, Any]]:
         if _should_run_judge(row, threshold, force_all_stages=not threshold_only):
             judge_result = classifier.judge(str(row["modified_sample"]), _classifier_output(row))
-            rows.append(_apply_judge_result(row, judge_result))
-        else:
-            out = row.to_dict()
-            for column in JUDGE_COLUMNS:
-                out[column] = None
-            rows.append(out)
+            return idx, _apply_judge_result(row, judge_result)
 
+        out = row.to_dict()
+        for column in JUDGE_COLUMNS:
+            out[column] = None
+        return idx, out
+
+    indexed_rows = list(enumerate((row for _, row in predictions.iterrows())))
+    rows: list[dict[str, Any] | None] = [None] * len(indexed_rows)
+    if workers == 1:
+        for idx, row in tqdm(indexed_rows, total=len(indexed_rows), desc="Judging Colab predictions"):
+            out_idx, out_row = process_row(idx, row)
+            rows[out_idx] = out_row
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(process_row, idx, row): idx
+                for idx, row in indexed_rows
+            }
+            with tqdm(total=len(futures), desc="Judging Colab predictions") as pbar:
+                for future in concurrent.futures.as_completed(futures):
+                    out_idx, out_row = future.result()
+                    rows[out_idx] = out_row
+                    pbar.update(1)
+
+    if any(row is None for row in rows):
+        raise RuntimeError("Judge run completed with missing rows.")
     return pd.DataFrame(rows)
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     cfg = load_config(args.config)
+    if args.max_concurrency is not None:
+        cfg["llm"]["max_concurrency"] = args.max_concurrency
+    if args.target_rpm is not None:
+        cfg["llm"]["target_rpm"] = args.target_rpm
+    elif os.environ.get("LLM_PROVIDER", "nim").lower() == "nim":
+        cfg["llm"]["target_rpm"] = 0
+    if args.cooldown_on_429 is not None:
+        cfg["llm"]["cooldown_on_429"] = args.cooldown_on_429
+
     classifier = HierarchicalLLMClassifier(cfg)
 
     predictions = pd.read_parquet(args.input)
@@ -213,6 +262,7 @@ def main(argv: list[str] | None = None) -> None:
         predictions,
         classifier,
         threshold_only=args.threshold_only,
+        max_workers=args.max_concurrency,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     out.to_parquet(args.output, index=False)

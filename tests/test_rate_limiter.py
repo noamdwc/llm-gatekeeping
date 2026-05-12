@@ -68,6 +68,18 @@ class TestAPIRateLimiter:
             # Should be at least ~100ms (allowing some slack for test env)
             assert gap >= 0.08, f"Gap {gap:.3f}s too short between requests {i-1} and {i}"
 
+    def test_target_rpm_zero_disables_token_bucket_spacing(self):
+        """target_rpm <= 0 should keep concurrency/cooldown but skip per-request sleeps."""
+        limiter = APIRateLimiter(target_rpm=0, max_concurrency=1)
+
+        t0 = time.monotonic()
+        for _ in range(5):
+            with limiter.acquire():
+                pass
+
+        assert time.monotonic() - t0 < 0.05
+        assert limiter.effective_rpm == float("inf")
+
     def test_concurrency_limit(self):
         """No more than max_concurrency requests should be in-flight."""
         limiter = APIRateLimiter(target_rpm=6000, max_concurrency=2)
@@ -105,6 +117,37 @@ class TestAPIRateLimiter:
 
         # Should have waited at least ~0.5s (the cooldown + jitter)
         assert elapsed >= 0.4, f"Cooldown only waited {elapsed:.2f}s, expected >= 0.4s"
+
+    def test_queued_worker_rechecks_cooldown_after_concurrency_slot(self):
+        """Workers queued behind the semaphore must not bypass a later cooldown."""
+        limiter = APIRateLimiter(target_rpm=0, max_concurrency=1, cooldown_on_429=0.2)
+        release_first = threading.Event()
+        second_entered_at = []
+
+        def first_worker():
+            with limiter.acquire():
+                release_first.wait(timeout=2)
+
+        def second_worker():
+            with limiter.acquire():
+                second_entered_at.append(time.monotonic())
+
+        first = threading.Thread(target=first_worker)
+        second = threading.Thread(target=second_worker)
+        first.start()
+        time.sleep(0.02)
+        second.start()
+        time.sleep(0.05)
+
+        limiter.report_rate_limit()
+        cooldown_started_at = time.monotonic()
+        release_first.set()
+
+        first.join(timeout=2)
+        second.join(timeout=2)
+
+        assert second_entered_at, "second worker never entered"
+        assert second_entered_at[0] - cooldown_started_at >= 0.18
 
     def test_cooldown_escalates_on_repeated_429s(self):
         """Consecutive 429s should produce longer cooldowns."""

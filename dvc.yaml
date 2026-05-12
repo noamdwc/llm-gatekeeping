@@ -157,7 +157,8 @@ stages:
     - unseen_test
     - safeguard_test
     do:
-      cmd: python -m src.cli.judge_colab_local_predictions --split ${item}
+      cmd: python -m src.cli.judge_colab_local_predictions --split ${item} --max-concurrency
+        1 --target-rpm 2 --cooldown-on-429 60
       deps:
       - data/processed/predictions/llm_predictions_${item}_colab_local_classifier.parquet
       - src/cli/judge_colab_local_predictions.py
