@@ -260,12 +260,11 @@ stages:
     outs:
     - data/processed/models/risk_model.pkl
 
-  # ── Stage 5c2: Train Canonical Escalating Model ─────────────────────────
-  train_escalating_model:
-    cmd: python -m src.cli.train_escalating_model
+  validate_colab_handoff:
+    cmd: python -m src.cli.validate_colab_handoff --config configs/default.yaml
     deps:
-    - src/escalating_model.py
-    - src/cli/train_escalating_model.py
+    - src/cli/validate_colab_handoff.py
+    - src/cli/colab_handoff_schema.py
     - data/processed/predictions/llm_predictions_val_colab_local_classifier.parquet
     - data/processed/predictions/deberta_predictions_val.parquet
     - data/processed/predictions/llm_predictions_test_colab_local_classifier.parquet
@@ -276,9 +275,37 @@ stages:
     - data/processed/predictions/deberta_predictions_unseen_test.parquet
     - data/processed/predictions/llm_predictions_safeguard_test_colab_local_classifier.parquet
     - data/processed/predictions/deberta_predictions_safeguard_test.parquet
-    - data/processed/predictions_external/llm_predictions_external_deepset.parquet
+    - data/processed/predictions_external/llm_predictions_external_deepset_colab_local_classifier.parquet
     - data/processed/predictions_external/deberta_predictions_external_deepset.parquet
-    - data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
+    - data/processed/predictions_external/llm_predictions_external_jackhhao_colab_local_classifier.parquet
+    - data/processed/predictions_external/deberta_predictions_external_jackhhao.parquet
+    params:
+    - configs/default.yaml:
+      - external_datasets
+    outs:
+    - reports/colab_handoff_validation.json:
+        cache: false
+
+  # ── Stage 5c2: Train Canonical Escalating Model ─────────────────────────
+  train_escalating_model:
+    cmd: python -m src.cli.train_escalating_model
+    deps:
+    - src/escalating_model.py
+    - src/cli/train_escalating_model.py
+    - reports/colab_handoff_validation.json
+    - data/processed/predictions/llm_predictions_val_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_val.parquet
+    - data/processed/predictions/llm_predictions_test_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_test.parquet
+    - data/processed/predictions/llm_predictions_unseen_val_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_unseen_val.parquet
+    - data/processed/predictions/llm_predictions_unseen_test_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_unseen_test.parquet
+    - data/processed/predictions/llm_predictions_safeguard_test_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_safeguard_test.parquet
+    - data/processed/predictions_external/llm_predictions_external_deepset_colab_local_classifier.parquet
+    - data/processed/predictions_external/deberta_predictions_external_deepset.parquet
+    - data/processed/predictions_external/llm_predictions_external_jackhhao_colab_local_classifier.parquet
     - data/processed/predictions_external/deberta_predictions_external_jackhhao.parquet
     params:
     - configs/default.yaml:
@@ -399,8 +426,11 @@ stages:
     - data/processed/predictions/llm_predictions_safeguard_test_colab_local_judged.parquet
     - data/processed/predictions_external/llm_predictions_external_deepset_colab_local_judged.parquet
     - data/processed/predictions_external/llm_predictions_external_jackhhao_colab_local_judged.parquet
+    - data/processed/models/escalating_model.pkl
+    - data/processed/research/escalating_model_summary.csv
     - data/processed/research/escalating_model_eval_external_deepset.parquet
     - data/processed/research/escalating_model_eval_external_jackhhao.parquet
+    - reports/colab_handoff_validation.json
     params:
     - configs/default.yaml:
       - hybrid.escalating_model
