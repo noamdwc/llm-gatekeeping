@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -52,6 +54,18 @@ def _deberta_frame(sample_ids=("s1", "s2")) -> pd.DataFrame:
             for sample_id in sample_ids
         ]
     )
+
+
+def test_importing_validation_cli_does_not_import_judge_cli():
+    code = "\n".join(
+        [
+            "import sys",
+            "import src.cli.validate_colab_handoff",
+            "assert 'src.cli.judge_colab_local_predictions' not in sys.modules",
+        ]
+    )
+
+    subprocess.run([sys.executable, "-c", code], check=True)
 
 
 def test_validate_artifact_passes_for_valid_classifier_and_deberta_join(tmp_path: Path):

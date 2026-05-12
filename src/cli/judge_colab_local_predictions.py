@@ -13,6 +13,7 @@ import dotenv
 import pandas as pd
 from tqdm import tqdm
 
+from src.cli.colab_handoff_schema import REQUIRED_COLUMNS
 from src.llm_classifier.llm_classifier import HierarchicalLLMClassifier
 from src.utils import PREDICTIONS_DIR, RESEARCH_DIR, load_config
 
@@ -40,31 +41,6 @@ JUDGE_COLUMNS = [
     "judge_parse_success",
     "judge_token_logprobs",
 ]
-
-REQUIRED_COLUMNS = [
-    "sample_id",
-    "modified_sample",
-    "llm_pred_binary",
-    "llm_pred_raw",
-    "llm_pred_category",
-    "llm_conf_binary",
-    "llm_stages_run",
-    "llm_provider_name",
-    "llm_model_name",
-    "llm_raw_response_text",
-    "llm_parse_success",
-    "clf_label",
-    "clf_category",
-    "clf_confidence",
-    "clf_evidence",
-    "clf_nlp_attack_type",
-    "clf_provider_name",
-    "clf_model_name",
-    "clf_raw_response_text",
-    "clf_parse_success",
-    "clf_token_logprobs",
-]
-
 
 def default_input_path(split: str) -> Path:
     return PREDICTIONS_DIR / f"llm_predictions_{split}_{INPUT_SUFFIX}.parquet"

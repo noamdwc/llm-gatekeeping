@@ -9,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 
-from src.cli.judge_colab_local_predictions import REQUIRED_COLUMNS
+from src.cli.colab_handoff_schema import REQUIRED_COLUMNS
 from src.utils import PREDICTIONS_DIR, PREDICTIONS_EXTERNAL_DIR, REPORTS_DIR, load_config
 
 
