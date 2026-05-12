@@ -9,11 +9,12 @@
 #   ./run_inference.sh --mode ml --split test               # ML-only, instant
 #   ./run_inference.sh --mode hybrid --split test --limit 100  # Hybrid (API tokens)
 #   ./run_inference.sh --mode llm --split test --limit 50      # LLM-only (API tokens)
+#   ./run_inference.sh --mode escalation --split test          # Canonical escalation path
 #   ./run_inference.sh --mode ml --split unseen_test           # Generalization test
 #
 # Options:
-#   --mode MODE       ml | hybrid | llm (default: ml)
-#   --split SPLIT     test | val | unseen_val | unseen_test (default: test)
+#   --mode MODE       ml | hybrid | llm | escalation (default: ml)
+#   --split SPLIT     test | val | unseen_val | unseen_test | safeguard_test (default: test)
 #   --limit N         Max samples for LLM/hybrid (default: 100)
 #   --config PATH     Config YAML (default: configs/default.yaml)
 #   --no-wandb        Disable wandb logging
@@ -47,7 +48,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── Validate ─────────────────────────────────────────────────────────────────
-VALID_MODES="ml hybrid llm"
+VALID_MODES="ml hybrid llm escalation"
 if ! echo "$VALID_MODES" | grep -qw "$MODE"; then
   echo "Error: --mode must be one of: $VALID_MODES"
   exit 1
@@ -107,6 +108,16 @@ elif [[ "$MODE" == "llm" ]]; then
   $DYNAMIC && LLM_ARGS="$LLM_ARGS --dynamic"
   # shellcheck disable=SC2086
   python -m src.llm_classifier.llm_classifier $LLM_ARGS
+
+elif [[ "$MODE" == "escalation" ]]; then
+  banner "Escalation Inference — split=$SPLIT"
+  # Requires cheap classifier + DeBERTa predictions for $SPLIT and a trained
+  # escalating_model.pkl (produced by `dvc repro`). Runs the judge only on
+  # rows that cross hybrid.escalating_model.judge_threshold.
+  INF_ARGS="--mode escalation --split $SPLIT"
+  [[ -n "$CONFIG" ]] && INF_ARGS="$INF_ARGS --config $CONFIG"
+  # shellcheck disable=SC2086
+  python -m src.cli.infer_split $INF_ARGS
 fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────

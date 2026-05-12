@@ -1,12 +1,21 @@
 """
 Lightweight split inference + report generation.
 
-This is the code-backed replacement for the long `python -c ...` block in
-`run_inference.sh` (ML mode).
+Two modes:
+
+- ``--mode ml``: run the ML baseline and produce a markdown report. Fast,
+  no API tokens.
+- ``--mode escalation``: canonical lightweight inference path. Scores an
+  already-existing cheap classifier + DeBERTa prediction pair with the
+  trained escalating model, runs the judge on rows whose score crosses
+  ``hybrid.escalating_model.judge_threshold``, and emits the
+  final-verdict report. Assumes ``escalating_model.pkl`` and the
+  cheap-classifier/DeBERTa prediction parquets exist (produced by
+  ``dvc repro``); does not retrain the escalating model.
 
 Usage:
   python -m src.cli.infer_split --mode ml --split test
-  python -m src.cli.infer_split --mode ml --split test --output reports/research/inference_ml_test.md
+  python -m src.cli.infer_split --mode escalation --split test
 """
 
 import argparse
@@ -14,7 +23,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.utils import load_config, SPLITS_DIR, MODELS_DIR, REPORTS_RESEARCH_DIR
+from src.utils import load_config, SPLITS_DIR, MODELS_DIR, REPORTS_DIR, REPORTS_RESEARCH_DIR
 from src.ml_classifier.ml_baseline import MLBaseline
 from src.evaluate import (
     binary_metrics,
@@ -23,6 +32,9 @@ from src.evaluate import (
     calibration_metrics,
     generate_report,
 )
+from src.escalating_model import EscalatingModel
+from src.cli import score_escalation, judge_colab_local_predictions, final_verdict_report
+from src.llm_classifier.llm_classifier import HierarchicalLLMClassifier
 
 
 def _compute_metrics_bundle(df_eval: pd.DataFrame, preds_eval: pd.DataFrame) -> tuple[dict, dict, dict, dict]:
@@ -126,16 +138,86 @@ def infer_ml_split(split: str, config_path: str | None = None) -> tuple[pd.DataF
     return df, binary, cat, types, cal
 
 
+def run_escalation_split(
+    split: str,
+    config_path: str | None = None,
+    *,
+    output: Path | None = None,
+) -> Path:
+    """Score → judge → final-verdict for a single split. Returns the report path."""
+    cfg = load_config(config_path)
+    escalating_cfg = cfg.get("hybrid", {}).get("escalating_model", {})
+    model_path = Path(escalating_cfg.get("model_path", MODELS_DIR / "escalating_model.pkl"))
+    threshold = float(escalating_cfg.get("judge_threshold", 0.5))
+
+    classifier_path = score_escalation.default_classifier_path(split)
+    deberta_path = score_escalation.default_deberta_path(split)
+    score_output = score_escalation.default_output_path(split)
+    judged_output = judge_colab_local_predictions.default_output_path(split)
+
+    model = EscalatingModel.load(model_path)
+    classifier_df = pd.read_parquet(classifier_path)
+    deberta_df = pd.read_parquet(deberta_path)
+    scored, _ = score_escalation.score_split(
+        split,
+        classifier_df=classifier_df,
+        deberta_df=deberta_df,
+        model=model,
+    )
+    score_output.parent.mkdir(parents=True, exist_ok=True)
+    scored.to_parquet(score_output, index=False)
+
+    classifier = HierarchicalLLMClassifier(cfg)
+    classifier_predictions = pd.read_parquet(
+        judge_colab_local_predictions.default_input_path(split)
+    )
+    judge_colab_local_predictions._validate_input(
+        classifier_predictions,
+        judge_colab_local_predictions.default_input_path(split),
+    )
+    escalation_scores = judge_colab_local_predictions._load_escalation_scores(score_output)
+    judged = judge_colab_local_predictions.apply_judge_to_predictions(
+        classifier_predictions,
+        classifier,
+        escalation_scores=escalation_scores,
+        escalation_threshold=threshold,
+    )
+    judged_output.parent.mkdir(parents=True, exist_ok=True)
+    judged.to_parquet(judged_output, index=False)
+
+    result = final_verdict_report.DatasetResult(
+        name=split,
+        kind="internal",
+        frame=final_verdict_report.apply_final_verdict(judged),
+    )
+    report = final_verdict_report.render_report(
+        [result],
+        threshold=threshold,
+        calibration_method=str(escalating_cfg.get("calibration_method", "sigmoid")),
+        model_path=str(model_path),
+    )
+    output_path = output or (REPORTS_DIR / f"inference_escalation_{split}.md")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(report)
+    return output_path
+
+
 def main():
     parser = argparse.ArgumentParser(description="Infer on a split parquet and generate report")
-    parser.add_argument("--mode", choices=["ml"], default="ml")
-    parser.add_argument("--split", default="test", choices=["test", "val", "unseen_val", "unseen_test"])
+    parser.add_argument("--mode", choices=["ml", "escalation"], default="ml")
+    parser.add_argument("--split", default="test", choices=["test", "val", "unseen_val", "unseen_test", "safeguard_test"])
     parser.add_argument("--config", default=None, help="Path to config YAML")
     parser.add_argument("--output", default=None, help="Output report path (markdown)")
     args = parser.parse_args()
 
-    if args.mode != "ml":
-        raise ValueError("Only mode=ml is supported by src.cli.infer_split for now")
+    if args.mode == "escalation":
+        out = run_escalation_split(
+            args.split,
+            args.config,
+            output=Path(args.output) if args.output else None,
+        )
+        print(f"Final-verdict report saved -> {out}")
+        return
 
     df, preds, binary, cat, types, cal = infer_ml_predictions(args.split, args.config)
     scope_breakdown = compute_scope_breakdown(df, preds)

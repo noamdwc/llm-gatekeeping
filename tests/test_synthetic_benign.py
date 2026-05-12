@@ -159,26 +159,23 @@ class TestSyntheticBenignGeneration:
         assert isinstance(result, list)
         assert all(isinstance(t, str) for t in result)
 
-    def test_generate_category_uses_cache_for_identical_request(self, cfg, tmp_path, monkeypatch):
+    def test_generate_category_bypasses_llm_cache(self, cfg, tmp_path, monkeypatch):
+        """Synthetic generation deliberately does NOT use the shared LLM cache.
+
+        Commit d96511f made this intentional: each batch within a single
+        generate_category run uses identical request params, so caching would
+        return the same prompts for every batch, collapse via dedup, and
+        prevent quota fill. Two identical top-level calls therefore each
+        produce a fresh LLM call.
+        """
         prompts = [
             "What is machine learning and how does it work?",
             "Can you help me summarize this article about space?",
         ]
         gen = _make_generator(cfg, mock_prompts=prompts)
 
-        first = gen.generate_category("A", n=2)
-        second = gen.generate_category("A", n=2)
-
-        assert first == second
-        assert gen.client.chat.completions.create.call_count == 1
-
-    def test_generate_category_cache_is_provider_scoped(self, cfg, tmp_path, monkeypatch):
-        prompts = ["What is machine learning and how does it work?"]
-        gen = _make_generator(cfg, mock_prompts=prompts)
-
-        gen.generate_category("A", n=1)
-        gen.provider = SimpleNamespace(name="nim")
-        gen.generate_category("A", n=1)
+        gen.generate_category("A", n=2)
+        gen.generate_category("A", n=2)
 
         assert gen.client.chat.completions.create.call_count == 2
 

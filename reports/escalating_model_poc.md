@@ -47,7 +47,7 @@ Prompt hash overlap: 0
 
 `unseen_val` has only 136 cheap-path errors total. The calibration half has 70 cheap-path errors, and the threshold-selection half has 66 cheap-path errors. Calibration and threshold estimates are therefore noisy.
 
-One missed cheap-path error in the threshold half changes the missed-error rate by about 1.5 percentage points. Per-attack conclusions are diagnostic only. The selected `0.5` threshold is the frozen operating point for the current canonical POC path because it sits on a useful cost/error tradeoff without making judge-everything the default.
+One missed cheap-path error in the threshold half changes the missed-error rate by about 1.5 percentage points. Per-attack conclusions are diagnostic only. The selected `0.5` threshold is the frozen operating point for the canonical escalation path — both the DVC `final_verdict_report` stage and the `./run_inference.sh --mode escalation` lightweight inference path use it — because it sits on a useful cost/error tradeoff without making judge-everything the default.
 
 ## Threshold Sweep
 

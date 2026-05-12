@@ -917,7 +917,13 @@ class TestFewShotMessages:
         assert adv_msgs[0]["evidence"] != ""
 
     def test_fixed_confidence_values(self, sample_config):
-        """Few-shot messages use 0-100 scale confidence (90 benign, 88 adversarial) — Patch 2."""
+        """Few-shot messages use the canonical fixed 0-100 confidence pair.
+
+        Patch 2 originally set 90/88; the values were retuned during the
+        escalation-model experiments (see commit bed00f3) to 95/84 to widen
+        the benign/adversarial gap fed to logprob features. This test now
+        pins the current canonical values; if you re-tune them, update here.
+        """
         clf = _make_classifier(sample_config, few_shot=[
             ("hello world", "héllo wörld", "Diacritcs"),
         ])
@@ -925,8 +931,8 @@ class TestFewShotMessages:
         parsed = [json.loads(m["content"]) for m in messages if m["role"] == "assistant"]
         benign_conf = [p["confidence"] for p in parsed if p["label"] == "benign"]
         adv_conf = [p["confidence"] for p in parsed if p["label"] == "adversarial"]
-        assert all(c == 90 for c in benign_conf)
-        assert all(c == 88 for c in adv_conf)
+        assert all(c == 95 for c in benign_conf)
+        assert all(c == 84 for c in adv_conf)
 
     def test_few_shot_confidence_scale_is_0_to_100(self, sample_config):
         """All few-shot confidence values must be on 0-100 scale (> 1.0) — Patch 2."""

@@ -148,10 +148,12 @@ stages:
     - data/processed/predictions/llm_predictions_val.parquet
 
   # ── Stage 4c: Judge Colab Local Classifier Outputs ────────────────────
+  # `unseen_val` is intentionally omitted: it is the threshold-selection
+  # split for `train_escalating_model` and its judged output is not consumed
+  # by `final_verdict_report` or any downstream stage.
   judge_colab_local_predictions:
     foreach:
     - test
-    - unseen_val
     - unseen_test
     - safeguard_test
     do:

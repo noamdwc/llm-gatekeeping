@@ -193,6 +193,41 @@ DVC computes only the new stage; existing `research_external@...` outputs remain
 - `configs/default.yaml:hybrid.escalating_model` → `train_escalating_model`.
 - One external dataset config `external_datasets.<key>` → only `research_external_llm@<key>` and `research_external@<key>` and `eval_new_external@<key>`.
 
+#### Deferred / non-canonical stages
+
+The canonical evaluation path is the escalation-model graph that ends in
+`final_verdict_report` (`reports/pipeline_final_verdict_report.md`). Several
+DVC stages are intentionally left stale on this branch because regenerating
+them requires resources outside the local box; `dvc status` will report each
+of them until the resource is available again. Treat the items below as
+documented-deferred rather than missing:
+
+- `generate_synthetic_benign@F` — requires NIM/OpenAI API tokens. The other
+  five categories (B–E plus implicit defaults) provide enough benign mass
+  for the current training mix; category F (domain-specific professional
+  queries) is left to a follow-up regeneration when API budget is allocated.
+- `llm_classifier` / `llm_classifier_val` (hosted LLM predictions for
+  `test` / `val`) — require hosted API tokens. The canonical escalation
+  graph does **not** consume these files; the
+  `*_colab_local_classifier.parquet` outputs (produced out-of-band by the
+  Colab notebook) feed `train_escalating_model`, `judge_colab_local_predictions`,
+  and `final_verdict_report`. The hosted stages only feed the legacy
+  `research` / `research_val` / `eval_new` markdown reports.
+- `judge_colab_local_predictions@{test,unseen_test,safeguard_test}` and
+  `judge_colab_local_predictions_external@{deepset,jackhhao}` — require
+  hosted API tokens to call the judge model. Their existing outputs on disk
+  match the frozen `hybrid.escalating_model.judge_threshold: 0.5` operating
+  point used by `final_verdict_report`.
+- `research`, `research_val`, `research_safeguard_test`, `train_risk_model`,
+  `eval_new`, `research_external*`, `eval_new_external@*` — these are
+  downstream of the deferred LLM stages and/or of `preprocess`/`build_splits`
+  drift. They will go green once a fresh upstream repro is run.
+
+`judge_colab_local_predictions@unseen_val` was removed from the foreach list
+because its output is not consumed by `final_verdict_report` or any other
+stage; `unseen_val` is used by `train_escalating_model` as the
+threshold-selection split only, before the judge stage runs.
+
 ### Inference pipeline (lightweight, bash)
 
 Fast CLI for running just what you need. Assumes splits + a trained ML model already exist (from a prior `dvc repro`).
@@ -201,9 +236,22 @@ Fast CLI for running just what you need. Assumes splits + a trained ML model alr
 ./run_inference.sh --mode ml --split test
 ./run_inference.sh --mode hybrid --split test --limit 100
 ./run_inference.sh --mode llm --split test --limit 50
+./run_inference.sh --mode escalation --split test           # canonical escalation path
 ./run_inference.sh --mode ml --split test_unseen
 ./run_inference.sh --mode llm --split test --dynamic        # dynamic few-shot
 ```
+
+**Canonical inference path.** The escalation-model / final-verdict graph
+is the productionized main path for both the DVC research pipeline
+(`reports/pipeline_final_verdict_report.md`) and the lightweight bash
+inference path. `./run_inference.sh --mode escalation --split <split>` —
+backed by `src/cli/infer_split.py --mode escalation` — scores the
+already-produced cheap classifier + DeBERTa predictions with
+`escalating_model.pkl`, judges only the rows that cross
+`hybrid.escalating_model.judge_threshold`, and emits an
+`inference_escalation_{split}.md` final-verdict report. The legacy
+`--mode {ml,hybrid,llm}` choices are retained as fast iteration helpers
+that do not exercise the escalation gate.
 
 ## Pipeline (module-level commands)
 
