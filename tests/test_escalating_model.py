@@ -366,6 +366,84 @@ class TestPocEvaluation:
 
 
 class TestTrainEscalatingModelCli:
+    def test_default_external_colab_path_uses_manual_handoff_suffix(self):
+        from src.cli import train_escalating_model
+
+        path = train_escalating_model._default_external_colab_path("deepset")
+
+        assert path.name == "llm_predictions_external_deepset_colab_local_classifier.parquet"
+
+    def test_cli_fails_when_configured_external_handoff_artifact_is_missing(self, tmp_path, monkeypatch):
+        from src.cli import train_escalating_model
+
+        train_colab, train_deberta = _make_prediction_frames(n=24)
+        train_colab_path = tmp_path / "llm_predictions_val_colab_local_classifier.parquet"
+        train_deberta_path = tmp_path / "deberta_predictions_val.parquet"
+        train_colab.to_parquet(train_colab_path, index=False)
+        train_deberta.to_parquet(train_deberta_path, index=False)
+
+        eval_args = []
+        for split in ["test", "unseen_val", "unseen_test", "safeguard_test"]:
+            colab, deberta = _make_prediction_frames(n=12)
+            colab_path = tmp_path / f"llm_predictions_{split}_colab_local_classifier.parquet"
+            deberta_path = tmp_path / f"deberta_predictions_{split}.parquet"
+            colab.to_parquet(colab_path, index=False)
+            deberta.to_parquet(deberta_path, index=False)
+            eval_args.extend([
+                "--eval-split",
+                split,
+                str(colab_path),
+                str(deberta_path),
+            ])
+
+        external_deberta = tmp_path / "deberta_predictions_external_deepset.parquet"
+        pd.DataFrame([
+            {
+                "sample_id": "external-1",
+                "label_binary": "benign",
+                "deberta_proba_binary_adversarial": 0.1,
+            }
+        ]).to_parquet(external_deberta, index=False)
+
+        config_path = tmp_path / "default.yaml"
+        config_path.write_text(
+            "splits:\n"
+            "  random_seed: 42\n"
+            "hybrid:\n"
+            "  escalating_model:\n"
+            "    model_path: data/processed/models/escalating_model.pkl\n"
+            "    calibration_method: sigmoid\n"
+            "external_datasets:\n"
+            "  deepset:\n"
+            "    name: deepset/prompt-injections\n"
+        )
+
+        monkeypatch.setattr(train_escalating_model, "PREDICTIONS_EXTERNAL_DIR", tmp_path)
+        with pytest.raises(FileNotFoundError, match="manual Colab handoff artifact"):
+            train_escalating_main([
+                "--config",
+                str(config_path),
+                "--train-colab-predictions",
+                str(train_colab_path),
+                "--train-deberta-predictions",
+                str(train_deberta_path),
+                "--model-output",
+                str(tmp_path / "models" / "escalating_model.pkl"),
+                "--research-output-dir",
+                str(tmp_path / "research"),
+                "--summary-output",
+                str(tmp_path / "research" / "escalating_model_summary.csv"),
+                "--threshold-sweep-output",
+                str(tmp_path / "research" / "escalating_model_threshold_sweep_unseen_val.csv"),
+                "--postscore-split-map-output",
+                str(tmp_path / "research" / "escalating_model_unseen_val_postscore_split_map.csv"),
+                "--report-output",
+                str(tmp_path / "reports" / "escalating_model_poc.md"),
+                "--external-dataset",
+                "deepset",
+                *eval_args,
+            ])
+
     def test_cli_writes_expected_artifacts(self, tmp_path):
         train_colab, train_deberta = _make_prediction_frames(n=24)
         train_colab_path = tmp_path / "llm_predictions_val_colab_local_classifier.parquet"

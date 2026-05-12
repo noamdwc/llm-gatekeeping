@@ -45,11 +45,24 @@ def _default_deberta_path(split: str) -> Path:
 
 
 def _default_external_colab_path(dataset: str) -> Path:
-    return PREDICTIONS_EXTERNAL_DIR / f"llm_predictions_external_{dataset}.parquet"
+    return (
+        PREDICTIONS_EXTERNAL_DIR
+        / f"llm_predictions_external_{dataset}_colab_local_classifier.parquet"
+    )
 
 
 def _default_external_deberta_path(dataset: str) -> Path:
     return PREDICTIONS_EXTERNAL_DIR / f"deberta_predictions_external_{dataset}.parquet"
+
+
+def _require_existing_input(path: Path, *, role: str) -> None:
+    if path.exists():
+        return
+    raise FileNotFoundError(
+        f"Missing {role}: {path}. "
+        "Every train_escalating_model input must be produced by a DVC stage "
+        "or declared as a manual Colab handoff artifact with validation."
+    )
 
 
 def _prepare_external_colab(colab_df: pd.DataFrame, deberta_df: pd.DataFrame) -> pd.DataFrame:
@@ -171,6 +184,14 @@ def main(argv: list[str] | None = None) -> None:
     split_seed = int(cfg.get("splits", {}).get("random_seed", 42))
     calibration_method = escalating_cfg.get("calibration_method", "sigmoid")
 
+    _require_existing_input(
+        Path(args.train_colab_predictions),
+        role="manual Colab handoff artifact",
+    )
+    _require_existing_input(
+        Path(args.train_deberta_predictions),
+        role="DVC-produced DeBERTa prediction artifact",
+    )
     train_colab = pd.read_parquet(args.train_colab_predictions)
     train_deberta = pd.read_parquet(args.train_deberta_predictions)
     train_ds = EscalatingDataset(train_colab, train_deberta)
@@ -193,6 +214,8 @@ def main(argv: list[str] | None = None) -> None:
     summaries = []
     scored_by_split: dict[str, tuple[pd.DataFrame, Path]] = {}
     for split, colab_path, deberta_path in _resolve_eval_splits(args):
+        _require_existing_input(colab_path, role="manual Colab handoff artifact")
+        _require_existing_input(deberta_path, role="DVC-produced DeBERTa prediction artifact")
         colab_df = pd.read_parquet(colab_path)
         deberta_df = pd.read_parquet(deberta_path)
         ds = EscalatingDataset(colab_df, deberta_df)
@@ -245,12 +268,8 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Wrote unseen_val threshold sweep to {threshold_sweep_output}")
 
     for dataset, colab_path, deberta_path in _resolve_external_datasets(args, cfg):
-        if not colab_path.exists() or not deberta_path.exists():
-            print(
-                f"Skipping external dataset {dataset!r}: missing "
-                f"{colab_path if not colab_path.exists() else deberta_path}"
-            )
-            continue
+        _require_existing_input(colab_path, role="manual Colab handoff artifact")
+        _require_existing_input(deberta_path, role="DVC-produced DeBERTa prediction artifact")
         colab_df = pd.read_parquet(colab_path)
         deberta_df = pd.read_parquet(deberta_path)
         colab_df = _prepare_external_colab(colab_df, deberta_df)
