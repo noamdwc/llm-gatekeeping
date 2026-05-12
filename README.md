@@ -23,7 +23,7 @@ NLP sub-types (TextFooler, BERT-Attack, BAE, etc.) are currently collapsed into 
 - **LLM** (`src/llm_classifier/llm_classifier.py`) — classifier + conditional judge calls via NVIDIA NIM (or OpenAI). Supports static and dynamic few-shot retrieval.
 - **Hybrid** (`src/hybrid_router.py`) — routes each sample through the configured cascade: fast ML first, DeBERTa and/or LLM for uncertain cases, with abstention when confidence remains insufficient.
 - **Benign risk model** (`src/benign_risk_model.py`) — post-hoc LogisticRegression trained on hybrid margin traces + DeBERTa probabilities to flag false-positive-prone benigns. Outputs `data/processed/models/risk_model.pkl` and `reports/posthoc_benign_risk_model.md`.
-- **Escalating model POC** (`src/escalating_model.py`) — offline LightGBM classifier that joins Colab/local LLM classifier predictions with DeBERTa predictions and estimates whether the cheap/local LLM output should be escalated to the stronger judge. It is separate from `risk_model`, which remains the abstain-resolution model over hybrid router traces.
+- **Escalating model** (`src/escalating_model.py`) — LightGBM classifier that joins Colab/local LLM classifier predictions with DeBERTa predictions and estimates whether the cheap/local LLM output should be escalated to the stronger judge. It is separate from `risk_model`, which remains the abstain-resolution model over hybrid router traces.
 
 > **Status note:** Hosted NVIDIA NIM endpoints no longer expose `logprobs`, which the LLM classifier path uses for token-level confidence. The planned direction is to run the classifier model locally to restore logprob-based confidence, while retaining hosted providers (NIM/OpenAI) for judge calls. This migration has not landed yet.
 
@@ -78,6 +78,7 @@ External numbers should be read as a *generalization stress test*, not as headli
 - `reports/research/eval_report_llm.md`
 - `reports/research/summary_report.md` (combined main + unseen-external metrics)
 - `reports/research_external/research_external_<dataset>.md`
+- `reports/pipeline_final_verdict_report.md` (canonical escalation-model final verdict)
 - `reports/deberta_classifier/summary.md`
 - `reports/posthoc_benign_risk_model.md`
 - `reports/baselines/comparison_report.md`
@@ -129,16 +130,18 @@ preprocess → build_splits
                 ↓
         research(+_val) → train_risk_model → risk_model
                 ↓
-        train_escalating_model   (offline POC; no router integration)
+        train_escalating_model → judge_colab_local_predictions
                 ↓
-research_external_llm@{ds} → research_external@{ds} → eval_new_external@{ds}
+research_external_llm@{ds} → judge_colab_local_predictions_external@{ds}
                 ↓
-              eval_new   (writes the canonical eval reports)
+        final_verdict_report   (canonical escalation-model evaluation)
+                ↓
+        eval_new / eval_new_external   (component research reports)
 ```
 
 `research`/`research_val` produce `research_<split>.parquet` plus `hybrid_margin_trace_<split>.parquet`. `train_risk_model` consumes the val trace + DeBERTa val predictions to produce `risk_model.pkl`, which is then used by `research` (post-hoc benign filter). `risk_model` is the post-hoc evaluation stage that writes `reports/posthoc_benign_risk_model.md` and ROC/PR/calibration plots under `reports/artifacts/`.
 
-`train_escalating_model` is an offline POC stage. It trains on val Colab/local classifier predictions joined with DeBERTa val predictions, then ranks cheap/local LLM mistakes on test, unseen-attack, and safeguard splits. Because the model is trained on `val`, its threshold sweep is computed on `unseen_val`. Runtime routing integration remains a later phase.
+`train_escalating_model` trains on val Colab/local classifier predictions joined with DeBERTa val predictions, then scores test, unseen-attack, safeguard, and configured external datasets. Because the model is trained on `val`, calibration and threshold selection use a prompt-hash-disjoint `unseen_val` post-score split. The frozen POC operating point is `hybrid.escalating_model.judge_threshold: 0.5`; judged rows and cheap rows are combined by `final_verdict_report`.
 
 #### Run a single stage
 
@@ -151,6 +154,9 @@ dvc repro research
 dvc repro train_risk_model
 dvc repro risk_model
 dvc repro train_escalating_model
+dvc repro judge_colab_local_predictions@test
+dvc repro judge_colab_local_predictions_external@deepset
+dvc repro final_verdict_report
 dvc repro research_external@deepset
 dvc repro eval_new
 dvc repro eval_new_external@deepset
@@ -236,10 +242,11 @@ python -m src.cli.benign_risk_model \
     --trace data/processed/research/hybrid_margin_trace_test.parquet \
     --split test
 
-# 9. Train the offline escalating model POC
+# 9. Train the escalating model and generate canonical final-verdict report
 python -m src.cli.train_escalating_model
+python -m src.cli.final_verdict_report --config configs/default.yaml
 
-# 10. Generate canonical evaluation reports (main + external)
+# 10. Generate component evaluation reports (main + external)
 python -m src.cli.eval_new --split test --config configs/default.yaml
 ```
 
@@ -249,8 +256,11 @@ The escalating model writes:
 - `data/processed/research/escalating_model_summary.csv`
 - `data/processed/research/escalating_model_threshold_sweep_unseen_val.csv`
 - `reports/escalating_model_poc.md`
+- `reports/pipeline_final_verdict_report.md`
 
 Unlike `risk_model`, this model does not resolve hybrid abstains from router trace columns. It predicts whether the cheap Colab/local LLM classifier path is likely wrong and should be escalated to the judge.
+
+The selected threshold is `0.5`. On the threshold-selection half of `unseen_val`, that calls the judge on 45/932 rows (4.83%), catches 36/66 cheap-path errors (54.55%), and leaves a 3.38% non-escalated error rate. In the canonical final-verdict report, the same threshold calls the judge on 254/6405 rows overall (3.97%), including 25/378 external rows (6.61%).
 
 Correction note: this branch was originally planned and named as risk-model
 work, but the implemented change is escalation-model judge routing and
@@ -345,7 +355,7 @@ src/
   embeddings.py                   # ExemplarBank for dynamic few-shot retrieval
   hybrid_router.py                # ML gate + LLM escalation
   benign_risk_model.py            # Post-hoc benign risk model (LogisticRegression)
-  escalating_model.py             # Offline POC judge-escalation model
+  escalating_model.py             # Judge-escalation model
   synthetic_benign.py             # Synthetic benign prompt generation (categories A–F)
   validators.py                   # HeuristicBenignValidator, JudgeBenignValidator, DeduplicateFilter
   ml_classifier/ml_baseline.py    # Char-level ML classifier
@@ -374,7 +384,7 @@ data/processed/
   models/
     ml_baseline.pkl
     risk_model.pkl                # Post-hoc benign risk model
-    escalating_model.pkl          # Offline judge-escalation POC model
+    escalating_model.pkl          # Judge-escalation model
   predictions/
     ml_predictions_*.parquet
     deberta_predictions_*.parquet

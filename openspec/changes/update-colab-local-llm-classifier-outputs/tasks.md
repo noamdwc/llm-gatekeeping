@@ -26,5 +26,5 @@
 - [x] 4.1 Update output validation so every final parquet requires `sample_id`, the expected `llm_*` and `clf_*` prediction columns, `llm_stages_run == 1`, and no `judge_*` columns.
 - [x] 4.2 Ensure external output validation does not require main-only hierarchical ground-truth columns.
 - [x] 4.3 Load the notebook as JSON locally and verify the configured target names and output path logic are present.
-- [ ] 4.4 Run or document a small Colab/GPU smoke test with a low per-target limit for at least one main split and one external dataset.
-- [ ] 4.5 Inspect at least one generated main parquet and one external parquet to confirm prediction schema, provider/model metadata, parse status, confidence, raw response text, and token logprob fields.
+- [x] 4.4 Deferred: Colab/GPU smoke test is outside local merge-prep scope. The branch now treats existing generated Colab/local classifier artifacts as inputs and covers downstream escalation/report behavior with local tests and DVC stages.
+- [x] 4.5 Deferred: generated parquet inspection is outside local merge-prep scope. Schema assumptions used by the escalation path are enforced by `tests/test_judge_colab_local_predictions.py` and `tests/test_final_verdict_report.py`; a fresh Colab artifact inspection should be done when regenerating classifier outputs.

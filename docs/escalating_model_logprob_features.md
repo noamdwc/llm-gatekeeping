@@ -76,4 +76,4 @@ The new top-5 logprob features improve ranking quality on the main target metric
 
 The strongest evidence is on the unseen-attack splits. `unseen_val` ROC-AUC improves from `0.8784` to `0.9056`, and `unseen_test` ROC-AUC improves from `0.8462` to `0.8879`. This suggests the logprob features add generalization signal beyond DeBERTa disagreement alone.
 
-One caveat: `safeguard_test` PR-AUC decreases from `0.8915` to `0.8470`, even though ROC-AUC and bottom-half error improve. That means the feature is not uniformly better under every ranking metric, and a later threshold-sweep phase should verify the operational tradeoff before runtime integration.
+One caveat: `safeguard_test` PR-AUC decreases from `0.8915` to `0.8470`, even though ROC-AUC and bottom-half error improve. That means the feature is not uniformly better under every ranking metric; the canonical path therefore relies on the later threshold sweep and final-verdict report rather than this feature analysis alone.

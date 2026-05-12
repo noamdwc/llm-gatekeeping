@@ -35,6 +35,7 @@ data/processed/research/escalating_model_eval_safeguard_test.parquet
 data/processed/research/escalating_model_summary.csv
 data/processed/research/escalating_model_threshold_sweep_unseen_val.csv
 reports/escalating_model_poc.md
+reports/pipeline_final_verdict_report.md
 ```
 
 ## Split Summary
@@ -48,34 +49,41 @@ reports/escalating_model_poc.md
 
 ## Unseen-Val Threshold Sweep
 
-`unseen_val` contains 1,881 joined rows and 136 cheap-path errors. The table
-below shows representative thresholds from
+`unseen_val` contains 1,881 joined rows and 136 cheap-path errors. Calibration
+uses one prompt-hash-disjoint half; threshold selection uses the other half
+with 932 rows and 66 cheap-path errors. The table below shows representative
+thresholds from
 `data/processed/research/escalating_model_threshold_sweep_unseen_val.csv`.
 
 | threshold | judge call rate | judge calls | cheap errors caught | cheap errors missed | catch rate | non-escalated error rate |
 |---:|---:|---:|---:|---:|---:|---:|
-| 0.05 | 12.87% | 242 | 92 | 44 | 67.65% | 2.68% |
-| 0.10 | 10.37% | 195 | 87 | 49 | 63.97% | 2.91% |
-| 0.25 | 7.60% | 143 | 84 | 52 | 61.76% | 2.99% |
-| 0.50 | 5.90% | 111 | 81 | 55 | 59.56% | 3.11% |
-| 0.70 | 5.00% | 94 | 75 | 61 | 55.15% | 3.41% |
-| 0.90 | 3.93% | 74 | 64 | 72 | 47.06% | 3.98% |
-| 0.95 | 3.19% | 60 | 55 | 81 | 40.44% | 4.45% |
-| 1.00 | 0.00% | 0 | 0 | 136 | 0.00% | 7.23% |
+| 0.05 | 11.05% | 103 | 42 | 24 | 63.64% | 2.90% |
+| 0.10 | 7.73% | 72 | 41 | 25 | 62.12% | 2.91% |
+| 0.25 | 6.22% | 58 | 39 | 27 | 59.09% | 3.09% |
+| 0.50 | 4.83% | 45 | 36 | 30 | 54.55% | 3.38% |
+| 0.70 | 3.65% | 34 | 30 | 36 | 45.45% | 4.01% |
+| 0.80 | 0.00% | 0 | 0 | 66 | 0.00% | 7.08% |
+| 0.95 | 0.00% | 0 | 0 | 66 | 0.00% | 7.08% |
+| 1.00 | 0.00% | 0 | 0 | 66 | 0.00% | 7.08% |
 
 ## Interpretation
 
-The model gives useful cost/error tradeoffs on `unseen_val`. Calling the judge
-on only 5.90% of rows at threshold `0.50` catches 59.56% of cheap-path errors
-and reduces the trusted cheap-path error rate from 7.23% to 3.11%.
+The selected operating point is **`hybrid.escalating_model.judge_threshold:
+0.5`**. On the threshold-selection half of `unseen_val`, it calls the judge on
+45/932 rows (4.83%), catches 36/66 cheap-path errors (54.55%), and reduces the
+trusted cheap-path error rate from 7.08% to 3.38%.
 
-For a lower-cost operating point, threshold `0.95` calls the judge on 3.19% of
-rows and still catches 40.44% of cheap-path errors, leaving a 4.45% error rate
-among non-escalated rows.
+This is acceptable for the current POC because it keeps judge workload below a
+5% budget on the threshold-selection split while cutting the trusted cheap-path
+error rate by more than half. Lower thresholds catch slightly more cheap errors
+but spend more judge calls; higher thresholds quickly stop buying enough recall.
 
 For a more conservative operating point, threshold `0.10` calls the judge on
-10.37% of rows and catches 63.97% of cheap-path errors, leaving a 2.91% error
+7.73% of rows and catches 62.12% of cheap-path errors, leaving a 2.91% error
 rate among non-escalated rows.
 
-No production threshold is selected here. Before runtime integration, evaluate
-the candidate threshold on `unseen_test` and confirm the judge-call budget.
+The canonical final-verdict report applies threshold `0.5` to internal and
+external judged artifacts. It reports 254 judge calls over 6,405 rows overall
+(3.97%), 229/6,027 internal rows (3.80%), and 25/378 external rows (6.61%).
+External escalation is therefore first-class for the currently configured
+`deepset` and `jackhhao` datasets.

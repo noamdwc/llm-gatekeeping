@@ -1,6 +1,6 @@
-# Escalating Model POC
+# Escalating Model
 
-This offline POC trains a model to estimate `P(cheap path is wrong)` from Colab/local classifier output and DeBERTa output. It does not choose a production threshold or integrate with the hybrid router.
+This model estimates `P(cheap path is wrong)` from Colab/local classifier output and DeBERTa output. The canonical final-verdict pipeline uses `hybrid.escalating_model.judge_threshold` to decide which cheap-classifier rows are escalated to the stronger judge.
 
 Parsed `clf_token_logprobs` features are intentionally omitted in this version except for top-1, top-2, and top-1 minus top-2 label-token logprob features from the cheap/local LLM classifier output.
 
@@ -47,7 +47,7 @@ Prompt hash overlap: 0
 
 `unseen_val` has only 136 cheap-path errors total. The calibration half has 70 cheap-path errors, and the threshold-selection half has 66 cheap-path errors. Calibration and threshold estimates are therefore noisy.
 
-One missed cheap-path error in the threshold half changes the missed-error rate by about 1.5 percentage points. Per-attack conclusions are diagnostic only. The selected threshold is a PoC operating point, not a final production threshold. Prefer a conservative threshold from a stable plateau, not necessarily the single best sweep point.
+One missed cheap-path error in the threshold half changes the missed-error rate by about 1.5 percentage points. Per-attack conclusions are diagnostic only. The selected `0.5` threshold is the frozen operating point for the current canonical POC path because it sits on a useful cost/error tradeoff without making judge-everything the default.
 
 ## Threshold Sweep
 

@@ -236,7 +236,7 @@ stages:
     outs:
     - data/processed/models/risk_model.pkl
 
-  # ── Stage 5c2: Train Escalating Model POC ────────────────────────────────
+  # ── Stage 5c2: Train Canonical Escalating Model ─────────────────────────
   train_escalating_model:
     cmd: python -m src.cli.train_escalating_model
     deps:
@@ -273,6 +273,31 @@ stages:
     - data/processed/research/escalating_model_threshold_sweep_unseen_val.csv
     - reports/escalating_model_poc.md:
         cache: false
+
+  # ── Stage 5c3: Judge External Colab Local Classifier Outputs ────────────
+  judge_colab_local_predictions_external:
+    foreach:
+    - deepset
+    - jackhhao
+    do:
+      cmd: python -m src.cli.judge_colab_local_predictions --split external_${item}
+        --input data/processed/predictions_external/llm_predictions_external_${item}.parquet
+        --output data/processed/predictions_external/llm_predictions_external_${item}_colab_local_judged.parquet
+        --escalation-scores data/processed/research/escalating_model_eval_external_${item}.parquet
+        --max-concurrency 1 --target-rpm 2 --cooldown-on-429 60
+      deps:
+      - data/processed/predictions_external/llm_predictions_external_${item}.parquet
+      - data/processed/research/escalating_model_eval_external_${item}.parquet
+      - src/cli/judge_colab_local_predictions.py
+      - src/llm_classifier/
+      - src/utils.py
+      params:
+      - configs/default.yaml:
+        - llm
+        - hybrid.escalating_model
+        - external_datasets.${item}
+      outs:
+      - data/processed/predictions_external/llm_predictions_external_${item}_colab_local_judged.parquet
 
   # ── Stage 6: External LLM Predictions (one stage per dataset) ────────────
   research_external_llm:
@@ -338,7 +363,29 @@ stages:
     - reports/artifacts/benign_risk_calibration.png:
         cache: false
 
-  # ── Stage 8: Eval Reports (post-router-patch evaluation markdowns) ───────
+  # ── Stage 8: Canonical Final-Verdict Evaluation Report ──────────────────
+  final_verdict_report:
+    cmd: python -m src.cli.final_verdict_report --config configs/default.yaml
+    deps:
+    - src/cli/final_verdict_report.py
+    - src/evaluate.py
+    - src/utils.py
+    - data/processed/predictions/llm_predictions_test_colab_local_judged.parquet
+    - data/processed/predictions/llm_predictions_unseen_test_colab_local_judged.parquet
+    - data/processed/predictions/llm_predictions_safeguard_test_colab_local_judged.parquet
+    - data/processed/predictions_external/llm_predictions_external_deepset_colab_local_judged.parquet
+    - data/processed/predictions_external/llm_predictions_external_jackhhao_colab_local_judged.parquet
+    - data/processed/research/escalating_model_eval_external_deepset.parquet
+    - data/processed/research/escalating_model_eval_external_jackhhao.parquet
+    params:
+    - configs/default.yaml:
+      - hybrid.escalating_model
+      - external_datasets
+    outs:
+    - reports/pipeline_final_verdict_report.md:
+        cache: false
+
+  # ── Stage 8b: Component Eval Reports (legacy router/research markdowns) ──
   eval_new:
     cmd: python -m src.cli.eval_new --split test --config configs/default.yaml --only-main
     deps:

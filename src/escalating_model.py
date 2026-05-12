@@ -1,4 +1,4 @@
-"""Offline POC model for deciding whether cheap LLM outputs need judge escalation."""
+"""Escalating model for deciding whether cheap LLM outputs need judge escalation."""
 
 from __future__ import annotations
 
@@ -560,15 +560,16 @@ def write_escalating_report(
     postscore_split_diagnostics: dict | None = None,
     calibration_method: str = "sigmoid",
 ) -> None:
-    """Write the compact markdown report for the offline POC."""
+    """Write the compact markdown report for the escalating model."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     report = [
-        "# Escalating Model POC",
+        "# Escalating Model",
         "",
-        "This offline POC trains a model to estimate `P(cheap path is wrong)` from "
-        "Colab/local classifier output and DeBERTa output. It does not choose a "
-        "production threshold or integrate with the hybrid router.",
+        "This model estimates `P(cheap path is wrong)` from Colab/local "
+        "classifier output and DeBERTa output. The canonical final-verdict "
+        "pipeline uses `hybrid.escalating_model.judge_threshold` to decide "
+        "which cheap-classifier rows are escalated to the stronger judge.",
         "",
         "Parsed `clf_token_logprobs` features are intentionally omitted in this "
         "version except for top-1, top-2, and top-1 minus top-2 label-token "
@@ -613,9 +614,10 @@ def write_escalating_report(
             "",
             f"One missed cheap-path error in the threshold half changes the missed-error "
             f"rate by about {one_error_pp:.1f} percentage points. Per-attack conclusions "
-            "are diagnostic only. The selected threshold is a PoC operating point, "
-            "not a final production threshold. Prefer a conservative threshold from "
-            "a stable plateau, not necessarily the single best sweep point.",
+            "are diagnostic only. The selected `0.5` threshold is the frozen "
+            "operating point for the current canonical POC path because it sits "
+            "on a useful cost/error tradeoff without making judge-everything "
+            "the default.",
             "",
         ])
     if threshold_sweep_df is not None:

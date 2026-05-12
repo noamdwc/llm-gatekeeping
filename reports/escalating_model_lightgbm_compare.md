@@ -1,6 +1,6 @@
-# Escalating Model POC
+# Escalating Model
 
-This offline POC trains a model to estimate `P(cheap path is wrong)` from Colab/local classifier output and DeBERTa output. It does not choose a production threshold or integrate with the hybrid router.
+This model estimates `P(cheap path is wrong)` from Colab/local classifier output and DeBERTa output. The canonical final-verdict pipeline uses `hybrid.escalating_model.judge_threshold` to decide which cheap-classifier rows are escalated to the stronger judge.
 
 Parsed `clf_token_logprobs` features are intentionally omitted in this version except for top-1, top-2, and top-1 minus top-2 label-token logprob features from the cheap/local LLM classifier output.
 
