@@ -23,7 +23,14 @@ from src.escalating_model import (
     fit_score_calibrator,
     write_escalating_report,
 )
-from src.utils import MODELS_DIR, PREDICTIONS_DIR, RESEARCH_DIR, ROOT, load_config
+from src.utils import (
+    MODELS_DIR,
+    PREDICTIONS_DIR,
+    PREDICTIONS_EXTERNAL_DIR,
+    RESEARCH_DIR,
+    ROOT,
+    load_config,
+)
 
 
 DEFAULT_EVAL_SPLITS = ["test", "unseen_val", "unseen_test", "safeguard_test"]
@@ -35,6 +42,30 @@ def _default_colab_path(split: str) -> Path:
 
 def _default_deberta_path(split: str) -> Path:
     return PREDICTIONS_DIR / f"deberta_predictions_{split}.parquet"
+
+
+def _default_external_colab_path(dataset: str) -> Path:
+    return PREDICTIONS_EXTERNAL_DIR / f"llm_predictions_external_{dataset}.parquet"
+
+
+def _default_external_deberta_path(dataset: str) -> Path:
+    return PREDICTIONS_EXTERNAL_DIR / f"deberta_predictions_external_{dataset}.parquet"
+
+
+def _prepare_external_colab(colab_df: pd.DataFrame, deberta_df: pd.DataFrame) -> pd.DataFrame:
+    """External LLM predictions lack `label_binary`; merge it from DeBERTa."""
+    if "label_binary" in colab_df.columns:
+        return colab_df
+    if "label_binary" not in deberta_df.columns:
+        raise ValueError(
+            "DeBERTa predictions parquet must contain label_binary for externals"
+        )
+    return colab_df.merge(
+        deberta_df[["sample_id", "label_binary"]],
+        on="sample_id",
+        how="left",
+        validate="many_to_one",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -56,6 +87,17 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Evaluation split triple. Repeat for multiple splits. "
             "Defaults to test, unseen_val, unseen_test, and safeguard_test."
+        ),
+    )
+    parser.add_argument(
+        "--external-dataset",
+        action="append",
+        default=None,
+        metavar="DATASET",
+        help=(
+            "External dataset key to score with the trained escalating model. "
+            "Repeat for multiple datasets. Defaults to all keys listed under "
+            "external_datasets in the config."
         ),
     )
     parser.add_argument(
@@ -94,6 +136,20 @@ def _resolve_eval_splits(args: argparse.Namespace) -> list[tuple[str, Path, Path
     return [
         (split, _default_colab_path(split), _default_deberta_path(split))
         for split in DEFAULT_EVAL_SPLITS
+    ]
+
+
+def _resolve_external_datasets(
+    args: argparse.Namespace,
+    cfg: dict,
+) -> list[tuple[str, Path, Path]]:
+    if args.external_dataset is not None:
+        keys = list(args.external_dataset)
+    else:
+        keys = list(cfg.get("external_datasets", {}).keys())
+    return [
+        (key, _default_external_colab_path(key), _default_external_deberta_path(key))
+        for key in keys
     ]
 
 
@@ -187,6 +243,30 @@ def main(argv: list[str] | None = None) -> None:
         threshold_sweep_df.to_csv(threshold_sweep_output, index=False)
         print(f"Wrote unseen_val post-score split map to {postscore_split_map_output}")
         print(f"Wrote unseen_val threshold sweep to {threshold_sweep_output}")
+
+    for dataset, colab_path, deberta_path in _resolve_external_datasets(args, cfg):
+        if not colab_path.exists() or not deberta_path.exists():
+            print(
+                f"Skipping external dataset {dataset!r}: missing "
+                f"{colab_path if not colab_path.exists() else deberta_path}"
+            )
+            continue
+        colab_df = pd.read_parquet(colab_path)
+        deberta_df = pd.read_parquet(deberta_path)
+        colab_df = _prepare_external_colab(colab_df, deberta_df)
+        ds = EscalatingDataset(colab_df, deberta_df)
+        scores = model.predict_escalation_batch(ds.df)
+        scored, summary = evaluate_escalating_split(f"external_{dataset}", ds, scores)
+        eval_output = research_output_dir / f"escalating_model_eval_external_{dataset}.parquet"
+        scored_by_split[f"external_{dataset}"] = (scored, eval_output)
+        summaries.append(summary)
+        print(
+            f"Scored external {dataset} ({summary['rows_joined']} joined rows) "
+            f"-> {eval_output}"
+        )
+
+    summary_df = pd.DataFrame(summaries, columns=EVAL_SUMMARY_COLS)
+    summary_df.to_csv(summary_output, index=False)
 
     for split, (scored, eval_output) in scored_by_split.items():
         if calibrator is not None and "calibrated_escalation_score" not in scored.columns:

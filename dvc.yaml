@@ -252,15 +252,22 @@ stages:
     - data/processed/predictions/deberta_predictions_unseen_test.parquet
     - data/processed/predictions/llm_predictions_safeguard_test_colab_local_classifier.parquet
     - data/processed/predictions/deberta_predictions_safeguard_test.parquet
+    - data/processed/predictions_external/llm_predictions_external_deepset.parquet
+    - data/processed/predictions_external/deberta_predictions_external_deepset.parquet
+    - data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
+    - data/processed/predictions_external/deberta_predictions_external_jackhhao.parquet
     params:
     - configs/default.yaml:
       - hybrid.escalating_model
+      - external_datasets
     outs:
     - data/processed/models/escalating_model.pkl
     - data/processed/research/escalating_model_eval_test.parquet
     - data/processed/research/escalating_model_eval_unseen_val.parquet
     - data/processed/research/escalating_model_eval_unseen_test.parquet
     - data/processed/research/escalating_model_eval_safeguard_test.parquet
+    - data/processed/research/escalating_model_eval_external_deepset.parquet
+    - data/processed/research/escalating_model_eval_external_jackhhao.parquet
     - data/processed/research/escalating_model_summary.csv
     - data/processed/research/escalating_model_unseen_val_postscore_split_map.csv
     - data/processed/research/escalating_model_threshold_sweep_unseen_val.csv
