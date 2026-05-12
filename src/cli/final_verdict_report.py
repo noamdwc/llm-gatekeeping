@@ -269,12 +269,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _default_external_inputs(cfg: dict) -> list[tuple[str, Path]]:
-    inputs = []
-    for key in cfg.get("external_datasets", {}):
-        path = default_external_path(key)
-        if path.exists():
-            inputs.append((f"external_{key}", path))
-    return inputs
+    return [
+        (f"external_{key}", default_external_path(key))
+        for key in cfg.get("external_datasets", {})
+    ]
 
 
 def main(argv: list[str] | None = None) -> None:

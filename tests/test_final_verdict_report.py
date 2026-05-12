@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from src.cli import final_verdict_report
 
@@ -117,3 +118,46 @@ def test_main_writes_report_from_internal_and_external_inputs(tmp_path: Path):
     assert "# Pipeline Final-Verdict Report" in text
     assert "test" in text
     assert "external_deepset" in text
+
+
+def test_main_requires_configured_external_judged_artifact_by_default(tmp_path: Path, monkeypatch):
+    internal_paths = {}
+    for split in final_verdict_report.DEFAULT_INTERNAL_SPLITS:
+        path = tmp_path / f"llm_predictions_{split}_colab_local_judged.parquet"
+        _judged_frame().to_parquet(path, index=False)
+        internal_paths[split] = path
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "hybrid:",
+                "  escalating_model:",
+                "    judge_threshold: 0.5",
+                "    calibration_method: sigmoid",
+                "    model_path: data/processed/models/escalating_model.pkl",
+                "external_datasets:",
+                "  deepset:",
+                "    name: deepset/prompt-injections",
+            ]
+        )
+    )
+
+    monkeypatch.setattr(
+        final_verdict_report,
+        "default_internal_path",
+        lambda split: internal_paths[split],
+    )
+    monkeypatch.setattr(
+        final_verdict_report,
+        "default_external_path",
+        lambda dataset: tmp_path / f"missing_{dataset}_judged.parquet",
+    )
+
+    with pytest.raises(FileNotFoundError, match="Missing judged final-verdict input"):
+        final_verdict_report.main([
+            "--config",
+            str(config_path),
+            "--output",
+            str(tmp_path / "pipeline_final_verdict_report.md"),
+        ])
