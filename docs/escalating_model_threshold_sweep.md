@@ -9,6 +9,21 @@ python -m src.cli.train_escalating_model
 The escalating model is trained on `val`, so the threshold sweep is selected on
 `unseen_val`.
 
+## Correction Note
+
+This report belongs to the escalating-model path, not the abstain risk model.
+The related branch was initially planned as risk-model work, and that created
+confusing project history: the changed/used artifact was the escalating model
+for judge routing. The corrected implementation uses
+`hybrid.escalating_model`, `data/processed/models/escalating_model.pkl`, and
+`(calibrated_)escalation_score` when deciding which cheap Colab/local LLM
+classifier rows are sent to the judge. The existing `hybrid.risk_model` path
+still refers only to post-hoc abstain resolution from hybrid router traces.
+
+Keeping this separation explicit avoids reproducing the wrong DVC stage,
+comparing reports against the wrong artifact, or debugging judge-call behavior
+with risk-model configs that are not involved in escalation routing.
+
 ## Run Outputs
 
 ```text

@@ -252,6 +252,16 @@ The escalating model writes:
 
 Unlike `risk_model`, this model does not resolve hybrid abstains from router trace columns. It predicts whether the cheap Colab/local LLM classifier path is likely wrong and should be escalated to the judge.
 
+Correction note: this branch was originally planned and named as risk-model
+work, but the implemented change is escalation-model judge routing and
+reporting. An intermediate project-history mistake described the work as
+changing the risk model while the code path being updated was the escalating
+model. The current implementation and reports use `hybrid.escalating_model`,
+`escalating_model.pkl`, and `(calibrated_)escalation_score` for judge routing;
+`hybrid.risk_model` remains the separate abstain-resolution model. This
+distinction matters for reproducing DVC stages, interpreting report outputs,
+choosing configs, and debugging future pipeline regressions.
+
 ### External datasets (additive + cached with DVC)
 
 External datasets are configured in `configs/default.yaml` under `external_datasets`. DVC runs them as independent `foreach` stages (`research_external_llm@<ds>`, `research_external@<ds>`, `eval_new_external@<ds>`) so adding a new dataset only computes new stages.

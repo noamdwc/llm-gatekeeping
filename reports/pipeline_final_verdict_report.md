@@ -5,6 +5,21 @@ of which stage produced it. For non-escalated rows the verdict is the cheap
 classifier output (`llm_pred_*`); for rows the escalating model flagged for
 escalation, the verdict is the judge output (`judge_final_*`).
 
+## Correction Note
+
+This report is produced from escalation-model judge routing. The branch was
+originally planned as risk-model work, and an intermediate project-history
+mistake described the changed/used model as the risk model. The corrected
+implementation uses the escalating model for this gate:
+`hybrid.escalating_model`, `data/processed/models/escalating_model.pkl`, and
+`calibrated_escalation_score` determine which cheap Colab/local LLM classifier
+rows are judged. The abstain `hybrid.risk_model` remains a separate
+post-hoc router-trace model and is not the gate measured in this report.
+
+This distinction is important for reproducibility and debugging: DVC stage
+selection, report comparisons, config edits, and output-path checks should
+follow the escalating-model artifacts when investigating judge-call behavior.
+
 ## Run Metadata
 
 | Setting | Value |
