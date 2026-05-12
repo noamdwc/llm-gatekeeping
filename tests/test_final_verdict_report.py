@@ -76,7 +76,7 @@ def test_render_report_includes_threshold_and_external_canonical_status():
 
     assert "Escalation gate threshold" in report
     assert "`0.5`" in report
-    assert "External escalation is canonical for datasets with judged artifacts" in report
+    assert "Configured external datasets are part of the canonical final-verdict path" in report
     assert "external_deepset" in report
     assert "Judge calls" in report
 

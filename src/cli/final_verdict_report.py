@@ -192,10 +192,11 @@ def render_report(
         f"| Escalating model artifact | `{model_path}` |",
         "| Selected operating point | `0.5`, frozen for this POC canonical path |",
         "",
-        "External escalation is canonical for datasets with judged artifacts under "
+        "Configured external datasets are part of the canonical final-verdict "
+        "path, and their judged artifacts are required by default under "
         "`data/processed/predictions_external/*_colab_local_judged.parquet`. "
-        "External datasets without that artifact are excluded from this report "
-        "rather than mixed in as research-only numbers.",
+        "Missing configured judged artifacts fail before report generation "
+        "rather than being excluded or mixed with research-only numbers.",
         "",
     ]
 
