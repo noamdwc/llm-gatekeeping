@@ -71,17 +71,12 @@ External (unseen) generalization, combined across `deepset`, `jackhhao`, `safegu
 
 External numbers should be read as a *generalization stress test*, not as headline performance — the FNR gap vs. the in-distribution test split is a deliberate signal that this is the area to improve.
 
-### Canonical report outputs
+### Canonical report output
 
-- `reports/research/eval_report_ml.md`
-- `reports/research/eval_report_hybrid.md` (strict LLM coverage only)
-- `reports/research/eval_report_llm.md`
-- `reports/research/summary_report.md` (combined main + unseen-external metrics)
-- `reports/research_external/research_external_<dataset>.md`
-- `reports/pipeline_final_verdict_report.md` (canonical escalation-model final verdict)
-- `reports/deberta_classifier/summary.md`
-- `reports/posthoc_benign_risk_model.md`
-- `reports/baselines/comparison_report.md`
+- `reports/pipeline_final_verdict_report.md` (escalation-model final verdict)
+
+Older component, baseline, and post-hoc reports may still exist until the
+approved deletion step, but they are not the documented final artifact.
 
 ## Setup
 
@@ -104,244 +99,113 @@ huggingface-cli login
 
 NIM model names in `configs/default.yaml` are auto-translated to OpenAI equivalents when `LLM_PROVIDER=openai`. After switching providers, run `./run_llm_provider_refresh.sh` to force re-execution of LLM-dependent DVC stages (DVC does not track `LLM_PROVIDER` itself).
 
-## Two Pipeline Modes
+## Canonical Pipeline
 
-### Research pipeline (reproducible, DVC)
-
-The canonical way to run the project. Produces **research parquets** with all intermediate probabilities plus **markdown reports**.
-
-```bash
-# Full reproducible run (all stages, including LLM and DeBERTa)
-dvc repro
-```
-
-DVC caches predictions and model artifacts. Threshold-only changes (e.g. `hybrid.ml_confidence_threshold`) re-run only the research/eval stages and never re-hit the LLM API.
-
-#### DVC stage graph
-
-```
-generate_synthetic_benign@{A..F}        (one-time; API tokens)
-                ↓
-preprocess → build_splits
-                ↓
-        ┌──────┼─────────────┐
-        ↓      ↓             ↓
-     ml_model  deberta_model llm_classifier(+_val)
-                ↓
-        research(+_val) → train_risk_model → risk_model
-                ↓
-        train_escalating_model → judge_colab_local_predictions
-                ↓
-research_external_llm@{ds} → judge_colab_local_predictions_external@{ds}
-                ↓
-        final_verdict_report   (canonical escalation-model evaluation)
-                ↓
-        eval_new / eval_new_external   (component research reports)
-```
-
-`research`/`research_val` produce `research_<split>.parquet` plus `hybrid_margin_trace_<split>.parquet`. `train_risk_model` consumes the val trace + DeBERTa val predictions to produce `risk_model.pkl`, which is then used by `research` (post-hoc benign filter). `risk_model` is the post-hoc evaluation stage that writes `reports/posthoc_benign_risk_model.md` and ROC/PR/calibration plots under `reports/artifacts/`.
-
-`train_escalating_model` trains on val Colab/local classifier predictions joined with DeBERTa val predictions, then scores test, unseen-attack, safeguard, and configured external datasets. Because the model is trained on `val`, calibration and threshold selection use a prompt-hash-disjoint `unseen_val` post-score split. The frozen POC operating point is `hybrid.escalating_model.judge_threshold: 0.5`; judged rows and cheap rows are combined by `final_verdict_report`.
-
-#### Run a single stage
+The canonical end-to-end path is DVC-driven with one manual handoff: the
+local LLM classifier runs in Colab, then its classifier-only parquet outputs
+are downloaded back into this repo. The final documented artifact is:
 
 ```bash
-dvc repro preprocess
+reports/pipeline_final_verdict_report.md
+```
+
+### 1. Prepare Local DVC Inputs
+
+```bash
+dvc repro build_splits
 dvc repro ml_model
 dvc repro deberta_model
-dvc repro llm_classifier
-dvc repro research
-dvc repro train_risk_model
-dvc repro risk_model
-dvc repro train_escalating_model
-dvc repro judge_colab_local_predictions@test
-dvc repro judge_colab_local_predictions_external@deepset
+dvc repro deberta_external@deepset
+dvc repro deberta_external@jackhhao
+```
+
+These stages produce the split files, ML model, and DeBERTa predictions
+required by the Colab handoff and escalation model.
+
+### 2. Run The Colab Local LLM Classifier
+
+Open and run:
+
+```bash
+notebooks/colab_local_llm_classifier.ipynb
+```
+
+Download the classifier-only artifacts into these exact paths:
+
+```bash
+data/processed/predictions/llm_predictions_val_colab_local_classifier.parquet
+data/processed/predictions/llm_predictions_test_colab_local_classifier.parquet
+data/processed/predictions/llm_predictions_unseen_val_colab_local_classifier.parquet
+data/processed/predictions/llm_predictions_unseen_test_colab_local_classifier.parquet
+data/processed/predictions/llm_predictions_safeguard_test_colab_local_classifier.parquet
+data/processed/predictions_external/llm_predictions_external_deepset_colab_local_classifier.parquet
+data/processed/predictions_external/llm_predictions_external_jackhhao_colab_local_classifier.parquet
+```
+
+### 3. Validate The Handoff
+
+```bash
+dvc repro -s validate_colab_handoff
+```
+
+This validates that every configured Colab artifact exists, is
+classifier-only, has `llm_stages_run == 1`, and joins cleanly with the
+corresponding DVC-produced DeBERTa predictions. Missing or malformed handoff
+artifacts are errors with exact paths. The pipeline does not fall back to
+legacy hosted LLM classifier outputs.
+
+### 4. Resume Through Final Verdict
+
+```bash
 dvc repro final_verdict_report
-dvc repro research_external@deepset
-dvc repro eval_new
-dvc repro eval_new_external@deepset
 ```
 
-`eval_new` writes:
-- `reports/research/eval_report_ml.md`
-- `reports/research/eval_report_llm.md`
-- `reports/research/eval_report_hybrid.md` (strict LLM coverage only)
-- `reports/research/summary_report.md`
-
-`eval_new_external@{dataset}` writes `reports/research_external/research_external_<dataset>.md`.
-
-#### Add a new external dataset (no recompute for existing ones)
-
-1. Add the dataset config under `external_datasets` in `configs/default.yaml`.
-2. Run:
+This trains the escalation model from validated Colab classifier outputs plus
+DVC-produced DeBERTa predictions, runs selective judge stages, and writes:
 
 ```bash
-dvc repro research_external@new_dataset
+reports/pipeline_final_verdict_report.md
 ```
 
-DVC computes only the new stage; existing `research_external@...` outputs remain cached.
+Every `train_escalating_model` input is either DVC-produced or a validated
+manual Colab handoff artifact. Missing configured external judged artifacts
+also fail before final report generation.
 
-#### What triggers recomputation
+### Main DVC Graph
 
-- `configs/default.yaml:dataset|labels|benign` → `preprocess` and everything downstream.
-- `configs/default.yaml:splits|labels.held_out_attacks` → `build_splits` and downstream.
-- `configs/default.yaml:ml` → `ml_model` and downstream.
-- `configs/default.yaml:deberta` → `deberta_model` and downstream.
-- `configs/default.yaml:llm` → `llm_classifier(+_val)` and `research_external_llm@*` and downstream.
-- `configs/default.yaml:hybrid.ml_confidence_threshold` → `research`, `research_val`, all `research_external@{ds}`, `eval_new`, `eval_new_external@{ds}`. Does **not** re-run training or LLM stages.
-- `configs/default.yaml:hybrid.risk_model` → `train_risk_model`, `research`, `research_val`, `risk_model`, and `eval_new`.
-- `configs/default.yaml:hybrid.escalating_model` → `train_escalating_model`.
-- One external dataset config `external_datasets.<key>` → only `research_external_llm@<key>` and `research_external@<key>` and `eval_new_external@<key>`.
-
-#### Deferred / non-canonical stages
-
-The canonical evaluation path is the escalation-model graph that ends in
-`final_verdict_report` (`reports/pipeline_final_verdict_report.md`). Several
-DVC stages are intentionally left stale on this branch because regenerating
-them requires resources outside the local box; `dvc status` will report each
-of them until the resource is available again. Treat the items below as
-documented-deferred rather than missing:
-
-- `generate_synthetic_benign@F` — requires NIM/OpenAI API tokens. The other
-  five categories (B–E plus implicit defaults) provide enough benign mass
-  for the current training mix; category F (domain-specific professional
-  queries) is left to a follow-up regeneration when API budget is allocated.
-- `llm_classifier` / `llm_classifier_val` (hosted LLM predictions for
-  `test` / `val`) — require hosted API tokens. The canonical escalation
-  graph does **not** consume these files; the
-  `*_colab_local_classifier.parquet` outputs (produced out-of-band by the
-  Colab notebook) feed `train_escalating_model`, `judge_colab_local_predictions`,
-  and `final_verdict_report`. The hosted stages only feed the legacy
-  `research` / `research_val` / `eval_new` markdown reports.
-- `judge_colab_local_predictions@{test,unseen_test,safeguard_test}` and
-  `judge_colab_local_predictions_external@{deepset,jackhhao}` — require
-  hosted API tokens to call the judge model. Their existing outputs on disk
-  match the frozen `hybrid.escalating_model.judge_threshold: 0.5` operating
-  point used by `final_verdict_report`.
-- `research`, `research_val`, `research_safeguard_test`, `train_risk_model`,
-  `eval_new`, `research_external*`, `eval_new_external@*` — these are
-  downstream of the deferred LLM stages. They will go green once the
-  hosted `llm_predictions_{split}.parquet` artifacts are available again.
-
-`judge_colab_local_predictions@unseen_val` was removed from the foreach list
-because its output is not consumed by `final_verdict_report` or any other
-stage; `unseen_val` is used by `train_escalating_model` as the
-threshold-selection split only, before the judge stage runs.
-
-### Inference pipeline (lightweight, bash)
-
-Fast CLI for running just what you need. Assumes splits + a trained ML model already exist (from a prior `dvc repro`).
-
-```bash
-./run_inference.sh --mode ml --split test
-./run_inference.sh --mode hybrid --split test --limit 100
-./run_inference.sh --mode llm --split test --limit 50
-./run_inference.sh --mode escalation --split test           # canonical escalation path
-./run_inference.sh --mode ml --split test_unseen
-./run_inference.sh --mode llm --split test --dynamic        # dynamic few-shot
+```
+preprocess -> build_splits
+                |
+                +-> ml_model
+                +-> deberta_model -> deberta_external@{deepset,jackhhao}
+                                      |
+Colab notebook -> *_colab_local_classifier.parquet
+                                      |
+                         validate_colab_handoff
+                                      |
+                         train_escalating_model
+                                      |
+      judge_colab_local_predictions@{test,unseen_test,safeguard_test}
+      judge_colab_local_predictions_external@{deepset,jackhhao}
+                                      |
+                         final_verdict_report
 ```
 
-**Canonical inference path.** The escalation-model / final-verdict graph
-is the productionized main path for both the DVC research pipeline
-(`reports/pipeline_final_verdict_report.md`) and the lightweight bash
-inference path. `./run_inference.sh --mode escalation --split <split>` —
-backed by `src/cli/infer_split.py --mode escalation` — scores the
-already-produced cheap classifier + DeBERTa predictions with
-`escalating_model.pkl`, judges only the rows that cross
-`hybrid.escalating_model.judge_threshold`, and emits an
-`inference_escalation_{split}.md` final-verdict report. The legacy
-`--mode {ml,hybrid,llm}` choices are retained as fast iteration helpers
-that do not exercise the escalation gate.
+### Current Handoff Blocker
 
-## Pipeline (module-level commands)
+At the time of this cleanup, `dvc repro -s validate_colab_handoff` fails on
+the checked-in/downloaded Deepset Colab artifact because
+`data/processed/predictions_external/llm_predictions_external_deepset_colab_local_classifier.parquet`
+contains rows where `llm_stages_run != 1`. Regenerate or fix that Colab
+handoff artifact before running the final DVC path end to end.
 
-Run the pipeline step by step:
+### Non-Canonical Runtime Paths
 
-```bash
-# 1. Generate synthetic benign prompts (optional; categories A–F)
-python -m src.cli.generate_synthetic_benign --category all --limit 100
-
-# 2. Preprocess: load dataset, build benign set, add hierarchical labels
-python -m src.preprocess
-
-# 3. Build splits: grouped by prompt hash, held-out attack types
-python -m src.build_splits
-
-# 4. Train ML baseline + write research prediction parquets
-python -m src.ml_classifier.ml_baseline --research
-
-# 5. Train DeBERTa classifier (per-level fine-tuning + research predictions)
-python -m src.cli.deberta_classifier --research --no-wandb
-python -m src.cli.deberta_classifier --train-only          # skip prediction
-python -m src.cli.deberta_classifier --predict-only        # predict from saved model
-
-# 6. Run LLM classifier (requires API key for current LLM_PROVIDER)
-python -m src.llm_classifier.llm_classifier --split test --research
-python -m src.llm_classifier.llm_classifier --split test --research --dynamic
-
-# 7. Merge predictions + hybrid routing + margin trace
-python -m src.research --split test
-python -m src.research --split val
-
-# 8. Train and evaluate the post-hoc benign risk model
-python -m src.cli.train_risk_model
-python -m src.cli.benign_risk_model \
-    --train-trace data/processed/research/hybrid_margin_trace_val.parquet \
-    --trace data/processed/research/hybrid_margin_trace_test.parquet \
-    --split test
-
-# 9. Train the escalating model and generate canonical final-verdict report
-python -m src.cli.train_escalating_model
-python -m src.cli.final_verdict_report --config configs/default.yaml
-
-# 10. Generate component evaluation reports (main + external)
-python -m src.cli.eval_new --split test --config configs/default.yaml
-```
-
-The escalating model writes:
-- `data/processed/models/escalating_model.pkl`
-- `data/processed/research/escalating_model_eval_<split>.parquet`
-- `data/processed/research/escalating_model_summary.csv`
-- `data/processed/research/escalating_model_threshold_sweep_unseen_val.csv`
-- `reports/escalating_model_poc.md`
-- `reports/pipeline_final_verdict_report.md`
-
-Unlike `risk_model`, this model does not resolve hybrid abstains from router trace columns. It predicts whether the cheap Colab/local LLM classifier path is likely wrong and should be escalated to the judge.
-
-The selected threshold is `0.5`. On the threshold-selection half of `unseen_val`, that calls the judge on 45/932 rows (4.83%), catches 36/66 cheap-path errors (54.55%), and leaves a 3.38% non-escalated error rate. In the canonical final-verdict report, the same threshold calls the judge on 254/6405 rows overall (3.97%), including 25/378 external rows (6.61%).
-
-Correction note: this branch was originally planned and named as risk-model
-work, but the implemented change is escalation-model judge routing and
-reporting. An intermediate project-history mistake described the work as
-changing the risk model while the code path being updated was the escalating
-model. The current implementation and reports use `hybrid.escalating_model`,
-`escalating_model.pkl`, and `(calibrated_)escalation_score` for judge routing;
-`hybrid.risk_model` remains the separate abstain-resolution model. This
-distinction matters for reproducing DVC stages, interpreting report outputs,
-choosing configs, and debugging future pipeline regressions.
-
-### External datasets (additive + cached with DVC)
-
-External datasets are configured in `configs/default.yaml` under `external_datasets`. DVC runs them as independent `foreach` stages (`research_external_llm@<ds>`, `research_external@<ds>`, `eval_new_external@<ds>`) so adding a new dataset only computes new stages.
-
-To add a dataset:
-- Add its config under `external_datasets` in `configs/default.yaml`.
-- Run `dvc repro` (only the new dataset stages run; existing ones are cached).
-
-### HF baselines
-
-Run published HuggingFace prompt-injection guard models against internal splits and external datasets, and compare them to ML/hybrid:
-
-```bash
-python -m src.cli.run_baseline --baseline all --split all --external all
-python -m src.cli.eval_baselines
-```
-
-Per-baseline predictions land in `data/processed/baselines/`; the comparison report is written to `reports/baselines/comparison_report.md`. Available baselines: `sentinel_v2`, `protectai_v2`.
-
-### Synthetic benign generation
-
-LLM-generated benign prompts across 6 categories (A–F: instructions, factual, creative, code, conversational, ambiguous-but-benign), validated by a three-layer pipeline: heuristic regex → LLM judge → embedding-based dedup (cosine sim > 0.95). Controlled by `benign.synthetic.enabled` (default: false). Validated parquets land in `data/processed/synthetic_benign/synthetic_benign_<category>.parquet` and are picked up automatically by `preprocess` when enabled.
+Older hosted-LLM research stages, component markdown reports, post-hoc
+abstain-risk-model reports, baseline comparison scripts, and lightweight
+inference shell paths may still exist until the deletion approval step, but
+they are not the canonical run path. Use the DVC + Colab handoff flow above
+for start-to-finish project execution.
 
 ## Prediction CLI
 
@@ -397,27 +261,29 @@ configs/default.yaml              # All configuration (labels, splits, threshold
 src/
   preprocess.py                   # Dataset loading + benign set construction
   build_splits.py                 # Grouped train/val/test splits
-  research.py                     # Merge predictions + hybrid routing + margin trace
+  research.py                     # Legacy research merge/routing path
   evaluate.py                     # Metrics at all hierarchy levels
   eval_external.py                # Binary-only evaluation for external datasets
   embeddings.py                   # ExemplarBank for dynamic few-shot retrieval
   hybrid_router.py                # ML gate + LLM escalation
-  benign_risk_model.py            # Post-hoc benign risk model (LogisticRegression)
+  benign_risk_model.py            # Legacy post-hoc benign risk model
   escalating_model.py             # Judge-escalation model
   synthetic_benign.py             # Synthetic benign prompt generation (categories A–F)
   validators.py                   # HeuristicBenignValidator, JudgeBenignValidator, DeduplicateFilter
   ml_classifier/ml_baseline.py    # Char-level ML classifier
   llm_classifier/llm_classifier.py# Classifier + judge LLM classifier
   models/                         # DeBERTa model wrappers + training utilities
-  baselines/                      # Threshold helpers + HF baseline runners
+  baselines/                      # Legacy HF baseline helpers
   cli/
     predict.py                    # Classify arbitrary text (stdin or file) → JSON
     deberta_classifier.py         # Train/predict DeBERTa per hierarchy level
-    train_risk_model.py           # Fit risk_model.pkl from val trace + DeBERTa
+    validate_colab_handoff.py     # Validate manual Colab classifier handoff artifacts
     train_escalating_model.py     # Fit escalating_model.pkl from Colab/local + DeBERTa predictions
-    benign_risk_model.py          # Post-hoc evaluation of the benign risk model
+    final_verdict_report.py       # Generate the canonical final-verdict report
+    judge_colab_local_predictions.py # Run selective judge calls from escalation scores
+    benign_risk_model.py          # Legacy post-hoc benign risk evaluation
     research_external.py          # Research artifacts for one external dataset
-    eval_new.py                   # Generate canonical markdown reports
+    eval_new.py                   # Legacy component markdown reports
     run_baseline.py               # Run HF guard models on internal/external splits
     eval_baselines.py             # Compare HF baselines vs ML/hybrid
     generate_synthetic_benign.py  # CLI for synthetic benign generation pipeline
@@ -428,17 +294,20 @@ src/
 data/processed/
   full_dataset.parquet            # Combined adversarial + benign
   synthetic_benign/               # Generated benign parquets per category (A–F)
-  splits/                         # train.parquet, val.parquet, test.parquet, test_unseen.parquet
+  splits/                         # train.parquet, val.parquet, test.parquet, unseen_val.parquet, unseen_test.parquet, safeguard_test.parquet
   models/
     ml_baseline.pkl
-    risk_model.pkl                # Post-hoc benign risk model
+    risk_model.pkl                # Legacy post-hoc benign risk model
     escalating_model.pkl          # Judge-escalation model
   predictions/
     ml_predictions_*.parquet
     deberta_predictions_*.parquet
-    llm_predictions_*.parquet
+    llm_predictions_*_colab_local_classifier.parquet
+    llm_predictions_*_colab_local_judged.parquet
   predictions_external/
-    llm_predictions_external_<ds>.parquet
+    deberta_predictions_external_<ds>.parquet
+    llm_predictions_external_<ds>_colab_local_classifier.parquet
+    llm_predictions_external_<ds>_colab_local_judged.parquet
   research/
     research_<split>.parquet
     hybrid_margin_trace_<split>.parquet
@@ -452,13 +321,10 @@ data/processed/
 artifacts/
   deberta_classifier/             # model/, tokenizer/, label_mapping.json, train_history.json
 reports/
-  research/                       # eval_report_ml|llm|hybrid.md, summary_report.md
-  research_external/              # Per-external-dataset reports
   deberta_classifier/             # metrics.json, classification_report.json, summary.md
-  baselines/                      # comparison_report.md
-  artifacts/                      # benign_risk_roc.png, benign_risk_pr.png, benign_risk_calibration.png
-  posthoc_benign_risk_model.md
+  colab_handoff_validation.json
   escalating_model_poc.md
+  pipeline_final_verdict_report.md
 ```
 
 ## ML Features
