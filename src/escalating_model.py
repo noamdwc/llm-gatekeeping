@@ -9,6 +9,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMClassifier
+from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 
@@ -73,6 +75,14 @@ THRESHOLD_SWEEP_COLS = [
     "cheap_errors_missed",
     "cheap_error_catch_rate",
     "non_escalated_error_rate",
+]
+
+POSTSCORE_SPLIT_MAP_COLS = [
+    "prompt_hash",
+    "postscore_split",
+    "stratum",
+    "rows",
+    "cheap_errors",
 ]
 
 
@@ -313,18 +323,19 @@ def evaluate_escalating_split(
 def evaluate_threshold_sweep(
     scored_df: pd.DataFrame,
     thresholds: list[float] | np.ndarray | None = None,
+    score_col: str = "escalation_score",
 ) -> pd.DataFrame:
     """Compute judge-escalation operating points from scored rows."""
     _require_columns(
         scored_df,
-        ["needs_escalation", "escalation_score"],
+        ["needs_escalation", score_col],
         "scored_df",
     )
     if thresholds is None:
         thresholds = np.round(np.arange(0.0, 1.0001, 0.05), 2)
 
     needs_escalation = scored_df["needs_escalation"].astype(int)
-    scores = scored_df["escalation_score"].astype(float)
+    scores = scored_df[score_col].astype(float)
     rows = len(scored_df)
     cheap_errors_total = int(needs_escalation.sum())
 
@@ -352,10 +363,202 @@ def evaluate_threshold_sweep(
     return pd.DataFrame(sweep_rows, columns=THRESHOLD_SWEEP_COLS)
 
 
+def _group_label(labels: pd.Series) -> str:
+    values = sorted(set(labels.dropna().astype(str)))
+    return values[0] if len(values) == 1 else "mixed:" + "+".join(values)
+
+
+def _group_attack(values: pd.Series) -> str:
+    clean = sorted(v for v in set(values.dropna().astype(str)) if v and v != "nan")
+    if not clean:
+        return "benign"
+    return clean[0] if len(clean) == 1 else "mixed:" + "+".join(clean)
+
+
+def build_postscore_split_map(
+    scored_df: pd.DataFrame,
+    seed: int = 42,
+) -> tuple[pd.DataFrame, dict]:
+    """Split scored unseen_val prompt_hash groups into calibration/threshold halves."""
+    _require_columns(
+        scored_df,
+        ["sample_id", "prompt_hash", "label_binary", "attack_name", "needs_escalation"],
+        "scored_df",
+    )
+    grouped = scored_df.groupby("prompt_hash").agg(
+        rows=("sample_id", "size"),
+        label_group=("label_binary", _group_label),
+        attack_group=("attack_name", _group_attack),
+        cheap_errors=("needs_escalation", "sum"),
+    ).reset_index()
+    grouped["has_error"] = grouped["cheap_errors"].astype(int) > 0
+    grouped["stratum"] = np.where(
+        grouped["label_group"].eq("adversarial"),
+        "adv:" + grouped["attack_group"].astype(str),
+        "benign",
+    ) + np.where(grouped["has_error"], "|err", "|ok")
+
+    rng = np.random.RandomState(seed)
+    assignments: list[dict] = []
+    for _, part in grouped.groupby("stratum", sort=True):
+        part = part.copy()
+        part["_rand"] = rng.random(len(part))
+        part = part.sort_values(
+            ["cheap_errors", "rows", "_rand"],
+            ascending=[False, False, True],
+        )
+        total_rows = int(part["rows"].sum())
+        total_errors = int(part["cheap_errors"].sum())
+        state = {
+            "calibration": {"rows": 0, "cheap_errors": 0, "groups": 0},
+            "threshold": {"rows": 0, "cheap_errors": 0, "groups": 0},
+        }
+
+        for pos, row in enumerate(part.itertuples(index=False)):
+            remaining = len(part) - pos
+            if len(part) >= 2 and state["calibration"]["groups"] == 0 and remaining == 1:
+                side = "calibration"
+            elif len(part) >= 2 and state["threshold"]["groups"] == 0 and remaining == 1:
+                side = "threshold"
+            else:
+                objectives = {}
+                for candidate in ("calibration", "threshold"):
+                    cal_rows = state["calibration"]["rows"]
+                    thr_rows = state["threshold"]["rows"]
+                    cal_errors = state["calibration"]["cheap_errors"]
+                    thr_errors = state["threshold"]["cheap_errors"]
+                    if candidate == "calibration":
+                        cal_rows += int(row.rows)
+                        cal_errors += int(row.cheap_errors)
+                    else:
+                        thr_rows += int(row.rows)
+                        thr_errors += int(row.cheap_errors)
+                    error_denom = max(total_errors, 1)
+                    row_denom = max(total_rows, 1)
+                    objectives[candidate] = (
+                        abs(cal_errors - thr_errors) / error_denom
+                        + abs(cal_rows - thr_rows) / row_denom
+                    )
+                side = min(objectives, key=lambda key: (objectives[key], key != "calibration"))
+
+            state[side]["rows"] += int(row.rows)
+            state[side]["cheap_errors"] += int(row.cheap_errors)
+            state[side]["groups"] += 1
+            assignments.append({
+                "prompt_hash": row.prompt_hash,
+                "postscore_split": side,
+                "stratum": row.stratum,
+                "rows": int(row.rows),
+                "cheap_errors": int(row.cheap_errors),
+            })
+
+    split_map = pd.DataFrame(assignments, columns=POSTSCORE_SPLIT_MAP_COLS)
+    cal_hashes = set(split_map.query("postscore_split == 'calibration'")["prompt_hash"])
+    threshold_hashes = set(split_map.query("postscore_split == 'threshold'")["prompt_hash"])
+    overlap = cal_hashes & threshold_hashes
+    if overlap:
+        raise AssertionError(f"postscore split prompt_hash overlap: {sorted(overlap)[:5]}")
+
+    assigned = scored_df.merge(
+        split_map[["prompt_hash", "postscore_split"]],
+        on="prompt_hash",
+        how="left",
+        validate="many_to_one",
+    )
+    diagnostics = build_postscore_split_diagnostics(assigned, split_map, len(overlap))
+    return split_map, diagnostics
+
+
+def build_postscore_split_diagnostics(
+    assigned_df: pd.DataFrame,
+    split_map: pd.DataFrame,
+    prompt_hash_overlap: int,
+) -> dict:
+    """Build report-ready diagnostics for the post-score unseen_val split."""
+    summary = assigned_df.groupby("postscore_split").agg(
+        rows=("sample_id", "size"),
+        prompt_hash_groups=("prompt_hash", "nunique"),
+        cheap_errors=("needs_escalation", "sum"),
+    ).sort_index()
+    summary["error_rate"] = summary["cheap_errors"] / summary["rows"]
+
+    label_counts = pd.crosstab(
+        assigned_df["label_binary"],
+        assigned_df["postscore_split"],
+    )
+    report_group = np.where(
+        assigned_df["label_binary"].eq("benign"),
+        "benign",
+        assigned_df["attack_name"].fillna("unknown").astype(str),
+    )
+    attack_counts = pd.crosstab(report_group, assigned_df["postscore_split"])
+    attack_counts.index.name = "attack_or_benign_group"
+    stratum_counts = split_map.groupby(["stratum", "postscore_split"]).agg(
+        prompt_hash_groups=("prompt_hash", "size"),
+        rows=("rows", "sum"),
+        cheap_errors=("cheap_errors", "sum"),
+    ).reset_index()
+
+    return {
+        "summary": summary,
+        "label_counts": label_counts,
+        "attack_group_counts": attack_counts,
+        "stratum_counts": stratum_counts,
+        "prompt_hash_overlap": int(prompt_hash_overlap),
+    }
+
+
+class _IdentityCalibrator:
+    def predict_proba(self, X: pd.DataFrame | np.ndarray) -> np.ndarray:
+        values = np.asarray(X, dtype=float).reshape(-1)
+        values = np.clip(values, 0.0, 1.0)
+        return np.column_stack([1.0 - values, values])
+
+
+def fit_score_calibrator(
+    calibration_df: pd.DataFrame,
+    method: str = "sigmoid",
+):
+    """Fit post-hoc calibration for escalation scores."""
+    _require_columns(calibration_df, ["needs_escalation", "escalation_score"], "calibration_df")
+    y = calibration_df["needs_escalation"].astype(int).to_numpy()
+    scores = calibration_df[["escalation_score"]].astype(float).to_numpy()
+    if len(np.unique(y)) < 2:
+        return _IdentityCalibrator()
+    method = method.lower()
+    if method == "sigmoid":
+        calibrator = LogisticRegression(solver="lbfgs")
+        calibrator.fit(scores, y)
+        return calibrator
+    if method == "isotonic":
+        calibrator = IsotonicRegression(out_of_bounds="clip")
+        calibrator.fit(scores.reshape(-1), y)
+        return calibrator
+    raise ValueError("Unsupported escalating calibration method: " f"{method}")
+
+
+def apply_score_calibrator(
+    scored_df: pd.DataFrame,
+    calibrator,
+    output_col: str = "calibrated_escalation_score",
+) -> pd.DataFrame:
+    """Attach calibrated escalation scores to a scored frame."""
+    out = scored_df.copy()
+    scores = out[["escalation_score"]].astype(float).to_numpy()
+    if isinstance(calibrator, IsotonicRegression):
+        calibrated = calibrator.predict(scores.reshape(-1))
+    else:
+        calibrated = calibrator.predict_proba(scores)[:, 1]
+    out[output_col] = np.clip(calibrated, 0.0, 1.0)
+    return out
+
+
 def write_escalating_report(
     summary_df: pd.DataFrame,
     path: str | Path,
     threshold_sweep_df: pd.DataFrame | None = None,
+    postscore_split_diagnostics: dict | None = None,
+    calibration_method: str = "sigmoid",
 ) -> None:
     """Write the compact markdown report for the offline POC."""
     path = Path(path)
@@ -376,6 +579,45 @@ def write_escalating_report(
         summary_df.to_markdown(index=False),
         "",
     ]
+    if postscore_split_diagnostics is not None:
+        summary = postscore_split_diagnostics["summary"]
+        label_counts = postscore_split_diagnostics["label_counts"]
+        attack_counts = postscore_split_diagnostics["attack_group_counts"]
+        total_errors = int(summary["cheap_errors"].sum())
+        calibration_errors = int(summary.loc["calibration", "cheap_errors"])
+        threshold_errors = int(summary.loc["threshold", "cheap_errors"])
+        one_error_pp = 100.0 / threshold_errors if threshold_errors else 0.0
+        report.extend([
+            "## Post-score unseen_val Split Diagnostics",
+            "",
+            f"Calibration method: `{calibration_method}`.",
+            "",
+            summary.to_markdown(),
+            "",
+            "### Label Counts",
+            "",
+            label_counts.to_markdown(),
+            "",
+            "### Attack / Benign Group Counts",
+            "",
+            attack_counts.to_markdown(),
+            "",
+            f"Prompt hash overlap: {postscore_split_diagnostics['prompt_hash_overlap']}",
+            "",
+            "## Limitations / Statistical Power",
+            "",
+            f"`unseen_val` has only {total_errors} cheap-path errors total. "
+            f"The calibration half has {calibration_errors} cheap-path errors, "
+            f"and the threshold-selection half has {threshold_errors} cheap-path errors. "
+            "Calibration and threshold estimates are therefore noisy.",
+            "",
+            f"One missed cheap-path error in the threshold half changes the missed-error "
+            f"rate by about {one_error_pp:.1f} percentage points. Per-attack conclusions "
+            "are diagnostic only. The selected threshold is a PoC operating point, "
+            "not a final production threshold. Prefer a conservative threshold from "
+            "a stable plateau, not necessarily the single best sweep point.",
+            "",
+        ])
     if threshold_sweep_df is not None:
         report.extend([
             "## Threshold Sweep",

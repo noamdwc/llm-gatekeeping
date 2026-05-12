@@ -166,6 +166,13 @@ hybrid:
   escalating_model:
     enabled: false
     model_path: "data/processed/models/escalating_model.pkl"
+    # Post-score calibration for unseen_val threshold selection. Use "isotonic"
+    # only for explicit experiments; sigmoid/Platt is the default.
+    calibration_method: "sigmoid"
+    # Operating point used by judge_colab_local_predictions to decide which
+    # cheap-classifier rows to escalate. Rows with (calibrated_)escalation_score
+    # >= this threshold are sent to the judge; all others are trusted.
+    judge_threshold: 0.5
 
 # Evaluation
 evaluation:

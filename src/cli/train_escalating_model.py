@@ -16,8 +16,11 @@ from src.escalating_model import (
     EVAL_SUMMARY_COLS,
     EscalatingDataset,
     EscalatingModel,
+    apply_score_calibrator,
+    build_postscore_split_map,
     evaluate_escalating_split,
     evaluate_threshold_sweep,
+    fit_score_calibrator,
     write_escalating_report,
 )
 from src.utils import MODELS_DIR, PREDICTIONS_DIR, RESEARCH_DIR, ROOT, load_config
@@ -72,6 +75,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(RESEARCH_DIR / "escalating_model_threshold_sweep_unseen_val.csv"),
     )
     parser.add_argument(
+        "--postscore-split-map-output",
+        default=str(RESEARCH_DIR / "escalating_model_unseen_val_postscore_split_map.csv"),
+    )
+    parser.add_argument(
         "--report-output",
         default=str(ROOT / "reports" / "escalating_model_poc.md"),
     )
@@ -103,7 +110,10 @@ def main(argv: list[str] | None = None) -> None:
     research_output_dir = Path(args.research_output_dir)
     summary_output = Path(args.summary_output)
     threshold_sweep_output = Path(args.threshold_sweep_output)
+    postscore_split_map_output = Path(args.postscore_split_map_output)
     report_output = Path(args.report_output)
+    split_seed = int(cfg.get("splits", {}).get("random_seed", 42))
+    calibration_method = escalating_cfg.get("calibration_method", "sigmoid")
 
     train_colab = pd.read_parquet(args.train_colab_predictions)
     train_deberta = pd.read_parquet(args.train_deberta_predictions)
@@ -125,34 +135,71 @@ def main(argv: list[str] | None = None) -> None:
 
     research_output_dir.mkdir(parents=True, exist_ok=True)
     summaries = []
-    unseen_val_scored = None
+    scored_by_split: dict[str, tuple[pd.DataFrame, Path]] = {}
     for split, colab_path, deberta_path in _resolve_eval_splits(args):
         colab_df = pd.read_parquet(colab_path)
         deberta_df = pd.read_parquet(deberta_path)
         ds = EscalatingDataset(colab_df, deberta_df)
         scores = model.predict_escalation_batch(ds.df)
         scored, summary = evaluate_escalating_split(split, ds, scores)
-
         eval_output = research_output_dir / f"escalating_model_eval_{split}.parquet"
-        scored.to_parquet(eval_output, index=False)
-        if split == "unseen_val":
-            unseen_val_scored = scored
+        scored_by_split[split] = (scored, eval_output)
         summaries.append(summary)
         print(
-            f"Wrote {split} evaluation to {eval_output} "
-            f"({summary['rows_joined']} joined rows)"
+            f"Scored {split} ({summary['rows_joined']} joined rows) "
+            f"-> {eval_output}"
         )
 
     summary_df = pd.DataFrame(summaries, columns=EVAL_SUMMARY_COLS)
     summary_output.parent.mkdir(parents=True, exist_ok=True)
     summary_df.to_csv(summary_output, index=False)
     threshold_sweep_df = None
-    if unseen_val_scored is not None:
-        threshold_sweep_df = evaluate_threshold_sweep(unseen_val_scored)
+    postscore_split_diagnostics = None
+    calibrator = None
+    if "unseen_val" in scored_by_split:
+        unseen_val_scored, unseen_val_eval_output = scored_by_split["unseen_val"]
+        split_map, postscore_split_diagnostics = build_postscore_split_map(
+            unseen_val_scored,
+            seed=split_seed,
+        )
+        postscore_split_map_output.parent.mkdir(parents=True, exist_ok=True)
+        split_map.to_csv(postscore_split_map_output, index=False)
+        unseen_val_with_split = unseen_val_scored.merge(
+            split_map[["prompt_hash", "postscore_split"]],
+            on="prompt_hash",
+            how="left",
+            validate="many_to_one",
+        )
+        calibration_half = unseen_val_with_split[
+            unseen_val_with_split["postscore_split"] == "calibration"
+        ]
+        calibrator = fit_score_calibrator(calibration_half, method=calibration_method)
+        unseen_val_with_split = apply_score_calibrator(unseen_val_with_split, calibrator)
+        scored_by_split["unseen_val"] = (unseen_val_with_split, unseen_val_eval_output)
+        threshold_half = unseen_val_with_split[
+            unseen_val_with_split["postscore_split"] == "threshold"
+        ]
+        threshold_sweep_df = evaluate_threshold_sweep(
+            threshold_half,
+            score_col="calibrated_escalation_score",
+        )
         threshold_sweep_output.parent.mkdir(parents=True, exist_ok=True)
         threshold_sweep_df.to_csv(threshold_sweep_output, index=False)
+        print(f"Wrote unseen_val post-score split map to {postscore_split_map_output}")
         print(f"Wrote unseen_val threshold sweep to {threshold_sweep_output}")
-    write_escalating_report(summary_df, report_output, threshold_sweep_df)
+
+    for split, (scored, eval_output) in scored_by_split.items():
+        if calibrator is not None and "calibrated_escalation_score" not in scored.columns:
+            scored = apply_score_calibrator(scored, calibrator)
+        scored.to_parquet(eval_output, index=False)
+        print(f"Wrote {split} evaluation to {eval_output}")
+    write_escalating_report(
+        summary_df,
+        report_output,
+        threshold_sweep_df,
+        postscore_split_diagnostics=postscore_split_diagnostics,
+        calibration_method=calibration_method,
+    )
     print(f"Wrote summary to {summary_output}")
     print(f"Wrote report to {report_output}")
 

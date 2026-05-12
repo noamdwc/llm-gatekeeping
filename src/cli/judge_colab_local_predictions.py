@@ -14,7 +14,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from src.llm_classifier.llm_classifier import HierarchicalLLMClassifier
-from src.utils import PREDICTIONS_DIR, load_config
+from src.utils import PREDICTIONS_DIR, RESEARCH_DIR, load_config
 
 dotenv.load_dotenv()
 
@@ -74,6 +74,10 @@ def default_output_path(split: str) -> Path:
     return PREDICTIONS_DIR / f"llm_predictions_{split}_{OUTPUT_SUFFIX}.parquet"
 
 
+def default_escalation_scores_path(split: str) -> Path:
+    return RESEARCH_DIR / f"escalating_model_eval_{split}.parquet"
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run judge on classifier-only Colab local LLM predictions."
@@ -83,9 +87,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--input", type=Path, default=None)
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument(
-        "--threshold-only",
-        action="store_true",
-        help="Only run judge below the configured threshold. Default is research mode: judge every row.",
+        "--escalation-scores",
+        type=Path,
+        default=None,
+        help=(
+            "Path to escalating_model_eval_{split}.parquet. Rows whose "
+            "(calibrated_)escalation_score is >= --escalation-threshold are judged; "
+            "rows missing a score are NOT judged. Defaults to "
+            "data/processed/research/escalating_model_eval_{split}.parquet."
+        ),
+    )
+    parser.add_argument(
+        "--escalation-threshold",
+        type=float,
+        default=None,
+        help=(
+            "Escalation score threshold (>= => judge). Defaults to "
+            "hybrid.escalating_model.judge_threshold from config."
+        ),
     )
     parser.add_argument(
         "--max-concurrency",
@@ -110,6 +129,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         args.input = default_input_path(args.split)
     if args.output is None:
         args.output = default_output_path(args.split)
+    if args.escalation_scores is None:
+        args.escalation_scores = default_escalation_scores_path(args.split)
     return args
 
 
@@ -130,18 +151,37 @@ def _classifier_output(row: pd.Series) -> dict[str, Any]:
     }
 
 
-def _should_run_judge(
-    row: pd.Series,
-    threshold: float,
-    force_all_stages: bool,
-) -> bool:
-    if force_all_stages:
-        return True
-    confidence = HierarchicalLLMClassifier._normalize_confidence(
-        row.get("clf_confidence"),
-        default=0.0,
+ESCALATION_SCORE_COL = "calibrated_escalation_score"
+ESCALATION_SCORE_FALLBACK_COL = "escalation_score"
+
+
+def _load_escalation_scores(path: Path) -> pd.DataFrame:
+    """Load (sample_id, escalation_score) from an escalating-model eval parquet.
+
+    Uses calibrated_escalation_score when present; else escalation_score.
+    """
+    df = pd.read_parquet(path)
+    if "sample_id" not in df.columns:
+        raise ValueError(f"{path} missing required column: sample_id")
+    if ESCALATION_SCORE_COL in df.columns:
+        score_col = ESCALATION_SCORE_COL
+    elif ESCALATION_SCORE_FALLBACK_COL in df.columns:
+        score_col = ESCALATION_SCORE_FALLBACK_COL
+    else:
+        raise ValueError(
+            f"{path} missing both {ESCALATION_SCORE_COL} and "
+            f"{ESCALATION_SCORE_FALLBACK_COL} columns"
+        )
+    return df[["sample_id", score_col]].rename(
+        columns={score_col: "_escalation_score"}
     )
-    return confidence < threshold
+
+
+def _should_run_judge(row: pd.Series, threshold: float) -> bool:
+    score = row.get("_escalation_score")
+    if score is None or (isinstance(score, float) and pd.isna(score)):
+        return False
+    return float(score) >= threshold
 
 
 def _json_dumps(value: Any) -> str:
@@ -199,26 +239,36 @@ def apply_judge_to_predictions(
     predictions: pd.DataFrame,
     classifier: HierarchicalLLMClassifier,
     *,
-    threshold_only: bool = False,
+    escalation_scores: pd.DataFrame,
+    escalation_threshold: float,
     max_workers: int | None = None,
 ) -> pd.DataFrame:
-    threshold = float(classifier.cfg.get("llm", {}).get("judge_confidence_threshold", 0.8))
     workers = max_workers if max_workers is not None else int(
         classifier.cfg.get("llm", {}).get("max_concurrency", 1)
     )
     workers = max(1, int(workers))
 
-    def process_row(idx: int, row: pd.Series) -> tuple[int, dict[str, Any]]:
-        if _should_run_judge(row, threshold, force_all_stages=not threshold_only):
-            judge_result = classifier.judge(str(row["modified_sample"]), _classifier_output(row))
-            return idx, _apply_judge_result(row, judge_result)
+    if "_escalation_score" in predictions.columns:
+        raise ValueError("predictions already contains reserved column _escalation_score")
+    merged = predictions.merge(
+        escalation_scores,
+        on="sample_id",
+        how="left",
+        validate="many_to_one",
+    )
 
-        out = row.to_dict()
-        for column in JUDGE_COLUMNS:
-            out[column] = None
+    def process_row(idx: int, row: pd.Series) -> tuple[int, dict[str, Any]]:
+        if _should_run_judge(row, escalation_threshold):
+            judge_result = classifier.judge(str(row["modified_sample"]), _classifier_output(row))
+            out = _apply_judge_result(row, judge_result)
+        else:
+            out = row.to_dict()
+            for column in JUDGE_COLUMNS:
+                out[column] = None
+        out.pop("_escalation_score", None)
         return idx, out
 
-    indexed_rows = list(enumerate((row for _, row in predictions.iterrows())))
+    indexed_rows = list(enumerate((row for _, row in merged.iterrows())))
     rows: list[dict[str, Any] | None] = [None] * len(indexed_rows)
     if workers == 1:
         for idx, row in tqdm(indexed_rows, total=len(indexed_rows), desc="Judging Colab predictions"):
@@ -253,15 +303,28 @@ def main(argv: list[str] | None = None) -> None:
     if args.cooldown_on_429 is not None:
         cfg["llm"]["cooldown_on_429"] = args.cooldown_on_429
 
+    escalating_cfg = cfg.get("hybrid", {}).get("escalating_model", {})
+    if args.escalation_threshold is not None:
+        escalation_threshold = float(args.escalation_threshold)
+    else:
+        if "judge_threshold" not in escalating_cfg:
+            raise ValueError(
+                "hybrid.escalating_model.judge_threshold missing from config and "
+                "--escalation-threshold not provided"
+            )
+        escalation_threshold = float(escalating_cfg["judge_threshold"])
+
     classifier = HierarchicalLLMClassifier(cfg)
 
     predictions = pd.read_parquet(args.input)
     _validate_input(predictions, args.input)
+    escalation_scores = _load_escalation_scores(args.escalation_scores)
 
     out = apply_judge_to_predictions(
         predictions,
         classifier,
-        threshold_only=args.threshold_only,
+        escalation_scores=escalation_scores,
+        escalation_threshold=escalation_threshold,
         max_workers=args.max_concurrency,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -269,7 +332,10 @@ def main(argv: list[str] | None = None) -> None:
 
     n_judged = int(out["judge_ran"].fillna(False).sum())
     print(f"Saved {len(out)} rows to {args.output}")
-    print(f"Judge ran on {n_judged} rows")
+    print(
+        f"Judge ran on {n_judged} rows "
+        f"(escalation_threshold={escalation_threshold})"
+    )
     print(f"Usage: {classifier.usage.to_dict()}")
 
 

@@ -150,8 +150,6 @@ stages:
   # ── Stage 4c: Judge Colab Local Classifier Outputs ────────────────────
   judge_colab_local_predictions:
     foreach:
-    - train
-    - val
     - test
     - unseen_val
     - unseen_test
@@ -161,12 +159,14 @@ stages:
         1 --target-rpm 2 --cooldown-on-429 60
       deps:
       - data/processed/predictions/llm_predictions_${item}_colab_local_classifier.parquet
+      - data/processed/research/escalating_model_eval_${item}.parquet
       - src/cli/judge_colab_local_predictions.py
       - src/llm_classifier/
       - src/utils.py
       params:
       - configs/default.yaml:
         - llm
+        - hybrid.escalating_model
       outs:
       - data/processed/predictions/llm_predictions_${item}_colab_local_judged.parquet
 
@@ -262,6 +262,7 @@ stages:
     - data/processed/research/escalating_model_eval_unseen_test.parquet
     - data/processed/research/escalating_model_eval_safeguard_test.parquet
     - data/processed/research/escalating_model_summary.csv
+    - data/processed/research/escalating_model_unseen_val_postscore_split_map.csv
     - data/processed/research/escalating_model_threshold_sweep_unseen_val.csv
     - reports/escalating_model_poc.md:
         cache: false

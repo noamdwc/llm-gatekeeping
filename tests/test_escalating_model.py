@@ -9,6 +9,7 @@ from src.escalating_model import (
     THRESHOLD_SWEEP_COLS,
     EscalatingDataset,
     EscalatingModel,
+    build_postscore_split_map,
     evaluate_escalating_split,
     evaluate_threshold_sweep,
 )
@@ -89,6 +90,8 @@ def _make_prediction_frames(n: int = 20) -> tuple[pd.DataFrame, pd.DataFrame]:
             "llm_conf_binary": 0.55 + (i % 5) * 0.04,
             "clf_confidence": 0.50 + (i % 7) * 0.03,
             "clf_token_logprobs": "unused",
+            "prompt_hash": f"h{i // 2}",
+            "attack_name": "BAE" if label == "adversarial" else None,
         })
         deberta_rows.append({
             "sample_id": f"s{i}",
@@ -304,6 +307,63 @@ class TestPocEvaluation:
         assert high["cheap_errors_missed"] == 1
         assert high["non_escalated_error_rate"] == pytest.approx(1 / 3)
 
+    def test_postscore_split_map_is_prompt_hash_grouped_and_balances_errors(self):
+        scored = pd.DataFrame([
+            {
+                "sample_id": f"a{i}",
+                "prompt_hash": f"adv_err_{i}",
+                "label_binary": "adversarial",
+                "attack_name": "BAE",
+                "needs_escalation": 1,
+                "escalation_score": 0.90,
+            }
+            for i in range(4)
+        ] + [
+            {
+                "sample_id": f"b{i}",
+                "prompt_hash": f"ben_err_{i}",
+                "label_binary": "benign",
+                "attack_name": None,
+                "needs_escalation": 1,
+                "escalation_score": 0.80,
+            }
+            for i in range(4)
+        ] + [
+            {
+                "sample_id": f"ok{i}_{j}",
+                "prompt_hash": f"ok_{i}",
+                "label_binary": "adversarial" if i % 2 == 0 else "benign",
+                "attack_name": "TextFooler" if i % 2 == 0 else None,
+                "needs_escalation": 0,
+                "escalation_score": 0.10,
+            }
+            for i in range(4)
+            for j in range(3)
+        ])
+
+        split_map, diagnostics = build_postscore_split_map(scored, seed=42)
+        assigned = scored.merge(split_map, on="prompt_hash", how="left", validate="many_to_one")
+
+        assert set(split_map.columns) == {
+            "prompt_hash",
+            "postscore_split",
+            "stratum",
+            "rows",
+            "cheap_errors",
+        }
+        assert set(split_map["postscore_split"]) == {"calibration", "threshold"}
+        cal_hashes = set(split_map.query("postscore_split == 'calibration'")["prompt_hash"])
+        threshold_hashes = set(split_map.query("postscore_split == 'threshold'")["prompt_hash"])
+        assert cal_hashes.isdisjoint(threshold_hashes)
+        assert diagnostics["prompt_hash_overlap"] == 0
+
+        summary = assigned.groupby("postscore_split").agg(
+            rows=("sample_id", "size"),
+            cheap_errors=("needs_escalation", "sum"),
+        )
+        assert abs(summary.loc["calibration", "cheap_errors"] - summary.loc["threshold", "cheap_errors"]) <= 1
+        assert abs(summary.loc["calibration", "rows"] - summary.loc["threshold", "rows"]) <= 3
+
 
 class TestTrainEscalatingModelCli:
     def test_cli_writes_expected_artifacts(self, tmp_path):
@@ -339,6 +399,7 @@ class TestTrainEscalatingModelCli:
         research_output_dir = tmp_path / "research"
         summary_output = research_output_dir / "escalating_model_summary.csv"
         threshold_sweep_output = research_output_dir / "escalating_model_threshold_sweep_unseen_val.csv"
+        split_map_output = research_output_dir / "escalating_model_unseen_val_postscore_split_map.csv"
         report_output = tmp_path / "reports" / "escalating_model_poc.md"
 
         train_escalating_main([
@@ -356,6 +417,8 @@ class TestTrainEscalatingModelCli:
             str(summary_output),
             "--threshold-sweep-output",
             str(threshold_sweep_output),
+            "--postscore-split-map-output",
+            str(split_map_output),
             "--report-output",
             str(report_output),
             *eval_args,
@@ -368,6 +431,7 @@ class TestTrainEscalatingModelCli:
             assert "escalation_score" in pd.read_parquet(eval_output).columns
         assert summary_output.exists()
         assert threshold_sweep_output.exists()
+        assert split_map_output.exists()
         assert report_output.exists()
 
         summary = pd.read_csv(summary_output)
@@ -377,4 +441,16 @@ class TestTrainEscalatingModelCli:
         sweep = pd.read_csv(threshold_sweep_output)
         assert list(sweep.columns) == THRESHOLD_SWEEP_COLS
         assert set(sweep["threshold"]) >= {0.0, 0.5, 1.0}
-        assert "Threshold Sweep" in report_output.read_text()
+        split_map = pd.read_csv(split_map_output)
+        assert set(split_map["postscore_split"]) == {"calibration", "threshold"}
+        unseen_eval = pd.read_parquet(research_output_dir / "escalating_model_eval_unseen_val.parquet")
+        assert "calibrated_escalation_score" in unseen_eval.columns
+        threshold_hashes = set(split_map.query("postscore_split == 'threshold'")["prompt_hash"])
+        expected_threshold_rows = unseen_eval["prompt_hash"].isin(threshold_hashes).sum()
+        assert set(sweep["rows"]) == {expected_threshold_rows}
+
+        report = report_output.read_text()
+        assert "Post-score unseen_val Split Diagnostics" in report
+        assert "Prompt hash overlap: 0" in report
+        assert "Limitations / Statistical Power" in report
+        assert "Threshold Sweep" in report

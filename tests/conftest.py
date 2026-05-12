@@ -75,6 +75,12 @@ def sample_config():
             "margin_threshold_classifier_only": 2.5,
             "margin_threshold_judge": 1.5,
             "production_adversarial_prior": 0.1,
+            "escalating_model": {
+                "enabled": False,
+                "model_path": "data/processed/models/escalating_model.pkl",
+                "calibration_method": "sigmoid",
+                "judge_threshold": 0.5,
+            },
         },
         "evaluation": {
             "calibration_bins": 10,

@@ -42,13 +42,21 @@ def _classifier_only_row(**overrides):
     return row
 
 
-def test_apply_judge_runs_all_rows_by_default_and_preserves_classifier_columns(sample_config):
+def test_apply_judge_only_runs_on_rows_above_escalation_threshold(sample_config):
     predictions = pd.DataFrame(
         [
             _classifier_only_row(sample_id="high", clf_confidence=0.91, llm_conf_binary=0.91),
             _classifier_only_row(sample_id="low", clf_confidence=0.42, llm_conf_binary=0.42),
+            _classifier_only_row(sample_id="missing", clf_confidence=0.5, llm_conf_binary=0.5),
         ]
     )
+    escalation_scores = pd.DataFrame(
+        [
+            {"sample_id": "high", "calibrated_escalation_score": 0.8},
+            {"sample_id": "low", "calibrated_escalation_score": 0.1},
+        ]
+    ).rename(columns={"calibrated_escalation_score": "_escalation_score"})
+
     classifier = MagicMock()
     classifier.cfg = sample_config
     classifier.judge.return_value = {
@@ -68,34 +76,29 @@ def test_apply_judge_runs_all_rows_by_default_and_preserves_classifier_columns(s
         "_token_logprobs": [{"token": "adversarial"}],
     }
 
-    out = judge_cli.apply_judge_to_predictions(predictions, classifier)
+    out = judge_cli.apply_judge_to_predictions(
+        predictions,
+        classifier,
+        escalation_scores=escalation_scores,
+        escalation_threshold=0.5,
+    )
 
-    assert classifier.judge.call_count == 2
-    assert [call.args[0] for call in classifier.judge.call_args_list] == [
-        "Summarize this document.",
-        "Summarize this document.",
-    ]
+    assert classifier.judge.call_count == 1
     high = out.loc[out["sample_id"] == "high"].iloc[0]
     low = out.loc[out["sample_id"] == "low"].iloc[0]
-    assert high["llm_stages_run"] == 1
-    assert high["llm_pred_binary"] == "benign"
-    assert high["llm_pred_raw"] == "benign"
-    assert high["llm_pred_category"] == "benign"
-    assert high["llm_conf_binary"] == 0.91
-    assert high["llm_model_name"] == "meta/llama-3.1-8b-instruct"
-    assert high["llm_stages_run"] == 1
-    assert low["llm_stages_run"] == 1
-    assert low["llm_pred_binary"] == "benign"
-    assert low["llm_pred_raw"] == "benign"
-    assert low["llm_pred_category"] == "benign"
-    assert low["llm_conf_binary"] == 0.42
-    assert low["llm_model_name"] == "meta/llama-3.1-8b-instruct"
+    missing = out.loc[out["sample_id"] == "missing"].iloc[0]
+    assert "_escalation_score" not in out.columns
     assert high["judge_final_label"] == "adversarial"
     assert high["judge_final_pred_binary"] == "adversarial"
     assert high["judge_final_category"] == "unicode_attack"
     assert high["judge_final_confidence"] == 0.97
-    assert low["judge_independent_label"] == "adversarial"
-    assert low["judge_token_logprobs"] == '[{"token": "adversarial"}]'
+    assert high["judge_token_logprobs"] == '[{"token": "adversarial"}]'
+    assert low["judge_ran"] is None or pd.isna(low["judge_ran"])
+    assert low["judge_independent_label"] is None
+    assert missing["judge_ran"] is None or pd.isna(missing["judge_ran"])
+    assert missing["judge_independent_label"] is None
+    assert low["llm_pred_binary"] == "benign"
+    assert low["llm_conf_binary"] == 0.42
 
 
 def test_default_paths_use_colab_local_classifier_input_and_judged_output():
@@ -103,6 +106,8 @@ def test_default_paths_use_colab_local_classifier_input_and_judged_output():
 
     assert args.input.name == "llm_predictions_unseen_val_colab_local_classifier.parquet"
     assert args.output.name == "llm_predictions_unseen_val_colab_local_judged.parquet"
+    assert args.escalation_scores.name == "escalating_model_eval_unseen_val.parquet"
+    assert args.escalation_threshold is None
 
 
 def test_parse_args_accepts_runtime_rate_limit_overrides():
@@ -165,7 +170,16 @@ def test_apply_judge_runs_with_bounded_parallelism_and_preserves_order(sample_co
 
     classifier.judge.side_effect = judge
 
-    out = judge_cli.apply_judge_to_predictions(predictions, classifier, max_workers=2)
+    escalation_scores = pd.DataFrame(
+        [{"sample_id": f"s{i}", "_escalation_score": 0.9} for i in range(4)]
+    )
+    out = judge_cli.apply_judge_to_predictions(
+        predictions,
+        classifier,
+        escalation_scores=escalation_scores,
+        escalation_threshold=0.5,
+        max_workers=2,
+    )
 
     assert max_active == 2
     assert out["sample_id"].tolist() == ["s0", "s1", "s2", "s3"]
@@ -174,7 +188,11 @@ def test_apply_judge_runs_with_bounded_parallelism_and_preserves_order(sample_co
 def test_main_disables_target_rpm_for_nim_by_default(tmp_path, sample_config, monkeypatch):
     input_path = tmp_path / "input.parquet"
     output_path = tmp_path / "output.parquet"
+    scores_path = tmp_path / "escalation_scores.parquet"
     pd.DataFrame([_classifier_only_row()]).to_parquet(input_path, index=False)
+    pd.DataFrame(
+        [{"sample_id": "s1", "calibrated_escalation_score": 0.9}]
+    ).to_parquet(scores_path, index=False)
 
     monkeypatch.setattr(judge_cli_module, "load_config", lambda path=None: sample_config)
 
@@ -201,6 +219,8 @@ def test_main_disables_target_rpm_for_nim_by_default(tmp_path, sample_config, mo
         str(input_path),
         "--output",
         str(output_path),
+        "--escalation-scores",
+        str(scores_path),
     ])
 
     assert captured_cfg["target_rpm"] == 0
@@ -209,7 +229,11 @@ def test_main_disables_target_rpm_for_nim_by_default(tmp_path, sample_config, mo
 def test_main_honors_explicit_target_rpm_for_nim(tmp_path, sample_config, monkeypatch):
     input_path = tmp_path / "input.parquet"
     output_path = tmp_path / "output.parquet"
+    scores_path = tmp_path / "escalation_scores.parquet"
     pd.DataFrame([_classifier_only_row()]).to_parquet(input_path, index=False)
+    pd.DataFrame(
+        [{"sample_id": "s1", "calibrated_escalation_score": 0.9}]
+    ).to_parquet(scores_path, index=False)
 
     monkeypatch.setattr(judge_cli_module, "load_config", lambda path=None: sample_config)
 
@@ -235,6 +259,8 @@ def test_main_honors_explicit_target_rpm_for_nim(tmp_path, sample_config, monkey
         str(input_path),
         "--output",
         str(output_path),
+        "--escalation-scores",
+        str(scores_path),
         "--target-rpm",
         "3",
     ])

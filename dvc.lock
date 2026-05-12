@@ -1949,43 +1949,54 @@ stages:
       size: 25830206
     - path: src/cli/train_escalating_model.py
       hash: md5
-      md5: b0fb33a2a8ebf34ed9c7c0b0a7a953fa
-      size: 4754
+      md5: 68b67802de2be1886372a188fd4e84ba
+      size: 7568
     - path: src/escalating_model.py
       hash: md5
-      md5: 55ef6ba102e3041f55539756ae4fe733
-      size: 10888
+      md5: 022a2441947c63cbbc571c9761481f21
+      size: 22899
     params:
       configs/default.yaml:
         hybrid.escalating_model:
           enabled: false
           model_path: data/processed/models/escalating_model.pkl
+          calibration_method: sigmoid
     outs:
     - path: data/processed/models/escalating_model.pkl
       hash: md5
-      md5: 2a0b8d96916465fa56a46350e7af81ad
-      size: 1902
+      md5: 1830e8c34a2555561db144e67003c6b5
+      size: 350304
     - path: data/processed/research/escalating_model_eval_safeguard_test.parquet
       hash: md5
-      md5: 756236f9ea9bd5f2514f9bcc66ba9364
-      size: 12019186
+      md5: 0f511a1781c6a7eb3271e6bc34b0ab82
+      size: 12011940
     - path: data/processed/research/escalating_model_eval_test.parquet
       hash: md5
-      md5: 797da579bf4eb2dc4fde7c638480fc80
-      size: 28074441
+      md5: 2fa09c4ab47461059e70b8e0b529f976
+      size: 28065661
     - path: data/processed/research/escalating_model_eval_unseen_test.parquet
       hash: md5
-      md5: e85a8cb9eead40b52d86c6034e5469ed
-      size: 18105840
+      md5: 284ae62cee968291808885ed77127772
+      size: 18101536
     - path: data/processed/research/escalating_model_eval_unseen_val.parquet
       hash: md5
-      md5: dcc732c544aca9c0aa06184fff89b70f
-      size: 17642272
+      md5: 11a750af87b2eeb9d18381af8bdfedd4
+      size: 17652618
     - path: data/processed/research/escalating_model_summary.csv
       hash: md5
-      md5: f1ca9d6aee33eb7f6ef09a58f12fceab
+      md5: 2a9616c4c131982589af7cd15c6fdd21
       size: 791
+    - path: 
+        data/processed/research/escalating_model_threshold_sweep_unseen_val.csv
+      hash: md5
+      md5: a94aeba867ee59f363e2a8e6d3f44b48
+      size: 1710
+    - path: 
+        data/processed/research/escalating_model_unseen_val_postscore_split_map.csv
+      hash: md5
+      md5: fc34c04002b62343f1b4cff6205735ba
+      size: 48127
     - path: reports/escalating_model_poc.md
       hash: md5
-      md5: e2b3c78dc3ee31f41185be94afdf5958
-      size: 1987
+      md5: 22d4db7cb30aa98e7199bc8a88332159
+      size: 8529
