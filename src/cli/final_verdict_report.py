@@ -263,7 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--external",
         action="append",
         type=_parse_named_path,
-        help="External judged artifact as NAME=PATH. Defaults to configured external datasets that exist.",
+        help="External judged artifact as NAME=PATH. Defaults to all configured external datasets; missing judged artifacts are errors.",
     )
     return parser
 
