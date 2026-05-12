@@ -261,6 +261,7 @@ stages:
     - data/processed/research/escalating_model_eval_unseen_test.parquet
     - data/processed/research/escalating_model_eval_safeguard_test.parquet
     - data/processed/research/escalating_model_summary.csv
+    - data/processed/research/escalating_model_threshold_sweep_unseen_val.csv
     - reports/escalating_model_poc.md:
         cache: false
 

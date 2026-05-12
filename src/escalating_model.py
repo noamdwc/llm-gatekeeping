@@ -62,6 +62,19 @@ EVAL_SUMMARY_COLS = [
     "bottom_50pct_error_rate",
 ]
 
+THRESHOLD_SWEEP_COLS = [
+    "threshold",
+    "rows",
+    "judge_call_rate",
+    "judge_calls",
+    "trusted_rows",
+    "cheap_errors_total",
+    "cheap_errors_caught",
+    "cheap_errors_missed",
+    "cheap_error_catch_rate",
+    "non_escalated_error_rate",
+]
+
 
 def _require_columns(df: pd.DataFrame, cols: list[str], name: str) -> None:
     missing = [col for col in cols if col not in df.columns]
@@ -297,7 +310,53 @@ def evaluate_escalating_split(
     return scored, summary
 
 
-def write_escalating_report(summary_df: pd.DataFrame, path: str | Path) -> None:
+def evaluate_threshold_sweep(
+    scored_df: pd.DataFrame,
+    thresholds: list[float] | np.ndarray | None = None,
+) -> pd.DataFrame:
+    """Compute judge-escalation operating points from scored rows."""
+    _require_columns(
+        scored_df,
+        ["needs_escalation", "escalation_score"],
+        "scored_df",
+    )
+    if thresholds is None:
+        thresholds = np.round(np.arange(0.0, 1.0001, 0.05), 2)
+
+    needs_escalation = scored_df["needs_escalation"].astype(int)
+    scores = scored_df["escalation_score"].astype(float)
+    rows = len(scored_df)
+    cheap_errors_total = int(needs_escalation.sum())
+
+    sweep_rows = []
+    for threshold in thresholds:
+        threshold = float(threshold)
+        escalate = scores >= threshold
+        judge_calls = int(escalate.sum())
+        trusted_rows = rows - judge_calls
+        cheap_errors_caught = int((needs_escalation & escalate).sum())
+        cheap_errors_missed = cheap_errors_total - cheap_errors_caught
+        sweep_rows.append({
+            "threshold": threshold,
+            "rows": rows,
+            "judge_call_rate": _safe_rate(judge_calls, rows),
+            "judge_calls": judge_calls,
+            "trusted_rows": trusted_rows,
+            "cheap_errors_total": cheap_errors_total,
+            "cheap_errors_caught": cheap_errors_caught,
+            "cheap_errors_missed": cheap_errors_missed,
+            "cheap_error_catch_rate": _safe_rate(cheap_errors_caught, cheap_errors_total),
+            "non_escalated_error_rate": _safe_rate(cheap_errors_missed, trusted_rows),
+        })
+
+    return pd.DataFrame(sweep_rows, columns=THRESHOLD_SWEEP_COLS)
+
+
+def write_escalating_report(
+    summary_df: pd.DataFrame,
+    path: str | Path,
+    threshold_sweep_df: pd.DataFrame | None = None,
+) -> None:
     """Write the compact markdown report for the offline POC."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -317,4 +376,14 @@ def write_escalating_report(summary_df: pd.DataFrame, path: str | Path) -> None:
         summary_df.to_markdown(index=False),
         "",
     ]
+    if threshold_sweep_df is not None:
+        report.extend([
+            "## Threshold Sweep",
+            "",
+            "Threshold operating points are selected on `unseen_val` because the "
+            "escalating model is trained on `val`.",
+            "",
+            threshold_sweep_df.to_markdown(index=False),
+            "",
+        ])
     path.write_text("\n".join(report))

@@ -6,9 +6,11 @@ import json
 from src.escalating_model import (
     ESCALATING_FEATURE_COLS,
     EVAL_SUMMARY_COLS,
+    THRESHOLD_SWEEP_COLS,
     EscalatingDataset,
     EscalatingModel,
     evaluate_escalating_split,
+    evaluate_threshold_sweep,
 )
 from src.cli.train_escalating_model import main as train_escalating_main
 
@@ -273,6 +275,35 @@ class TestPocEvaluation:
 
         assert summary["top_10pct_adversarial_fn_rate"] is None
 
+    def test_threshold_sweep_reports_operating_point_metrics(self):
+        scored = pd.DataFrame({
+            "needs_escalation": [1, 0, 1, 0],
+            "escalation_score": [0.90, 0.80, 0.40, 0.10],
+        })
+
+        sweep = evaluate_threshold_sweep(scored, thresholds=[0.50, 0.85])
+
+        assert list(sweep.columns) == THRESHOLD_SWEEP_COLS
+        assert len(sweep) == 2
+
+        low = sweep[sweep["threshold"] == 0.50].iloc[0]
+        assert low["rows"] == 4
+        assert low["judge_calls"] == 2
+        assert low["trusted_rows"] == 2
+        assert low["judge_call_rate"] == pytest.approx(0.50)
+        assert low["cheap_errors_total"] == 2
+        assert low["cheap_errors_caught"] == 1
+        assert low["cheap_errors_missed"] == 1
+        assert low["cheap_error_catch_rate"] == pytest.approx(0.50)
+        assert low["non_escalated_error_rate"] == pytest.approx(0.50)
+
+        high = sweep[sweep["threshold"] == 0.85].iloc[0]
+        assert high["judge_calls"] == 1
+        assert high["trusted_rows"] == 3
+        assert high["cheap_errors_caught"] == 1
+        assert high["cheap_errors_missed"] == 1
+        assert high["non_escalated_error_rate"] == pytest.approx(1 / 3)
+
 
 class TestTrainEscalatingModelCli:
     def test_cli_writes_expected_artifacts(self, tmp_path):
@@ -307,6 +338,7 @@ class TestTrainEscalatingModelCli:
         model_output = tmp_path / "models" / "escalating_model.pkl"
         research_output_dir = tmp_path / "research"
         summary_output = research_output_dir / "escalating_model_summary.csv"
+        threshold_sweep_output = research_output_dir / "escalating_model_threshold_sweep_unseen_val.csv"
         report_output = tmp_path / "reports" / "escalating_model_poc.md"
 
         train_escalating_main([
@@ -322,6 +354,8 @@ class TestTrainEscalatingModelCli:
             str(research_output_dir),
             "--summary-output",
             str(summary_output),
+            "--threshold-sweep-output",
+            str(threshold_sweep_output),
             "--report-output",
             str(report_output),
             *eval_args,
@@ -333,8 +367,14 @@ class TestTrainEscalatingModelCli:
             assert eval_output.exists()
             assert "escalation_score" in pd.read_parquet(eval_output).columns
         assert summary_output.exists()
+        assert threshold_sweep_output.exists()
         assert report_output.exists()
 
         summary = pd.read_csv(summary_output)
         assert list(summary["split"]) == ["test", "unseen_val", "unseen_test", "safeguard_test"]
         assert list(summary.columns) == EVAL_SUMMARY_COLS
+
+        sweep = pd.read_csv(threshold_sweep_output)
+        assert list(sweep.columns) == THRESHOLD_SWEEP_COLS
+        assert set(sweep["threshold"]) >= {0.0, 0.5, 1.0}
+        assert "Threshold Sweep" in report_output.read_text()

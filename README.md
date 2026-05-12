@@ -138,7 +138,7 @@ research_external_llm@{ds} → research_external@{ds} → eval_new_external@{ds}
 
 `research`/`research_val` produce `research_<split>.parquet` plus `hybrid_margin_trace_<split>.parquet`. `train_risk_model` consumes the val trace + DeBERTa val predictions to produce `risk_model.pkl`, which is then used by `research` (post-hoc benign filter). `risk_model` is the post-hoc evaluation stage that writes `reports/posthoc_benign_risk_model.md` and ROC/PR/calibration plots under `reports/artifacts/`.
 
-`train_escalating_model` is an offline POC stage. It trains on val Colab/local classifier predictions joined with DeBERTa val predictions, then ranks cheap/local LLM mistakes on test, unseen-attack, and safeguard splits. It emits only `escalation_score`; choosing a judge-call threshold and integrating with runtime routing are later phases.
+`train_escalating_model` is an offline POC stage. It trains on val Colab/local classifier predictions joined with DeBERTa val predictions, then ranks cheap/local LLM mistakes on test, unseen-attack, and safeguard splits. Because the model is trained on `val`, its threshold sweep is computed on `unseen_val`. Runtime routing integration remains a later phase.
 
 #### Run a single stage
 
@@ -247,6 +247,7 @@ The escalating model writes:
 - `data/processed/models/escalating_model.pkl`
 - `data/processed/research/escalating_model_eval_<split>.parquet`
 - `data/processed/research/escalating_model_summary.csv`
+- `data/processed/research/escalating_model_threshold_sweep_unseen_val.csv`
 - `reports/escalating_model_poc.md`
 
 Unlike `risk_model`, this model does not resolve hybrid abstains from router trace columns. It predicts whether the cheap Colab/local LLM classifier path is likely wrong and should be escalated to the judge.

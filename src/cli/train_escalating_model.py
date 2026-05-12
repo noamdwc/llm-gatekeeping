@@ -17,6 +17,7 @@ from src.escalating_model import (
     EscalatingDataset,
     EscalatingModel,
     evaluate_escalating_split,
+    evaluate_threshold_sweep,
     write_escalating_report,
 )
 from src.utils import MODELS_DIR, PREDICTIONS_DIR, RESEARCH_DIR, ROOT, load_config
@@ -67,6 +68,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(RESEARCH_DIR / "escalating_model_summary.csv"),
     )
     parser.add_argument(
+        "--threshold-sweep-output",
+        default=str(RESEARCH_DIR / "escalating_model_threshold_sweep_unseen_val.csv"),
+    )
+    parser.add_argument(
         "--report-output",
         default=str(ROOT / "reports" / "escalating_model_poc.md"),
     )
@@ -97,6 +102,7 @@ def main(argv: list[str] | None = None) -> None:
     ))
     research_output_dir = Path(args.research_output_dir)
     summary_output = Path(args.summary_output)
+    threshold_sweep_output = Path(args.threshold_sweep_output)
     report_output = Path(args.report_output)
 
     train_colab = pd.read_parquet(args.train_colab_predictions)
@@ -119,6 +125,7 @@ def main(argv: list[str] | None = None) -> None:
 
     research_output_dir.mkdir(parents=True, exist_ok=True)
     summaries = []
+    unseen_val_scored = None
     for split, colab_path, deberta_path in _resolve_eval_splits(args):
         colab_df = pd.read_parquet(colab_path)
         deberta_df = pd.read_parquet(deberta_path)
@@ -128,6 +135,8 @@ def main(argv: list[str] | None = None) -> None:
 
         eval_output = research_output_dir / f"escalating_model_eval_{split}.parquet"
         scored.to_parquet(eval_output, index=False)
+        if split == "unseen_val":
+            unseen_val_scored = scored
         summaries.append(summary)
         print(
             f"Wrote {split} evaluation to {eval_output} "
@@ -137,7 +146,13 @@ def main(argv: list[str] | None = None) -> None:
     summary_df = pd.DataFrame(summaries, columns=EVAL_SUMMARY_COLS)
     summary_output.parent.mkdir(parents=True, exist_ok=True)
     summary_df.to_csv(summary_output, index=False)
-    write_escalating_report(summary_df, report_output)
+    threshold_sweep_df = None
+    if unseen_val_scored is not None:
+        threshold_sweep_df = evaluate_threshold_sweep(unseen_val_scored)
+        threshold_sweep_output.parent.mkdir(parents=True, exist_ok=True)
+        threshold_sweep_df.to_csv(threshold_sweep_output, index=False)
+        print(f"Wrote unseen_val threshold sweep to {threshold_sweep_output}")
+    write_escalating_report(summary_df, report_output, threshold_sweep_df)
     print(f"Wrote summary to {summary_output}")
     print(f"Wrote report to {report_output}")
 

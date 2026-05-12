@@ -49,7 +49,7 @@ The `test` and `unseen_val` top 10% error rates are slightly lower for LightGBM 
 
 ROC-AUC measures whether cheap-path errors are ranked above correct cheap-path outputs across all thresholds. PR-AUC is more important here because `needs_escalation` is relatively sparse, especially on `test` and `safeguard_test`. LightGBM improves both metrics consistently.
 
-The current evidence supports replacing logistic regression with LightGBM for the offline escalating model POC. Before runtime integration, the next step should be a threshold sweep that reports judge-call rate, non-escalated error rate, cheap errors caught, and cheap errors missed.
+The current evidence supports replacing logistic regression with LightGBM for the offline escalating model POC. The follow-up threshold sweep is documented in `docs/escalating_model_threshold_sweep.md`; before runtime integration, evaluate the candidate threshold on `unseen_test` and confirm the judge-call budget.
 
 ## Artifacts
 
@@ -62,6 +62,7 @@ Canonical LightGBM outputs:
 - `data/processed/research/escalating_model_eval_unseen_test.parquet`
 - `data/processed/research/escalating_model_eval_safeguard_test.parquet`
 - `reports/escalating_model_poc.md`
+- `docs/escalating_model_threshold_sweep.md`
 
 Comparison outputs:
 
