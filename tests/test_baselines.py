@@ -159,6 +159,10 @@ class TestHFDetector:
 
 
 class TestBaselineCli:
+    def test_external_keys_exclude_safeguard(self):
+        assert "safeguard" not in run_baseline.EXTERNAL_KEYS
+        assert set(run_baseline.EXTERNAL_KEYS) == {"deepset", "jackhhao"}
+
     def test_run_baseline_cli_writes_expected_parquet(self, sample_config, tmp_path, monkeypatch):
         split_dir = tmp_path / "splits"
         baseline_dir = tmp_path / "baselines"

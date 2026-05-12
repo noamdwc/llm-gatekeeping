@@ -11,7 +11,7 @@ from src.eval_external import load_external_dataset
 from src.utils import BASELINES_DIR, SPLITS_DIR, ensure_dirs, load_config
 
 INTERNAL_SPLITS = ["val", "test", "unseen_val", "unseen_test"]
-EXTERNAL_KEYS = ["deepset", "jackhhao", "safeguard"]
+EXTERNAL_KEYS = ["deepset", "jackhhao"]
 
 
 def _resolve_requested(value: str | None, allowed: list[str]) -> list[str]:

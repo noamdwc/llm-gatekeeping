@@ -117,6 +117,28 @@ stages:
     - reports/deberta_classifier/summary.md:
         cache: false
 
+  # ── Stage 3c: DeBERTa External Predictions (one stage per external dataset) ─
+  deberta_external:
+    foreach: ${external_datasets}
+    do:
+      cmd: python -m src.cli.eval_deberta_external --dataset ${key}
+      deps:
+      - src/cli/eval_deberta_external.py
+      - src/models/
+      - src/eval_external.py
+      - src/utils.py
+      - artifacts/deberta_classifier/model/
+      - artifacts/deberta_classifier/tokenizer/
+      - artifacts/deberta_classifier/label_mapping.json
+      params:
+      - configs/default.yaml:
+        - external_datasets.${key}
+        - deberta
+      outs:
+      - data/processed/predictions_external/deberta_predictions_external_${key}.parquet
+      - reports/research_external/eval_deberta_external_${key}.md:
+          cache: false
+
   # ── Stage 4: LLM Classifier ─────────────────────────────────────────────
   llm_classifier:
     cmd: python -m src.llm_classifier.llm_classifier --split test --research --no-wandb
@@ -283,12 +305,12 @@ stages:
     - jackhhao
     do:
       cmd: python -m src.cli.judge_colab_local_predictions --split external_${item}
-        --input data/processed/predictions_external/llm_predictions_external_${item}.parquet
+        --input data/processed/predictions_external/llm_predictions_external_${item}_colab_local_classifier.parquet
         --output data/processed/predictions_external/llm_predictions_external_${item}_colab_local_judged.parquet
         --escalation-scores data/processed/research/escalating_model_eval_external_${item}.parquet
         --max-concurrency 1 --target-rpm 2 --cooldown-on-429 60
       deps:
-      - data/processed/predictions_external/llm_predictions_external_${item}.parquet
+      - data/processed/predictions_external/llm_predictions_external_${item}_colab_local_classifier.parquet
       - data/processed/research/escalating_model_eval_external_${item}.parquet
       - src/cli/judge_colab_local_predictions.py
       - src/llm_classifier/
