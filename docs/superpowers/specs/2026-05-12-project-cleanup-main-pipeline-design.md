@@ -6,6 +6,21 @@ Clean the project so there is one clearly defined, easy-to-run main path from st
 
 The cleanup should be aggressive about removing non-main runtime paths, but historical process documents under `docs/superpowers/` and `openspec/changes/` are preserved. Before any file, stage, notebook, script, or test is deleted, the implementation must present a categorized deletion list and wait for user approval.
 
+## Non-Goals
+
+This change is pipeline cleanup only. It must not change model behavior or evaluation semantics.
+
+Out of scope:
+
+- retraining models for improved metrics;
+- threshold tuning;
+- metric, model-behavior, or routing-policy changes;
+- evaluation-logic changes;
+- new research experiments;
+- replacing the Colab local LLM classifier approach.
+
+Any retraining or re-execution needed to verify the cleaned pipeline should use existing configuration and behavior.
+
 ## Canonical Pipeline Boundary
 
 The canonical end-to-end path is:
@@ -19,6 +34,15 @@ The canonical end-to-end path is:
 5. Treat `reports/pipeline_final_verdict_report.md` as the final success artifact.
 
 Everything outside this boundary is non-main unless it is required to build, validate, or operate this path.
+
+## Artifact Ownership
+
+Every file needed by `train_escalating_model` must have explicit ownership:
+
+- It is produced by a DVC stage in the canonical graph; or
+- it is declared as a manual handoff artifact from Colab and validated before downstream stages run.
+
+No input to `train_escalating_model` should be an implicit, undocumented file that happens to exist locally. This applies to main split classifier outputs, external classifier outputs, DeBERTa predictions, model artifacts, and any intermediate evaluation parquet consumed by judge or final report stages.
 
 ## Runtime Surface To Keep
 
@@ -68,6 +92,29 @@ Implementation must use this deletion process:
 
 No destructive cleanup should occur before the approval gate.
 
+Before deletion, each candidate must be classified as one of:
+
+- canonical runtime;
+- reusable helper;
+- historical docs;
+- stale generated artifact;
+- removable legacy path.
+
+Deletion should remain conservative within the aggressive cleanup goal: only items classified as removable legacy paths or approved stale generated artifacts should be deleted.
+
+## Implementation Phases
+
+Implementation should proceed in this order:
+
+1. Stabilize the canonical DVC path.
+2. Add Colab artifact validation.
+3. Update `README.md` with the single start-to-finish run guide.
+4. Produce the deletion candidate list.
+5. Wait for user approval.
+6. Delete approved items only.
+7. Remove stale references after approved deletions.
+8. Re-run verification.
+
 ## Verification
 
 Verification should run in layers:
@@ -79,3 +126,15 @@ Verification should run in layers:
 5. After Colab artifacts are available, DVC repro through judge stages and `final_verdict_report`.
 
 The final implementation should leave the project with one documented command sequence for a fresh run and clear failure messages when the Colab handoff has not yet been completed.
+
+## Acceptance Criteria
+
+The cleanup is complete when:
+
+- there is no silent fallback to legacy or hosted LLM classifier outputs;
+- missing Colab artifacts fail with exact actionable paths;
+- every `train_escalating_model` input is DVC-produced or a validated manual handoff artifact;
+- `dvc dag` and `dvc status` are understandable and aligned with the canonical path;
+- `reports/pipeline_final_verdict_report.md` is the documented final artifact;
+- stale references are removed after approved deletions;
+- no destructive cleanup occurs before the deletion list is approved.
