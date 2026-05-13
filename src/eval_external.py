@@ -18,7 +18,7 @@ import pandas as pd
 from datasets import load_dataset
 
 from src.evaluate import binary_metrics, calibration_metrics
-from src.research import compute_routing_diagnostics, render_routing_diagnostics_markdown
+from src.routing_diagnostics import compute_routing_diagnostics, render_routing_diagnostics_markdown
 from src.utils import load_config, MODELS_DIR, SPLITS_DIR, REPORTS_EXTERNAL_DIR
 
 
