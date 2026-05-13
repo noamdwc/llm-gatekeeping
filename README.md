@@ -22,18 +22,18 @@ NLP sub-types (TextFooler, BERT-Attack, BAE, etc.) are currently collapsed into 
 - **DeBERTa** (`src/cli/deberta_classifier.py`, `src/models/`) — fine-tuned `microsoft/deberta-v3-base` per hierarchy level. Strong neural baseline; produces `deberta_predictions_*.parquet`.
 - **LLM** (`src/llm_classifier/llm_classifier.py`) — classifier + conditional judge calls via NVIDIA NIM (or OpenAI). Supports static and dynamic few-shot retrieval.
 - **Hybrid** (`src/hybrid_router.py`) — routes each sample through the configured cascade: fast ML first, DeBERTa and/or LLM for uncertain cases, with abstention when confidence remains insufficient.
-- **Benign risk model** (`src/benign_risk_model.py`) — post-hoc LogisticRegression trained on hybrid margin traces + DeBERTa probabilities to flag false-positive-prone benigns. Outputs `data/processed/models/risk_model.pkl` and `reports/posthoc_benign_risk_model.md`.
+- **Benign risk model** (`src/benign_risk_model.py`) — legacy post-hoc LogisticRegression path for hybrid abstain analysis. It is not part of the canonical final-verdict pipeline.
 - **Escalating model** (`src/escalating_model.py`) — LightGBM classifier that joins Colab/local LLM classifier predictions with DeBERTa predictions and estimates whether the cheap/local LLM output should be escalated to the stronger judge. It is separate from `risk_model`, which remains the abstain-resolution model over hybrid router traces.
 
 > **Status note:** Hosted NVIDIA NIM endpoints no longer expose `logprobs`, which the LLM classifier path uses for token-level confidence. The planned direction is to run the classifier model locally to restore logprob-based confidence, while retaining hosted providers (NIM/OpenAI) for judge calls. This migration has not landed yet.
 
 ## Results
 
-Metrics change based on split, sample limit, thresholds, and whether LLM stages were run. The numbers below are illustrative of the current pipeline; refresh from the canonical reports for any external use.
+Metrics change based on split, sample limit, thresholds, and whether LLM stages were run. The numbers below are historical snapshots kept for context; refresh from `reports/pipeline_final_verdict_report.md` for the canonical final-verdict path.
 
 ### Representative results
 
-Main test split snapshot from `reports/research/summary_report.md`.
+Historical main test split snapshot from the legacy component-report path.
 
 #### Unicode/type-scope ML metrics
 
