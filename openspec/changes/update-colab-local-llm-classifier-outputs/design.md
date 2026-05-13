@@ -1,3 +1,5 @@
+> Note: This document is historical and may be outdated as of 2026-05-13. The canonical pipeline is now documented in README.md and uses the DVC + Colab handoff + final verdict path.
+
 ## Context
 
 `notebooks/colab_local_llm_classifier.ipynb` now runs local Transformers classifier inference for one configured `SPLIT`, reading `data/processed/splits/{SPLIT}.parquet` from Drive and writing one checkpoint plus one final parquet under `data/processed/predictions`. Downstream research already expects LLM prediction files for multiple main splits and separate external prediction artifacts, including external datasets configured in `configs/default.yaml`.

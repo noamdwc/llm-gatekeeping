@@ -1,5 +1,7 @@
 # Unseen Attack Splits — Design
 
+> Note: This document is historical and may be outdated as of 2026-05-13. The canonical pipeline is now documented in README.md and uses the DVC + Colab handoff + final verdict path.
+
 **Date:** 2026-04-24
 **Status:** Approved (pending implementation)
 **Branch:** zero_shot_nlp_attack

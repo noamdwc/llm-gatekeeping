@@ -1,3 +1,5 @@
+> Note: This document is historical and may be outdated as of 2026-05-13. The canonical pipeline is now documented in README.md and uses the DVC + Colab handoff + final verdict path.
+
 ## 1. Notebook Dependency And Setup Migration
 
 - [x] 1.1 Update `notebooks/colab_local_llm_classifier.ipynb` title/description and dependency cell to remove notebook-only `vllm` and `openai` installs and ensure Transformers dependencies are available.

@@ -1,5 +1,7 @@
 # Unseen Attack Splits Implementation Plan
 
+> Note: This document is historical and may be outdated as of 2026-05-13. The canonical pipeline is now documented in README.md and uses the DVC + Colab handoff + final verdict path.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the single `test_unseen` split with two new splits — `unseen_val` (monitoring signal) and `unseen_test` (final generalization number) — each containing held-out attacks (Emoji Smuggling, Pruthi, TextFooler, BAE) stratified 50/50 by `prompt_hash`, plus dedicated benigns drawn to match the main-pool adv/benign ratio.

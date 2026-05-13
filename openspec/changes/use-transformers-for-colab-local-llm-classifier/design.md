@@ -1,3 +1,5 @@
+> Note: This document is historical and may be outdated as of 2026-05-13. The canonical pipeline is now documented in README.md and uses the DVC + Colab handoff + final verdict path.
+
 ## Context
 
 `notebooks/colab_local_llm_classifier.ipynb` runs classifier-only prediction generation for a local Hugging Face model on Colab. The current notebook installs vLLM and OpenAI client packages, starts `vllm.entrypoints.openai.api_server` as a background process, waits for `/v1/models`, then calls `client.chat.completions.create(...)` with JSON-mode and logprobs enabled.

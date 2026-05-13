@@ -1,3 +1,5 @@
+> Note: This document is historical and may be outdated as of 2026-05-13. The canonical pipeline is now documented in README.md and uses the DVC + Colab handoff + final verdict path.
+
 graph TD
     %% --- Styles ---
     classDef data fill:#e2e8f0,stroke:#334155,color:#0f172a,stroke-width:2px;

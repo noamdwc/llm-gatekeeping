@@ -1,5 +1,7 @@
 # Pipeline Breakdown: Hierarchical Adversarial Prompt Detection
 
+> Note: This document is historical and may be outdated as of 2026-05-13. The canonical pipeline is now documented in README.md and uses the DVC + Colab handoff + final verdict path.
+
 ## Executive Summary
 
 This document provides a detailed research-oriented walkthrough of the LLM Security Gatekeeper pipeline — a hierarchical classification system for detecting adversarial prompt injection and jailbreak attacks. The pipeline combines a fast character-level ML classifier with a multi-stage LLM classifier through a confidence-based routing mechanism. Every design decision is explained in terms of the research motivation behind it.

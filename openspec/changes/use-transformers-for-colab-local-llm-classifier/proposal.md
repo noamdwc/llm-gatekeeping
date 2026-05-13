@@ -1,3 +1,5 @@
+> Note: This document is historical and may be outdated as of 2026-05-13. The canonical pipeline is now documented in README.md and uses the DVC + Colab handoff + final verdict path.
+
 ## Why
 
 The Colab local LLM classifier notebook currently depends on a vLLM OpenAI-compatible server, which adds startup complexity and makes the workflow harder to run in standard Colab environments. Switching the notebook to Hugging Face Transformers keeps inference local while reducing moving parts and aligning with Colab's common model-loading path.

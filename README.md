@@ -2,7 +2,7 @@
 
 A research project on **cost-efficient, leakage-aware detection of adversarial prompts, prompt injection, and jailbreak attempts**. The goal is not a single best model but a clear-eyed view of the tradeoffs between recall, false positives, latency/cost, and robustness on both internal and external datasets.
 
-The system pairs a fast char-level ML detector with a fine-tuned DeBERTa classifier, escalates only low-confidence cases to an LLM (selective routing), and applies a post-hoc benign risk model to suppress false positives on clean inputs. Splits are grouped by prompt hash and a subset of attack families is held out so generalization can be measured without leakage.
+The system pairs a fine-tuned DeBERTa classifier with a local/Colab LLM classifier handoff, then escalates selected low-confidence cases to an LLM judge. Splits are grouped by prompt hash and a subset of attack families is held out so generalization can be measured without leakage.
 
 Built on the [Mindgard evaded prompt injection dataset](https://huggingface.co/datasets/Mindgard/evaded-prompt-injection-and-jailbreak-samples) (~11.3k adversarial samples across 20 attack types + ~2k synthetic benign samples), with additional evaluation on external datasets (`deepset`, `jackhhao`, `safeguard`).
 
@@ -23,7 +23,7 @@ NLP sub-types (TextFooler, BERT-Attack, BAE, etc.) are currently collapsed into 
 - **LLM** (`src/llm_classifier/llm_classifier.py`) — classifier + conditional judge calls via NVIDIA NIM (or OpenAI). Supports static and dynamic few-shot retrieval.
 - **Hybrid** (`src/hybrid_router.py`) — routes each sample through the configured cascade: fast ML first, DeBERTa and/or LLM for uncertain cases, with abstention when confidence remains insufficient.
 - **Benign risk model** (`src/benign_risk_model.py`) — legacy post-hoc LogisticRegression path for hybrid abstain analysis. It is not part of the canonical final-verdict pipeline.
-- **Escalating model** (`src/escalating_model.py`) — LightGBM classifier that joins Colab/local LLM classifier predictions with DeBERTa predictions and estimates whether the cheap/local LLM output should be escalated to the stronger judge. It is separate from `risk_model`, which remains the abstain-resolution model over hybrid router traces.
+- **Escalating model** (`src/escalating_model.py`) — LightGBM classifier that joins Colab/local LLM classifier predictions with DeBERTa predictions and estimates whether the cheap/local LLM output should be escalated to the stronger judge.
 
 > **Status note:** Hosted NVIDIA NIM endpoints no longer expose `logprobs`, which the LLM classifier path uses for token-level confidence. The planned direction is to run the classifier model locally to restore logprob-based confidence, while retaining hosted providers (NIM/OpenAI) for judge calls. This migration has not landed yet.
 
@@ -75,8 +75,8 @@ External numbers should be read as a *generalization stress test*, not as headli
 
 - `reports/pipeline_final_verdict_report.md` (escalation-model final verdict)
 
-Older component, baseline, and post-hoc reports may still exist until the
-approved deletion step, but they are not the documented final artifact.
+Older component, baseline, and post-hoc report paths are historical and are
+not the documented final artifact.
 
 ## Setup
 
@@ -201,11 +201,10 @@ handoff artifact before running the final DVC path end to end.
 
 ### Non-Canonical Runtime Paths
 
-Older hosted-LLM research stages, component markdown reports, post-hoc
-abstain-risk-model reports, baseline comparison scripts, and lightweight
-inference shell paths may still exist until the deletion approval step, but
-they are not the canonical run path. Use the DVC + Colab handoff flow above
-for start-to-finish project execution.
+Legacy hosted-LLM research stages, component markdown reports, post-hoc
+abstain-risk-model reports, and baseline comparison scripts are not the
+canonical run path. Use the DVC + Colab handoff flow above for start-to-finish
+project execution.
 
 ## Prediction CLI
 
@@ -281,11 +280,6 @@ src/
     train_escalating_model.py     # Fit escalating_model.pkl from Colab/local + DeBERTa predictions
     final_verdict_report.py       # Generate the canonical final-verdict report
     judge_colab_local_predictions.py # Run selective judge calls from escalation scores
-    benign_risk_model.py          # Legacy post-hoc benign risk evaluation
-    research_external.py          # Research artifacts for one external dataset
-    eval_new.py                   # Legacy component markdown reports
-    run_baseline.py               # Run HF guard models on internal/external splits
-    eval_baselines.py             # Compare HF baselines vs ML/hybrid
     generate_synthetic_benign.py  # CLI for synthetic benign generation pipeline
     infer_split.py                # Lightweight inference over a split
     margin_calibration_fit.py     # Fit calibration on hybrid margins
@@ -297,7 +291,6 @@ data/processed/
   splits/                         # train.parquet, val.parquet, test.parquet, unseen_val.parquet, unseen_test.parquet, safeguard_test.parquet
   models/
     ml_baseline.pkl
-    risk_model.pkl                # Legacy post-hoc benign risk model
     escalating_model.pkl          # Judge-escalation model
   predictions/
     ml_predictions_*.parquet
@@ -309,15 +302,8 @@ data/processed/
     llm_predictions_external_<ds>_colab_local_classifier.parquet
     llm_predictions_external_<ds>_colab_local_judged.parquet
   research/
-    research_<split>.parquet
-    hybrid_margin_trace_<split>.parquet
-    posthoc_benign_risk_predictions.parquet
-    posthoc_benign_risk_summary.csv
     escalating_model_eval_<split>.parquet
     escalating_model_summary.csv
-  research_external/
-    research_external_<ds>.parquet
-  baselines/                      # Per-baseline prediction parquets
 artifacts/
   deberta_classifier/             # model/, tokenizer/, label_mapping.json, train_history.json
 reports/

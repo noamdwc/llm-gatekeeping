@@ -1,5 +1,7 @@
 # Deepset Style Gap Analysis Design
 
+> Note: This document is historical and may be outdated as of 2026-05-13. The canonical pipeline is now documented in README.md and uses the DVC + Colab handoff + final verdict path.
+
 ## Goal
 
 Explain why the fine-tuned DeBERTa classifier misses many adversarial examples from `deepset/prompt-injections`, especially attacks predicted benign with high confidence, despite performing well on internal splits, Jackhhao, Safeguard, and related data.

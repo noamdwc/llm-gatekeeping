@@ -1,3 +1,5 @@
+> Note: This document is historical and may be outdated as of 2026-05-13. The canonical pipeline is now documented in README.md and uses the DVC + Colab handoff + final verdict path.
+
 ## Why
 
 `notebooks/colab_local_llm_classifier.ipynb` currently writes predictions for one configured split at a time, which makes full local LLM coverage across main, unseen, safeguard, and external datasets manual and error-prone. The notebook should produce the complete set of classifier-only prediction artifacts needed by downstream research and evaluation in one run.

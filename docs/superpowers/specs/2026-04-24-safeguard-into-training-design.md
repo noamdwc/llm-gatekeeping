@@ -1,5 +1,7 @@
 # Add Safeguard Dataset to Training
 
+> Note: This document is historical and may be outdated as of 2026-05-13. The canonical pipeline is now documented in README.md and uses the DVC + Colab handoff + final verdict path.
+
 ## Goal
 
 Move `xTRam1/safe-guard-prompt-injection` from external-evaluation-only to a

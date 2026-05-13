@@ -1,5 +1,7 @@
 # Safeguard Into Training Implementation Plan
 
+> Note: This document is historical and may be outdated as of 2026-05-13. The canonical pipeline is now documented in README.md and uses the DVC + Colab handoff + final verdict path.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Move `xTRam1/safe-guard-prompt-injection` from external-eval into training data, with safeguard's HF `test` split held out as `safeguard_test.parquet`, in order to address the documented benign-recall weakness (49% on main test).

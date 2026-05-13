@@ -1,5 +1,7 @@
 # Colab Local LLM Classifier Implementation Plan
 
+> Note: This document is historical and may be outdated as of 2026-05-13. The canonical pipeline is now documented in README.md and uses the DVC + Colab handoff + final verdict path.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a Colab notebook that runs the current classifier model locally through vLLM and writes classifier-only prediction parquets without `judge_*` columns.

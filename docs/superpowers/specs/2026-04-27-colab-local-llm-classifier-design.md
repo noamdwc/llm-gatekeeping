@@ -1,5 +1,7 @@
 # Colab Local LLM Classifier Notebook Design
 
+> Note: This document is historical and may be outdated as of 2026-05-13. The canonical pipeline is now documented in README.md and uses the DVC + Colab handoff + final verdict path.
+
 ## Purpose
 
 Create a Google Colab notebook that runs the LLM classifier stage locally on Colab GPU hardware through a vLLM OpenAI-compatible server, instead of sending classifier calls to NVIDIA NIM.
