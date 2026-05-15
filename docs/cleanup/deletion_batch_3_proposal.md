@@ -42,13 +42,13 @@ Current DVC graph evidence:
 
 | Scope area | Recommendation | Why |
 | --- | --- | --- |
-| Legacy risk model path | delete as out of scope, after one small refactor | `train_risk_model` and `risk_model` DVC stages were removed. Remaining source writes removed/stale `risk_model.pkl` and `posthoc_benign_risk_*` artifacts. The only active ties are optional hooks in legacy `research.py` and `hybrid_router.py` plus a stale config block. |
+| Legacy risk model path | deleted after approval | `train_risk_model` and `risk_model` DVC stages were removed earlier. The remaining risk-model module, CLIs, test, and stale config block were deleted after approval. |
 | Legacy `research.py` path | completed | Routing diagnostics were moved to `src/routing_diagnostics.py`; `src.research.py` was deleted in an approved cleanup batch. |
 | Legacy `eval_external.py` path | deleted after helper split | The DVC DeBERTa external stage only needed `load_external_dataset`, now owned by `src/external_datasets.py`. The old standalone `python -m src.eval_external` ML/hybrid entrypoint was removed as non-canonical. |
 | Margin calibration path | delete as out of scope, after `research.py` refactor/deletion | Margin calibration CLIs consume legacy `hybrid_margin_trace_*` artifacts and write removed/stale `reports/artifacts` outputs. `src/logprob_margin.py` must stay because canonical escalation features depend on it. |
 | Cache rebuild path | delete as out of scope | `src/cli/rebuild_llm_from_cache.py` rebuilds old hosted LLM outputs from local cache and references old DVC cache objects. It is not canonical and should not be a fallback to hosted/legacy LLM outputs. Keep `src/llm_cache.py` because the classifier package still uses it. |
 | Lightweight `infer_split` / `score_escalation` path | planned deletion after approval | These are outside the DVC graph and create an additional project-running path beside the canonical DVC flow. Removing them keeps split-level inference from writing or implying ownership of DVC artifacts. |
-| Old public hybrid router path | planned deletion after approval | `src.hybrid_router` is not a DVC command or dependency after `src.cli.predict` deletion. It remains a user-facing non-canonical inference path and should be removed with its tests/docs once approved. |
+| Old public hybrid router path | deleted after approval | `src.hybrid_router` was not a DVC command or dependency after `src.cli.predict` and `src.eval_external` deletion. Removed with its direct tests/docs as a non-canonical inference path. |
 | Dynamic embeddings helper | keep as supported helper for now | `src/llm_classifier/llm_classifier.py` imports `ExemplarBank` and `get_embeddings`; `src.validators` also imports `get_embeddings` for duplicate filtering. Delete only if dynamic few-shot and embedding-based validation are explicitly removed. |
 
 ## Batch 3A: Refactor Before Deleting `research.py`
@@ -57,41 +57,33 @@ Status: approved and executed. Routing diagnostics moved to
 `src/routing_diagnostics.py`; `src.research.py` was later deleted after active
 imports were removed.
 
-## Proposed Batch 3B: Delete Legacy Risk Model Path
+## Batch 3B: Delete Legacy Risk Model Path
 
-If Batch 3A is approved and completed, a later approval can delete:
+Status: approved and executed. Deleted:
 
 - `src/benign_risk_model.py`
 - `src/cli/train_risk_model.py`
 - `src/cli/benign_risk_model.py`
 - `tests/test_benign_risk_model.py`
 
-And update:
+Updated:
 
-- `configs/default.yaml`: remove the stale `hybrid.risk_model` block and
+- `configs/default.yaml`: removed stale `hybrid.risk_model` block and
   `Train with: python -m src.cli.train_risk_model` comment
-- `src/hybrid_router.py`: remove optional loading/use of `RiskModel`
-- `src/research.py`: remove optional loading/use of `RiskModel`, or delete
-  `src/research.py` if separately approved
-- `README.md`, `CLAUDE.md`, and `src/cli/README.md`: remove risk-model
-  commands, artifact paths, and project-structure entries
-
-Tests to remove only with this deletion:
-
-- `tests/test_benign_risk_model.py`
+- `README.md`: removed risk-model backend and project-structure entries
 
 Expected verification:
 
 ```bash
 rg -n "benign_risk_model|train_risk_model|risk_model\.pkl|posthoc_benign|hybrid\.risk_model|risk_model:" configs src tests README.md STATUS.md CLAUDE.md src/cli/README.md
-pytest tests/test_hybrid_router.py tests/test_external_datasets.py tests/test_eval_deberta_external.py -q
+pytest tests/test_external_datasets.py tests/test_eval_deberta_external.py -q
 dvc stage list
 dvc dag final_verdict_report
 ```
 
-Behavior note: removing `RiskModel` from `hybrid_router` changes the old
-optional live-hybrid behavior when `hybrid.risk_model.enabled` was true. That
-should be documented as an approved scope deletion, not as a silent cleanup.
+Behavior note: the old live-hybrid risk-model behavior was removed with
+`src.hybrid_router.py`. This batch removed only the remaining legacy
+risk-model island.
 
 ## Batch 3C: Delete Margin Calibration Path
 
@@ -158,22 +150,28 @@ dvc stage list
 dvc dag final_verdict_report
 ```
 
-## Proposed Batch 3E: Delete Non-DVC Inference Entrypoints
+## Batch 3E: Delete Non-DVC Inference Entrypoints
 
-Status: planned for deletion after approval. These paths are not DVC stage
-commands or DVC dependencies and create additional ways to run project
-inference outside the canonical DVC flow.
+Status: partially approved/executed. These paths are not DVC stage commands or
+DVC dependencies and create additional ways to run project inference outside
+the canonical DVC flow.
+
+Deleted after approval:
+
+- `src/hybrid_router.py`
 
 Planned deletions:
 
-- `src/hybrid_router.py`
 - `src/cli/infer_split.py`
 - `src/infer_split.py`
 - `src/cli/score_escalation.py`
 
-Tests to remove with this deletion:
+Tests deleted with approved code:
 
 - `tests/test_hybrid_router.py`
+
+Tests to remove with later deletions:
+
 - `tests/test_cli_infer_split.py`
 - `tests/test_score_escalation.py`
 
@@ -206,9 +204,8 @@ dvc dag final_verdict_report
 
 ## Public Prediction Modes
 
-Status: `src.cli.predict` and its compatibility wrapper were approved for
-deletion after confirmation they are not used by DVC. `src.hybrid_router` is
-now included in planned Batch 3E deletion as a non-DVC inference entrypoint.
+Status: `src.cli.predict`, its compatibility wrapper, and `src.hybrid_router`
+were approved for deletion after confirmation they are not used by DVC.
 
 Former documented public modes:
 
@@ -224,17 +221,15 @@ Original recommendation:
   manual tools, or approve a later behavior-changing deletion of those modes
 - do not change these modes in a cleanup-only batch without explicit approval
 
-The `src.cli.predict` and `src/predict.py` files have already been deleted.
-The remaining public hybrid-router behavior is planned for removal in Batch
-3E, and should be committed/documented separately from the risk-model cleanup.
+The `src.cli.predict`, `src/predict.py`, and `src.hybrid_router.py` files have
+been deleted. This was committed/documented separately from the remaining
+risk-model cleanup.
 
 ## Active Docs To Update After Approved Batches
 
 Active docs with current stale or scope-ambiguous references:
 
 - `README.md`
-  - `src/benign_risk_model.py`
-  - `python -m src.hybrid_router --no-wandb`
   - `src/research.py`
   - `src/embeddings.py`
   - `src/cli/infer_split.py`
@@ -248,19 +243,15 @@ Active docs with current stale or scope-ambiguous references:
   - public prediction examples
   - keep/delete guidance for `src/logprob_margin.py`, `src/llm_cache.py`,
     `src/llm_classifier/`, and related utilities
-- `configs/default.yaml`
-  - stale `hybrid.risk_model` config block if risk path is removed
-
 Historical docs should receive only the approved historical-note header if
 they have stale pipeline instructions and lack the note already. Do not
 rewrite historical content deeply.
 
 ## Approval Request
 
-Recommended next approval is **Batch 3E deletion** if the goal remains one
-official project-running path:
+Recommended next approval is the rest of **Batch 3E deletion** if the goal
+remains one official project-running path:
 
-- delete `src/hybrid_router.py`
 - delete `src/cli/infer_split.py`
 - delete `src/infer_split.py`
 - delete `src/cli/score_escalation.py`

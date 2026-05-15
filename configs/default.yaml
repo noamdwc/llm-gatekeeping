@@ -136,7 +136,7 @@ deberta:
     - benign
     - adversarial
 
-# Hybrid router
+# Hybrid / escalation settings
 hybrid:
   ml_confidence_threshold: 0.85
   llm_confidence_threshold: 0.9
@@ -154,13 +154,6 @@ hybrid:
   # DeBERTa confidence threshold for binary fast-path finalization.
   # Samples where DeBERTa max softmax prob >= this skip LLM entirely.
   deberta_confidence_threshold: 0.93
-  # Abstain risk model: replaces blanket "abstain → adversarial" with an
-  # informed decision using DeBERTa probability + logprob margin features.
-  # Train with: python -m src.cli.train_risk_model
-  risk_model:
-    enabled: true
-    threshold: 0.5
-    model_path: "data/processed/models/risk_model.pkl"
   # Canonical final-verdict gate for deciding whether cheap Colab/local LLM
   # classifier output should be escalated to the stronger judge.
   escalating_model:

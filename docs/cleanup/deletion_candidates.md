@@ -212,13 +212,13 @@ These support non-main behavior and are candidates for deletion after approval:
 
 ### Source and CLI modules
 
-- `src/benign_risk_model.py` - remove only if all legacy risk-model/router consumers are also removed.
+- `src/benign_risk_model.py` - deleted after approval with the legacy risk-model path.
 - `src/research.py` - deleted in approved Batch 3B after routing diagnostics moved to `src/routing_diagnostics.py`.
 - `src/eval_external.py` - deleted after moving `load_external_dataset` to `src/external_datasets.py`.
-- `src/hybrid_router.py` - planned deletion; confirmed not a DVC command or DVC dependency after public predict CLI deletion.
+- `src/hybrid_router.py` - deleted after approval; confirmed not a DVC command or DVC dependency after public predict CLI and standalone external eval deletion.
 - `src/infer_split.py` - planned deletion with `src/cli/infer_split.py`.
-- `src/cli/train_risk_model.py`
-- `src/cli/benign_risk_model.py`
+- `src/cli/train_risk_model.py` - deleted with `src/benign_risk_model.py`.
+- `src/cli/benign_risk_model.py` - deleted with `src/benign_risk_model.py`.
 - `src/cli/research_external.py`
 - `src/cli/eval_new.py`
 - `src/cli/eval_baselines.py`
@@ -248,11 +248,11 @@ These support non-main behavior and are candidates for deletion after approval:
 
 Remove tests only together with their runtime modules:
 
-- `tests/test_benign_risk_model.py`
+- `tests/test_benign_risk_model.py` - deleted with `src/benign_risk_model.py`.
 - `tests/test_research.py` - deleted with `src/research.py` in approved Batch 3B.
 - `tests/test_eval_external.py` - deleted with `src/eval_external.py`; loader coverage moved to `tests/test_external_datasets.py`.
 - `tests/test_research_external.py`
-- `tests/test_hybrid_router.py`
+- `tests/test_hybrid_router.py` - deleted with `src/hybrid_router.py`.
 - `tests/test_baselines.py`
 - `tests/test_cli_infer_split.py`
 - `tests/test_score_escalation.py`

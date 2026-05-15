@@ -21,8 +21,6 @@ NLP sub-types (TextFooler, BERT-Attack, BAE, etc.) are currently collapsed into 
 - **ML** (`src/ml_classifier/ml_baseline.py`) — char n-gram TF-IDF + handcrafted Unicode features, LogisticRegression per hierarchy level. Instant, no API.
 - **DeBERTa** (`src/cli/deberta_classifier.py`, `src/models/`) — fine-tuned `microsoft/deberta-v3-base` per hierarchy level. Strong neural baseline; produces `deberta_predictions_*.parquet`.
 - **LLM** (`src/llm_classifier/llm_classifier.py`) — classifier + conditional judge calls via NVIDIA NIM (or OpenAI). Supports static and dynamic few-shot retrieval.
-- **Hybrid** (`src/hybrid_router.py`) — routes each sample through the configured cascade: fast ML first, DeBERTa and/or LLM for uncertain cases, with abstention when confidence remains insufficient.
-- **Benign risk model** (`src/benign_risk_model.py`) — legacy post-hoc LogisticRegression path for hybrid abstain analysis. It is not part of the canonical final-verdict pipeline.
 - **Escalating model** (`src/escalating_model.py`) — LightGBM classifier that joins Colab/local LLM classifier predictions with DeBERTa predictions and estimates whether the cheap/local LLM output should be escalated to the stronger judge.
 
 > **Status note:** Hosted NVIDIA NIM endpoints no longer expose `logprobs`, which the LLM classifier path uses for token-level confidence. The planned direction is to run the classifier model locally to restore logprob-based confidence, while retaining hosted providers (NIM/OpenAI) for judge calls. This migration has not landed yet.
@@ -218,10 +216,9 @@ wandb login
 python -m src.ml_classifier.ml_baseline --no-wandb
 python -m src.cli.deberta_classifier --no-wandb
 python -m src.llm_classifier.llm_classifier --no-wandb
-python -m src.hybrid_router --no-wandb
 ```
 
-Tracked metrics include per-level accuracy/F1, LLM token usage, latency, routing stats, and threshold sweep results. Model artifacts are saved as wandb Artifacts.
+Tracked metrics include per-level accuracy/F1, LLM token usage, latency, and threshold sweep results. Model artifacts are saved as wandb Artifacts.
 
 ## Project Structure
 
@@ -233,8 +230,6 @@ src/
   evaluate.py                     # Metrics at all hierarchy levels
   external_datasets.py            # External dataset loading helpers
   embeddings.py                   # ExemplarBank for dynamic few-shot retrieval
-  hybrid_router.py                # ML gate + LLM escalation
-  benign_risk_model.py            # Legacy post-hoc benign risk model
   escalating_model.py             # Judge-escalation model
   synthetic_benign.py             # Synthetic benign prompt generation (categories A–F)
   validators.py                   # HeuristicBenignValidator, JudgeBenignValidator, DeduplicateFilter
