@@ -113,19 +113,19 @@ These are not all directly part of the final DVC path, but they are still used b
 
 - `src/embeddings.py`
 - `src/logprob_margin.py`
-- `src/margin_trace.py`
+- `src/margin_trace.py` - deleted in approved Batch 3C; `src/logprob_margin.py` remains canonical feature logic.
 - `src/predict.py`
 - `src/infer_split.py` until `src/cli/infer_split.py` is approved for removal
 - `src/cli/predict.py`
 - `src/cli/generate_synthetic_benign.py`
-- `src/cli/rebuild_llm_from_cache.py`
+- `src/cli/rebuild_llm_from_cache.py` - deleted after approval; current `.cache/llm` contents and `src/llm_cache.py` remain preserved.
 - `src/cli/score_escalation.py` until lightweight escalation inference is explicitly removed
 - `notebooks/utils/`
 - `tests/conftest.py`
-- `tests/test_rebuild_llm_from_cache.py`
+- `tests/test_rebuild_llm_from_cache.py` - deleted with `src/cli/rebuild_llm_from_cache.py`.
 - `tests/test_score_escalation.py`
 - `tests/test_cli_infer_split.py`
-- `tests/test_margin_trace.py`
+- `tests/test_margin_trace.py` - deleted with `src/margin_trace.py` in approved Batch 3C.
 - `tests/test_logprob_margin.py`
 - `tests/test_embeddings.py`
 - `tests/test_colab_local_llm_classifier_notebook.py`
@@ -147,7 +147,7 @@ Preserve these unless the user explicitly asks for historical cleanup:
 - `docs/escalating_model_lightgbm_comparison.md`
 - `docs/merge_readiness_findings.md` if the user decides to add/commit it later
 - `reports/external_attack_novelty_analysis.md`
-- `reports/rebuild_llm_from_cache_audit.json`
+- `reports/rebuild_llm_from_cache_audit.json` - legacy audit from deleted cache-rebuild path; remove only if present and separately approved as generated report cleanup.
 - `interview_presentation/`
 - `interview_prep.md`
 - `interview_prep_he.md`
@@ -217,7 +217,7 @@ These support non-main behavior and are candidates for deletion after approval:
 ### Source and CLI modules
 
 - `src/benign_risk_model.py` - remove only if all legacy risk-model/router consumers are also removed.
-- `src/research.py` - legacy hybrid research merge/report path.
+- `src/research.py` - deleted in approved Batch 3B after routing diagnostics moved to `src/routing_diagnostics.py`.
 - `src/eval_external.py` - legacy external research/eval helper; keep if DeBERTa external CLI still depends on it or split shared helper first.
 - `src/hybrid_router.py` - legacy ML/LLM hybrid router path; remove only after confirming no canonical imports remain.
 - `src/cli/train_risk_model.py`
@@ -227,9 +227,9 @@ These support non-main behavior and are candidates for deletion after approval:
 - `src/cli/eval_baselines.py`
 - `src/cli/run_baseline.py`
 - `src/cli/infer_split.py`
-- `src/cli/margin_calibration_fit.py`
-- `src/cli/margin_calibration_report.py`
-- `src/cli/margin_crossfit_eval.py`
+- `src/cli/margin_calibration_fit.py` - deleted in approved Batch 3C.
+- `src/cli/margin_calibration_report.py` - deleted in approved Batch 3C.
+- `src/cli/margin_crossfit_eval.py` - deleted in approved Batch 3C.
 - `src/cli/score_escalation.py`
 - `src/baselines/`
 
@@ -252,14 +252,14 @@ These support non-main behavior and are candidates for deletion after approval:
 Remove tests only together with their runtime modules:
 
 - `tests/test_benign_risk_model.py`
-- `tests/test_research.py`
+- `tests/test_research.py` - deleted with `src/research.py` in approved Batch 3B.
 - `tests/test_eval_external.py`
 - `tests/test_research_external.py`
 - `tests/test_hybrid_router.py`
 - `tests/test_baselines.py`
 - `tests/test_cli_infer_split.py`
 - `tests/test_score_escalation.py`
-- `tests/test_margin_trace.py`
+- `tests/test_margin_trace.py` - deleted in approved Batch 3C.
 - `tests/test_logprob_margin.py`
 - `tests/test_run_vllm_cpu_docker_script.py`
 
@@ -270,15 +270,16 @@ Remove tests only together with their runtime modules:
 - `research_docs/pipeline_breakdown.md` - contains `test_unseen.parquet` and old pipeline flow.
 - Legacy report references in `README.md` project-structure section can be removed after approved runtime deletion.
 
-## Current Validation Blocker
+## Current Validation Status
 
-`dvc repro -s validate_colab_handoff` currently fails before writing `reports/colab_handoff_validation.json`:
+The canonical pipeline is being rerun from the start. Treat the previous
+downloaded Deepset Colab handoff validation failure as stale until fresh Colab
+classifier artifacts are produced and `dvc repro -s validate_colab_handoff`
+is run again.
 
-```text
-data/processed/predictions_external/llm_predictions_external_deepset_colab_local_classifier.parquet must have llm_stages_run == 1 for every row; found 7 invalid rows
-```
-
-This is not a cleanup-code failure. It is a real manual handoff artifact quality failure that must be fixed by regenerating or correcting the Deepset Colab classifier artifact before the full canonical DVC path can complete.
+If the fresh artifacts fail validation, handle that as a new manual handoff
+artifact quality issue. Do not weaken `validate_colab_handoff` or re-enable
+legacy hosted LLM outputs as a cleanup shortcut.
 
 ## Explicitly Not Deleting Before Approval
 

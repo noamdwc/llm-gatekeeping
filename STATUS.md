@@ -1,6 +1,6 @@
 # Project Status - `llm-gatekeeping`
 
-Last updated: 2026-05-13
+Last updated: 2026-05-15
 
 ## Current State
 
@@ -27,12 +27,16 @@ reports/pipeline_final_verdict_report.md
 | Selective judge outputs | `dvc repro judge_colab_local_predictions@test` and related foreach stages | `*_colab_local_judged.parquet` |
 | Final verdict report | `dvc repro final_verdict_report` | `reports/pipeline_final_verdict_report.md` |
 
-## Current Handoff Blocker
+## Current Handoff Status
 
-`validate_colab_handoff` currently fails on the downloaded Deepset Colab
-classifier artifact because some rows have `llm_stages_run != 1`. This is an
-artifact-regeneration issue, not a cleanup issue. Do not weaken validation or
-fall back to legacy hosted LLM outputs.
+The canonical pipeline is being rerun from the start. `build_splits` is up to
+date after the rerun, and the old downloaded Deepset Colab handoff failure
+should be treated as stale until fresh Colab classifier artifacts are produced
+and `validate_colab_handoff` is run again.
+
+Do not weaken validation or fall back to legacy hosted LLM outputs. If the
+fresh handoff artifacts still fail validation, treat that as a new artifact
+quality issue to fix at the handoff boundary.
 
 ## Non-Canonical Paths
 

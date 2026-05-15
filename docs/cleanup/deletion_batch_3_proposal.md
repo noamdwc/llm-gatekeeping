@@ -113,7 +113,11 @@ Behavior note: removing `RiskModel` from `hybrid_router` changes the old
 optional live-hybrid behavior when `hybrid.risk_model.enabled` was true. That
 should be documented as an approved scope deletion, not as a silent cleanup.
 
-## Proposed Batch 3C: Delete Margin Calibration Path
+## Batch 3C: Delete Margin Calibration Path
+
+Status: approved and executed on 2026-05-15. Deleted the exploratory margin
+trace/calibration path while preserving `src/logprob_margin.py` and
+`tests/test_logprob_margin.py`.
 
 If `src.research` no longer owns active dependencies, a later approval can
 delete:
@@ -143,7 +147,12 @@ dvc stage list
 dvc dag final_verdict_report
 ```
 
-## Proposed Batch 3D: Delete Cache Rebuild Path
+## Batch 3D: Delete Cache Rebuild Path
+
+Status: approved and executed on 2026-05-15. Deleted only
+`src/cli/rebuild_llm_from_cache.py` and `tests/test_rebuild_llm_from_cache.py`.
+Preserved `src/llm_cache.py`, `tests/test_llm_cache.py`, and existing
+`.cache/llm` contents.
 
 If approved, delete:
 

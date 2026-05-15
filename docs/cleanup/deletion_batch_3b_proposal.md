@@ -2,8 +2,8 @@
 
 Date: 2026-05-13
 
-Status: proposal only. Do not delete anything in this batch until explicitly
-approved.
+Status: approved and executed on 2026-05-15. Deleted only `src/research.py`
+and `tests/test_research.py`.
 
 ## Scope
 

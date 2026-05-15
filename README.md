@@ -191,13 +191,13 @@ Colab notebook -> *_colab_local_classifier.parquet
                          final_verdict_report
 ```
 
-### Current Handoff Blocker
+### Current Handoff Status
 
-At the time of this cleanup, `dvc repro -s validate_colab_handoff` fails on
-the checked-in/downloaded Deepset Colab artifact because
-`data/processed/predictions_external/llm_predictions_external_deepset_colab_local_classifier.parquet`
-contains rows where `llm_stages_run != 1`. Regenerate or fix that Colab
-handoff artifact before running the final DVC path end to end.
+The canonical pipeline is being rerun from the start. Treat the previous
+downloaded Deepset Colab handoff failure as stale until fresh Colab classifier
+artifacts are produced and `dvc repro -s validate_colab_handoff` is run again.
+If validation still fails on the fresh handoff, fix the handoff artifact rather
+than weakening validation or falling back to legacy hosted LLM outputs.
 
 ### Non-Canonical Runtime Paths
 
@@ -260,7 +260,6 @@ configs/default.yaml              # All configuration (labels, splits, threshold
 src/
   preprocess.py                   # Dataset loading + benign set construction
   build_splits.py                 # Grouped train/val/test splits
-  research.py                     # Legacy research merge/routing path
   evaluate.py                     # Metrics at all hierarchy levels
   eval_external.py                # Binary-only evaluation for external datasets
   embeddings.py                   # ExemplarBank for dynamic few-shot retrieval
@@ -282,9 +281,6 @@ src/
     judge_colab_local_predictions.py # Run selective judge calls from escalation scores
     generate_synthetic_benign.py  # CLI for synthetic benign generation pipeline
     infer_split.py                # Lightweight inference over a split
-    margin_calibration_fit.py     # Fit calibration on hybrid margins
-    margin_calibration_report.py  # Calibration report
-    margin_crossfit_eval.py       # Cross-fit evaluation of margin calibration
 data/processed/
   full_dataset.parquet            # Combined adversarial + benign
   synthetic_benign/               # Generated benign parquets per category (A–F)
