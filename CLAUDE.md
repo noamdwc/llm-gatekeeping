@@ -84,14 +84,6 @@ python -m src.cli.final_verdict_report --config configs/default.yaml
 python -m src.cli.generate_synthetic_benign --category B
 ```
 
-Prediction CLI:
-
-```bash
-echo "text" | python -m src.cli.predict --mode ml --pretty
-echo "text" | python -m src.cli.predict --mode llm --pretty
-echo "text" | python -m src.cli.predict --mode hybrid --pretty
-```
-
 ## Key Paths
 
 ```text

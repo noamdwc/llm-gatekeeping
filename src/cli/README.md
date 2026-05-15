@@ -21,25 +21,8 @@ Example:
 python -m src.cli.infer_split --mode ml --split test
 ```
 
-### `predict.py`
-
-- **Use case**: classify **arbitrary prompt text** (stdin or file) and print **JSON per input**.
-- **Inputs**: raw text lines (not dataset splits); requires `models/ml_baseline.pkl` for ML/hybrid.
-- **Outputs**: JSON to stdout (one JSON object per input line).
-- **When to use**: spot-checking, demos, or integration into other scripts via piping.
-
-Examples:
-
-```bash
-echo "some prompt" | python -m src.cli.predict --mode ml --pretty
-echo "some prompt" | python -m src.cli.predict --mode hybrid --pretty
-```
-
 ## Differences at a glance
 
-- **`infer_split` vs `predict`**:
-  - `infer_split` is *dataset/split-based* and produces a report.
-  - `predict` is *text-based* and produces JSON.
 - **Canonical DVC pipeline vs CLI tools**:
   - the DVC + Colab handoff path in `README.md` produces the final verdict report.
-  - these CLIs are retained for targeted local checks and manual inspection.
+  - retained CLIs are for targeted local checks and manual inspection.

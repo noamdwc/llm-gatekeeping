@@ -114,9 +114,9 @@ These are not all directly part of the final DVC path, but they are still used b
 - `src/embeddings.py`
 - `src/logprob_margin.py`
 - `src/margin_trace.py` - deleted in approved Batch 3C; `src/logprob_margin.py` remains canonical feature logic.
-- `src/predict.py`
+- `src/predict.py` - deleted after approval with the public arbitrary-text prediction CLI.
 - `src/infer_split.py` until `src/cli/infer_split.py` is approved for removal
-- `src/cli/predict.py`
+- `src/cli/predict.py` - deleted after approval; canonical and split-level workflows remain in DVC/`infer_split`.
 - `src/cli/generate_synthetic_benign.py`
 - `src/cli/rebuild_llm_from_cache.py` - deleted after approval; current `.cache/llm` contents and `src/llm_cache.py` remain preserved.
 - `src/cli/score_escalation.py` until lightweight escalation inference is explicitly removed

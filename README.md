@@ -206,36 +206,6 @@ abstain-risk-model reports, and baseline comparison scripts are not the
 canonical run path. Use the DVC + Colab handoff flow above for start-to-finish
 project execution.
 
-## Prediction CLI
-
-```bash
-# ML-only (no API calls, instant)
-echo "some suspicious text" | python -m src.cli.predict --mode ml --pretty
-
-# LLM-only (requires API key for current LLM_PROVIDER)
-echo "some suspicious text" | python -m src.cli.predict --mode llm --pretty
-
-# Hybrid: ML first, escalate to LLM if uncertain (recommended)
-echo "some suspicious text" | python -m src.cli.predict --mode hybrid --pretty
-
-# From file (one text per line)
-python -m src.cli.predict --mode ml --input texts.txt --pretty
-```
-
-Output:
-```json
-{
-  "text": "some suspicious text...",
-  "label_binary": "adversarial",
-  "label_category": "unicode_attack",
-  "label_type": "Homoglyphs",
-  "confidence_binary": 0.95,
-  "confidence_category": 0.92,
-  "confidence_type": 0.88,
-  "routed_to": "ml"
-}
-```
-
 ## Experiment Tracking
 
 All training and evaluation scripts support [Weights & Biases](https://wandb.ai/) logging:
@@ -273,7 +243,6 @@ src/
   models/                         # DeBERTa model wrappers + training utilities
   baselines/                      # Legacy HF baseline helpers
   cli/
-    predict.py                    # Classify arbitrary text (stdin or file) → JSON
     deberta_classifier.py         # Train/predict DeBERTa per hierarchy level
     validate_colab_handoff.py     # Validate manual Colab classifier handoff artifacts
     train_escalating_model.py     # Fit escalating_model.pkl from Colab/local + DeBERTa predictions

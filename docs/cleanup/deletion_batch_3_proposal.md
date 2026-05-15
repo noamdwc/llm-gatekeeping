@@ -207,16 +207,20 @@ rg -n "escalating_model_eval_\\{split\\}|infer_split|score_escalation" src tests
 dvc status final_verdict_report
 ```
 
-## Public Prediction Modes: Scope Decision Needed
+## Public Prediction Modes
 
-Current documented public modes:
+Status: `src.cli.predict` and its compatibility wrapper were approved for
+deletion after confirmation they are not used by DVC. `src.hybrid_router`
+remains for the separate hybrid-router scope decision.
+
+Former documented public modes:
 
 - `python -m src.cli.predict --mode ml`
 - `python -m src.cli.predict --mode llm`
 - `python -m src.cli.predict --mode hybrid`
 - `python -m src.hybrid_router --no-wandb`
 
-Recommendation:
+Original recommendation:
 
 - keep `--mode ml` as a supported lightweight utility
 - either explicitly keep `--mode llm` and `--mode hybrid` as non-canonical
