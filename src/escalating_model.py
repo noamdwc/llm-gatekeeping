@@ -615,9 +615,8 @@ def write_escalating_report(
             f"One missed cheap-path error in the threshold half changes the missed-error "
             f"rate by about {one_error_pp:.1f} percentage points. Per-attack conclusions "
             "are diagnostic only. The selected `0.5` threshold is the frozen "
-            "operating point for the canonical escalation path — both the DVC "
-            "`final_verdict_report` stage and the `./run_inference.sh --mode "
-            "escalation` lightweight inference path use it — because it sits "
+            "operating point for the canonical escalation path — the DVC "
+            "`final_verdict_report` stage uses it because it sits "
             "on a useful cost/error tradeoff without making judge-everything "
             "the default.",
             "",

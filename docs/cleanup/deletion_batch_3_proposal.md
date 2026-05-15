@@ -152,26 +152,21 @@ dvc dag final_verdict_report
 
 ## Batch 3E: Delete Non-DVC Inference Entrypoints
 
-Status: partially approved/executed. These paths are not DVC stage commands or
-DVC dependencies and create additional ways to run project inference outside
-the canonical DVC flow.
+Status: approved and executed. These paths are not DVC stage commands or DVC
+dependencies and created additional ways to run project inference outside the
+canonical DVC flow.
 
 Deleted after approval:
 
 - `src/hybrid_router.py`
-
-Planned deletions:
-
 - `src/cli/infer_split.py`
 - `src/infer_split.py`
 - `src/cli/score_escalation.py`
+- `run_inference.sh`
 
 Tests deleted with approved code:
 
 - `tests/test_hybrid_router.py`
-
-Tests to remove with later deletions:
-
 - `tests/test_cli_infer_split.py`
 - `tests/test_score_escalation.py`
 
@@ -232,12 +227,9 @@ Active docs with current stale or scope-ambiguous references:
 - `README.md`
   - `src/research.py`
   - `src/embeddings.py`
-  - `src/cli/infer_split.py`
-  - `src/cli/score_escalation.py`
   - margin calibration CLIs
   - stale public predict/hybrid-router examples
 - `src/cli/README.md`
-  - `infer_split` and `score_escalation` support status
   - stale public predict/hybrid-router examples
 - `CLAUDE.md`
   - public prediction examples
@@ -247,14 +239,8 @@ Historical docs should receive only the approved historical-note header if
 they have stale pipeline instructions and lack the note already. Do not
 rewrite historical content deeply.
 
-## Approval Request
+## Follow-up Status
 
-Recommended next approval is the rest of **Batch 3E deletion** if the goal
-remains one official project-running path:
-
-- delete `src/cli/infer_split.py`
-- delete `src/infer_split.py`
-- delete `src/cli/score_escalation.py`
-
-This keeps the next change conservative and creates a clean dependency line
-for later deletion approvals.
+Batch 3E is complete. The project-running path is now the canonical DVC +
+Colab handoff + final-verdict flow; the lightweight manual inference shell and
+CLI path were removed after explicit approval.

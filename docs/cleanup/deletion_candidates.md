@@ -204,7 +204,7 @@ These support non-main behavior and are candidates for deletion after approval:
 
 ### Scripts
 
-- `run_inference.sh` - lightweight inference shell path is no longer canonical.
+- `run_inference.sh` - deleted in approved Batch 3E with the lightweight inference path.
 - `run_synth.sh` - wrapper for synthetic generation, redundant with DVC/CLI.
 - `run_vllm_cpu_docker.sh` - old local vLLM helper, superseded by Colab Transformers classifier.
 - `scripts/analyze_external_attack_types.py` - ad-hoc analysis script.
@@ -216,18 +216,18 @@ These support non-main behavior and are candidates for deletion after approval:
 - `src/research.py` - deleted in approved Batch 3B after routing diagnostics moved to `src/routing_diagnostics.py`.
 - `src/eval_external.py` - deleted after moving `load_external_dataset` to `src/external_datasets.py`.
 - `src/hybrid_router.py` - deleted after approval; confirmed not a DVC command or DVC dependency after public predict CLI and standalone external eval deletion.
-- `src/infer_split.py` - planned deletion with `src/cli/infer_split.py`.
+- `src/infer_split.py` - deleted in approved Batch 3E with `src/cli/infer_split.py`.
 - `src/cli/train_risk_model.py` - deleted with `src/benign_risk_model.py`.
 - `src/cli/benign_risk_model.py` - deleted with `src/benign_risk_model.py`.
 - `src/cli/research_external.py`
 - `src/cli/eval_new.py`
 - `src/cli/eval_baselines.py`
 - `src/cli/run_baseline.py`
-- `src/cli/infer_split.py` - planned deletion; outside DVC and superseded by the canonical DVC flow.
+- `src/cli/infer_split.py` - deleted in approved Batch 3E; outside DVC and superseded by the canonical DVC flow.
 - `src/cli/margin_calibration_fit.py` - deleted in approved Batch 3C.
 - `src/cli/margin_calibration_report.py` - deleted in approved Batch 3C.
 - `src/cli/margin_crossfit_eval.py` - deleted in approved Batch 3C.
-- `src/cli/score_escalation.py` - planned deletion with `src/cli/infer_split.py`.
+- `src/cli/score_escalation.py` - deleted in approved Batch 3E with `src/cli/infer_split.py`.
 - `src/baselines/`
 
 ### Notebooks
@@ -254,8 +254,8 @@ Remove tests only together with their runtime modules:
 - `tests/test_research_external.py`
 - `tests/test_hybrid_router.py` - deleted with `src/hybrid_router.py`.
 - `tests/test_baselines.py`
-- `tests/test_cli_infer_split.py`
-- `tests/test_score_escalation.py`
+- `tests/test_cli_infer_split.py` - deleted in approved Batch 3E.
+- `tests/test_score_escalation.py` - deleted in approved Batch 3E.
 - `tests/test_margin_trace.py` - deleted in approved Batch 3C.
 - `tests/test_logprob_margin.py`
 - `tests/test_run_vllm_cpu_docker_script.py`

@@ -244,7 +244,6 @@ src/
     final_verdict_report.py       # Generate the canonical final-verdict report
     judge_colab_local_predictions.py # Run selective judge calls from escalation scores
     generate_synthetic_benign.py  # CLI for synthetic benign generation pipeline
-    infer_split.py                # Lightweight inference over a split
 data/processed/
   full_dataset.parquet            # Combined adversarial + benign
   synthetic_benign/               # Generated benign parquets per category (A–F)
