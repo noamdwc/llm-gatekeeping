@@ -1,5 +1,6 @@
 """Tests for Colab-oriented DeBERTa CLI overrides and validation."""
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -7,6 +8,9 @@ import pytest
 
 from src.cli import deberta_classifier as cli
 from src.models.deberta_classifier import TrainingResult
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _split_df(labels=None):
@@ -140,3 +144,20 @@ def test_build_training_batch_log_payload_uses_wandb_metric_names():
         "train/loss_step": 0.42,
         "train/learning_rate": 5e-6,
     }
+
+
+def test_colab_notebook_pins_cuda_compatible_torch_before_requirements():
+    notebook = json.loads((ROOT / "notebooks" / "colab_train_deberta.ipynb").read_text())
+    install_cells = [
+        "".join(cell.get("source", []))
+        for cell in notebook["cells"]
+        if cell.get("cell_type") == "code" and "%pip install" in "".join(cell.get("source", []))
+    ]
+
+    assert install_cells
+    first_install = install_cells[0]
+    assert "torch==2.7.1" in first_install
+    assert "cu126" in first_install
+    assert "--extra-index-url https://download.pytorch.org/whl/cu126" in first_install
+    assert "grep -v '^vllm' requirements.txt" in first_install
+    assert "%pip install -r /tmp/requirements-deberta.txt" in first_install
