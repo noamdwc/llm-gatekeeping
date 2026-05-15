@@ -15,7 +15,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.evaluate import binary_metrics, calibration_metrics
-from src.eval_external import load_external_dataset
+from src.external_datasets import load_external_dataset
 from src.models.deberta_classifier import DeBERTaClassifier
 from src.utils import (
     DEBERTA_ARTIFACTS_DIR,

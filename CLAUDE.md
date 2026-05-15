@@ -121,4 +121,4 @@ reports/
 - Held-out attack families are excluded from train/val/test and evaluated through `unseen_val` and `unseen_test`.
 - Config values live in `configs/default.yaml`.
 - Output path constants live in `src/utils.py`.
-- `src/eval_external.py`, `src/llm_classifier/`, `src/llm_provider.py`, `src/llm_cache.py`, `src/synthetic_benign.py`, and `src/logprob_margin.py` are still active dependencies and should not be removed as cleanup.
+- `src/external_datasets.py`, `src/llm_classifier/`, `src/llm_provider.py`, `src/llm_cache.py`, `src/synthetic_benign.py`, and `src/logprob_margin.py` are still active dependencies and should not be removed as cleanup.

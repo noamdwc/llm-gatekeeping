@@ -43,39 +43,19 @@ Current DVC graph evidence:
 | Scope area | Recommendation | Why |
 | --- | --- | --- |
 | Legacy risk model path | delete as out of scope, after one small refactor | `train_risk_model` and `risk_model` DVC stages were removed. Remaining source writes removed/stale `risk_model.pkl` and `posthoc_benign_risk_*` artifacts. The only active ties are optional hooks in legacy `research.py` and `hybrid_router.py` plus a stale config block. |
-| Legacy `research.py` path | refactor/minimize before deletion | `src/eval_external.py` imports only routing diagnostics from `src.research`, while `src.research` itself is a large historical merge/routing/report path. Delete only after moving diagnostics to a small supported helper. |
+| Legacy `research.py` path | completed | Routing diagnostics were moved to `src/routing_diagnostics.py`; `src.research.py` was deleted in an approved cleanup batch. |
+| Legacy `eval_external.py` path | deleted after helper split | The DVC DeBERTa external stage only needed `load_external_dataset`, now owned by `src/external_datasets.py`. The old standalone `python -m src.eval_external` ML/hybrid entrypoint was removed as non-canonical. |
 | Margin calibration path | delete as out of scope, after `research.py` refactor/deletion | Margin calibration CLIs consume legacy `hybrid_margin_trace_*` artifacts and write removed/stale `reports/artifacts` outputs. `src/logprob_margin.py` must stay because canonical escalation features depend on it. |
 | Cache rebuild path | delete as out of scope | `src/cli/rebuild_llm_from_cache.py` rebuilds old hosted LLM outputs from local cache and references old DVC cache objects. It is not canonical and should not be a fallback to hosted/legacy LLM outputs. Keep `src/llm_cache.py` because the classifier package still uses it. |
-| Lightweight `infer_split` / `score_escalation` path | keep as supported utility, but minimize before calling it supported | It can be useful for split-level local inspection, but currently `score_escalation` defaults to the same `data/processed/research/escalating_model_eval_{split}.parquet` path owned by DVC. Keeping it requires repathing its default output outside DVC-owned artifacts and tightening docs. |
-| Old public prediction modes | explicit product-scope decision required | `src.cli.predict --mode llm/hybrid` and `src.hybrid_router` are user-facing commands documented in README/CLAUDE. Deleting or shrinking them is a behavior/scope change, not simple cleanup. |
+| Lightweight `infer_split` / `score_escalation` path | planned deletion after approval | These are outside the DVC graph and create an additional project-running path beside the canonical DVC flow. Removing them keeps split-level inference from writing or implying ownership of DVC artifacts. |
+| Old public hybrid router path | planned deletion after approval | `src.hybrid_router` is not a DVC command or dependency after `src.cli.predict` deletion. It remains a user-facing non-canonical inference path and should be removed with its tests/docs once approved. |
 | Dynamic embeddings helper | keep as supported helper for now | `src/llm_classifier/llm_classifier.py` imports `ExemplarBank` and `get_embeddings`; `src.validators` also imports `get_embeddings` for duplicate filtering. Delete only if dynamic few-shot and embedding-based validation are explicitly removed. |
 
-## Proposed Batch 3A: Refactor Before Deleting `research.py`
+## Batch 3A: Refactor Before Deleting `research.py`
 
-If approved, do only this preparatory refactor:
-
-1. Create a small diagnostics helper, for example
-   `src/routing_diagnostics.py`, containing:
-   - `compute_routing_diagnostics`
-   - `render_routing_diagnostics_markdown`
-2. Update `src/eval_external.py` to import diagnostics from the new helper.
-3. Update tests so diagnostics coverage no longer requires importing
-   `src.research`.
-4. Leave `src/research.py` in place for this batch.
-5. Update active docs to mark `src.research` as historical and no longer a
-   dependency of external DeBERTa/final-report code.
-
-Expected verification:
-
-```bash
-pytest tests/test_eval_external.py tests/test_research.py -q
-rg -n "from src\.research import|import src\.research|src\.research" src tests README.md STATUS.md CLAUDE.md src/cli/README.md
-dvc stage list
-dvc dag final_verdict_report
-```
-
-Rationale: this removes the main active dependency that prevents a later
-source deletion of `src/research.py` without touching evaluation behavior.
+Status: approved and executed. Routing diagnostics moved to
+`src/routing_diagnostics.py`; `src.research.py` was later deleted after active
+imports were removed.
 
 ## Proposed Batch 3B: Delete Legacy Risk Model Path
 
@@ -104,7 +84,7 @@ Expected verification:
 
 ```bash
 rg -n "benign_risk_model|train_risk_model|risk_model\.pkl|posthoc_benign|hybrid\.risk_model|risk_model:" configs src tests README.md STATUS.md CLAUDE.md src/cli/README.md
-pytest tests/test_hybrid_router.py tests/test_eval_external.py -q
+pytest tests/test_hybrid_router.py tests/test_external_datasets.py tests/test_eval_deberta_external.py -q
 dvc stage list
 dvc dag final_verdict_report
 ```
@@ -178,40 +158,57 @@ dvc stage list
 dvc dag final_verdict_report
 ```
 
-## Proposed Batch 3E: Keep And Minimize Lightweight Split Inference
+## Proposed Batch 3E: Delete Non-DVC Inference Entrypoints
 
-Recommendation: keep this as a supported utility, but refactor before
-documenting it as supported:
+Status: planned for deletion after approval. These paths are not DVC stage
+commands or DVC dependencies and create additional ways to run project
+inference outside the canonical DVC flow.
 
-- keep `src/cli/infer_split.py`
-- keep `src/cli/score_escalation.py`
-- keep `src/infer_split.py` wrapper while the CLI is kept
-- keep `tests/test_cli_infer_split.py`
-- keep `tests/test_score_escalation.py`
+Planned deletions:
 
-Required minimization before support:
+- `src/hybrid_router.py`
+- `src/cli/infer_split.py`
+- `src/infer_split.py`
+- `src/cli/score_escalation.py`
 
-1. Change `score_escalation` default output away from DVC-owned
-   `data/processed/research/escalating_model_eval_{split}.parquet`, unless an
-   explicit `--output` is provided.
-2. Make docs clear that `infer_split --mode escalation` is a local inspection
-   utility and not the canonical start-to-finish pipeline.
-3. Ensure it still requires the Colab/local classifier artifact and DeBERTa
-   artifact paths; do not add fallback to legacy/hosted LLM outputs.
+Tests to remove with this deletion:
 
-Expected verification after a future approved refactor:
+- `tests/test_hybrid_router.py`
+- `tests/test_cli_infer_split.py`
+- `tests/test_score_escalation.py`
+
+Docs/config references to update:
+
+- `README.md`
+- `CLAUDE.md`
+- `src/cli/README.md`
+- `docs/cleanup/deletion_candidates.md`
+- stale cleanup/history references where they present these paths as active
+  supported commands
+
+Keep during this batch:
+
+- `src/external_datasets.py`
+- `src/evaluate.py`
+- `src/llm_classifier/`
+
+Why: these are still used by DVC stages or imported by DVC-used CLIs. The old
+standalone `src.eval_external` surface has been removed.
+
+Expected verification after approval:
 
 ```bash
-pytest tests/test_cli_infer_split.py tests/test_score_escalation.py tests/test_final_verdict_report.py -q
-rg -n "escalating_model_eval_\\{split\\}|infer_split|score_escalation" src tests README.md src/cli/README.md CLAUDE.md
-dvc status final_verdict_report
+rg -n "hybrid_router|infer_split|score_escalation|python -m src\.hybrid_router|python -m src\.infer_split|python -m src\.cli\.(infer_split|score_escalation)" src tests README.md CLAUDE.md src/cli/README.md docs/cleanup dvc.yaml
+pytest tests/test_external_datasets.py tests/test_eval_deberta_external.py tests/test_evaluate.py tests/test_llm_classifier.py tests/test_final_verdict_report.py tests/test_judge_colab_local_predictions.py -q
+dvc stage list
+dvc dag final_verdict_report
 ```
 
 ## Public Prediction Modes
 
 Status: `src.cli.predict` and its compatibility wrapper were approved for
-deletion after confirmation they are not used by DVC. `src.hybrid_router`
-remains for the separate hybrid-router scope decision.
+deletion after confirmation they are not used by DVC. `src.hybrid_router` is
+now included in planned Batch 3E deletion as a non-DVC inference entrypoint.
 
 Former documented public modes:
 
@@ -227,19 +224,9 @@ Original recommendation:
   manual tools, or approve a later behavior-changing deletion of those modes
 - do not change these modes in a cleanup-only batch without explicit approval
 
-If old public LLM/hybrid modes are approved out of scope later, a deletion or
-minimization batch would need to update:
-
-- `src/cli/predict.py`
-- `src/predict.py`
-- `src/hybrid_router.py`
-- `tests/test_hybrid_router.py`
-- `README.md`
-- `CLAUDE.md`
-- `src/cli/README.md`
-
-This would be a user-facing behavior change, so it should be committed and
-documented separately from cleanup-only deletions.
+The `src.cli.predict` and `src/predict.py` files have already been deleted.
+The remaining public hybrid-router behavior is planned for removal in Batch
+3E, and should be committed/documented separately from the risk-model cleanup.
 
 ## Active Docs To Update After Approved Batches
 
@@ -251,11 +238,12 @@ Active docs with current stale or scope-ambiguous references:
   - `src/research.py`
   - `src/embeddings.py`
   - `src/cli/infer_split.py`
+  - `src/cli/score_escalation.py`
   - margin calibration CLIs
-  - public `predict --mode llm/hybrid` examples if those modes are removed
+  - stale public predict/hybrid-router examples
 - `src/cli/README.md`
-  - `infer_split` support status
-  - public `predict --mode hybrid` example if hybrid mode is removed
+  - `infer_split` and `score_escalation` support status
+  - stale public predict/hybrid-router examples
 - `CLAUDE.md`
   - public prediction examples
   - keep/delete guidance for `src/logprob_margin.py`, `src/llm_cache.py`,
@@ -269,13 +257,13 @@ rewrite historical content deeply.
 
 ## Approval Request
 
-Recommended next approval is **Batch 3A only**:
+Recommended next approval is **Batch 3E deletion** if the goal remains one
+official project-running path:
 
-- add `src/routing_diagnostics.py`
-- repoint `src/eval_external.py` and tests away from `src.research`
-- do not delete `src/research.py` yet
-- do not delete risk-model, margin-calibration, cache-rebuild, inference, or
-  public prediction code yet
+- delete `src/hybrid_router.py`
+- delete `src/cli/infer_split.py`
+- delete `src/infer_split.py`
+- delete `src/cli/score_escalation.py`
 
 This keeps the next change conservative and creates a clean dependency line
 for later deletion approvals.

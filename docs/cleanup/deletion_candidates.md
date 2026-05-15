@@ -51,7 +51,7 @@ Keep these runtime files:
 - `src/cli/final_verdict_report.py`
 - `src/escalating_model.py`
 - `src/evaluate.py`
-- `src/eval_external.py`
+- `src/external_datasets.py`
 - `src/utils.py`
 - `src/llm_provider.py`
 - `src/llm_cache.py`
@@ -115,16 +115,12 @@ These are not all directly part of the final DVC path, but they are still used b
 - `src/logprob_margin.py`
 - `src/margin_trace.py` - deleted in approved Batch 3C; `src/logprob_margin.py` remains canonical feature logic.
 - `src/predict.py` - deleted after approval with the public arbitrary-text prediction CLI.
-- `src/infer_split.py` until `src/cli/infer_split.py` is approved for removal
-- `src/cli/predict.py` - deleted after approval; canonical and split-level workflows remain in DVC/`infer_split`.
+- `src/cli/predict.py` - deleted after approval; canonical workflows remain in DVC.
 - `src/cli/generate_synthetic_benign.py`
 - `src/cli/rebuild_llm_from_cache.py` - deleted after approval; current `.cache/llm` contents and `src/llm_cache.py` remain preserved.
-- `src/cli/score_escalation.py` until lightweight escalation inference is explicitly removed
 - `notebooks/utils/`
 - `tests/conftest.py`
 - `tests/test_rebuild_llm_from_cache.py` - deleted with `src/cli/rebuild_llm_from_cache.py`.
-- `tests/test_score_escalation.py`
-- `tests/test_cli_infer_split.py`
 - `tests/test_margin_trace.py` - deleted with `src/margin_trace.py` in approved Batch 3C.
 - `tests/test_logprob_margin.py`
 - `tests/test_embeddings.py`
@@ -218,19 +214,20 @@ These support non-main behavior and are candidates for deletion after approval:
 
 - `src/benign_risk_model.py` - remove only if all legacy risk-model/router consumers are also removed.
 - `src/research.py` - deleted in approved Batch 3B after routing diagnostics moved to `src/routing_diagnostics.py`.
-- `src/eval_external.py` - legacy external research/eval helper; keep if DeBERTa external CLI still depends on it or split shared helper first.
-- `src/hybrid_router.py` - legacy ML/LLM hybrid router path; remove only after confirming no canonical imports remain.
+- `src/eval_external.py` - deleted after moving `load_external_dataset` to `src/external_datasets.py`.
+- `src/hybrid_router.py` - planned deletion; confirmed not a DVC command or DVC dependency after public predict CLI deletion.
+- `src/infer_split.py` - planned deletion with `src/cli/infer_split.py`.
 - `src/cli/train_risk_model.py`
 - `src/cli/benign_risk_model.py`
 - `src/cli/research_external.py`
 - `src/cli/eval_new.py`
 - `src/cli/eval_baselines.py`
 - `src/cli/run_baseline.py`
-- `src/cli/infer_split.py`
+- `src/cli/infer_split.py` - planned deletion; outside DVC and superseded by the canonical DVC flow.
 - `src/cli/margin_calibration_fit.py` - deleted in approved Batch 3C.
 - `src/cli/margin_calibration_report.py` - deleted in approved Batch 3C.
 - `src/cli/margin_crossfit_eval.py` - deleted in approved Batch 3C.
-- `src/cli/score_escalation.py`
+- `src/cli/score_escalation.py` - planned deletion with `src/cli/infer_split.py`.
 - `src/baselines/`
 
 ### Notebooks
@@ -253,7 +250,7 @@ Remove tests only together with their runtime modules:
 
 - `tests/test_benign_risk_model.py`
 - `tests/test_research.py` - deleted with `src/research.py` in approved Batch 3B.
-- `tests/test_eval_external.py`
+- `tests/test_eval_external.py` - deleted with `src/eval_external.py`; loader coverage moved to `tests/test_external_datasets.py`.
 - `tests/test_research_external.py`
 - `tests/test_hybrid_router.py`
 - `tests/test_baselines.py`

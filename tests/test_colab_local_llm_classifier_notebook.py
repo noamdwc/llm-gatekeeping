@@ -128,7 +128,7 @@ def test_notebook_reuses_project_classifier_helpers():
     assert "from src.llm_classifier.llm_classifier import build_few_shot_examples" in source
     assert "from src.llm_classifier.prompts import build_classifier_messages" in source
     assert "from src.utils import build_sample_id, load_config" in source
-    assert "from src.eval_external import load_external_dataset" in source
+    assert "from src.external_datasets import load_external_dataset" in source
 
 
 def test_notebook_loads_main_and_external_targets_separately():

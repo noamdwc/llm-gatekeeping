@@ -124,8 +124,8 @@ stages:
       cmd: python -m src.cli.eval_deberta_external --dataset ${key}
       deps:
       - src/cli/eval_deberta_external.py
+      - src/external_datasets.py
       - src/models/
-      - src/eval_external.py
       - src/utils.py
       - artifacts/deberta_classifier/model/
       - artifacts/deberta_classifier/tokenizer/

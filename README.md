@@ -231,7 +231,7 @@ src/
   preprocess.py                   # Dataset loading + benign set construction
   build_splits.py                 # Grouped train/val/test splits
   evaluate.py                     # Metrics at all hierarchy levels
-  eval_external.py                # Binary-only evaluation for external datasets
+  external_datasets.py            # External dataset loading helpers
   embeddings.py                   # ExemplarBank for dynamic few-shot retrieval
   hybrid_router.py                # ML gate + LLM escalation
   benign_risk_model.py            # Legacy post-hoc benign risk model
