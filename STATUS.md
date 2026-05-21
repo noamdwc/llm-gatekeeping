@@ -1,11 +1,17 @@
 # Project Status - `llm-gatekeeping`
 
-Last updated: 2026-05-15
+Last updated: 2026-05-21
 
 ## Current State
 
 The repo's canonical run path is the DVC + Colab handoff + final verdict
-pipeline documented in `README.md`.
+pipeline documented in `README.md`. The Colab handoff works end-to-end and
+feeds the escalation model and final verdict report without falling back to
+legacy hosted LLM outputs.
+
+The classifier model runs in Google Colab for cheap GPU access: hosted
+NIM/OpenAI endpoints no longer expose `logprobs`, and a Colab GPU is the most
+cost-effective way to recover token-level confidence.
 
 Final documented artifact:
 
@@ -29,14 +35,15 @@ reports/pipeline_final_verdict_report.md
 
 ## Current Handoff Status
 
-The canonical pipeline is being rerun from the start. `build_splits` is up to
-date after the rerun, and the old downloaded Deepset Colab handoff failure
-should be treated as stale until fresh Colab classifier artifacts are produced
-and `validate_colab_handoff` is run again.
+The Colab handoff is working: fresh classifier artifacts pass
+`dvc repro -s validate_colab_handoff` and feed cleanly into
+`train_escalating_model` and `final_verdict_report`. The canonical
+`reports/pipeline_final_verdict_report.md` covers all configured splits
+(internal `test`, `unseen_test`, `safeguard_test`; external `deepset`,
+`jackhhao`) with a 4.72% judge-escalation rate at threshold 0.5.
 
-Do not weaken validation or fall back to legacy hosted LLM outputs. If the
-fresh handoff artifacts still fail validation, treat that as a new artifact
-quality issue to fix at the handoff boundary.
+If a future handoff fails validation, fix the artifact at the handoff boundary
+rather than weakening validation or falling back to legacy hosted LLM outputs.
 
 ## Non-Canonical Paths
 

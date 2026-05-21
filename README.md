@@ -122,6 +122,11 @@ required by the Colab handoff and escalation model.
 
 ### 2. Run The Colab Local LLM Classifier
 
+The classifier model runs in Google Colab to get a cheap GPU for local
+inference; hosted NIM/OpenAI endpoints no longer expose `logprobs`, and a
+Colab GPU is the most cost-effective way to recover token-level confidence
+without paying for dedicated GPU hosting.
+
 Open and run:
 
 ```bash
@@ -199,11 +204,11 @@ separately.
 
 ### Current Handoff Status
 
-The canonical pipeline is being rerun from the start. Treat the previous
-downloaded Deepset Colab handoff failure as stale until fresh Colab classifier
-artifacts are produced and `dvc repro -s validate_colab_handoff` is run again.
-If validation still fails on the fresh handoff, fix the handoff artifact rather
-than weakening validation or falling back to legacy hosted LLM outputs.
+The Colab handoff works end-to-end: fresh classifier artifacts pass
+`dvc repro -s validate_colab_handoff` and feed cleanly into
+`train_escalating_model` and `final_verdict_report`. If a future handoff
+fails validation, fix the handoff artifact rather than weakening validation
+or falling back to legacy hosted LLM outputs.
 
 ### Non-Canonical Runtime Paths
 
