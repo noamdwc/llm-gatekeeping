@@ -42,6 +42,21 @@ JUDGE_COLUMNS = [
     "judge_token_logprobs",
 ]
 
+JUDGE_OBJECT_COLUMNS = [
+    "judge_independent_label",
+    "judge_category",
+    "judge_independent_evidence",
+    "judge_final_label",
+    "judge_final_pred_binary",
+    "judge_final_category",
+    "judge_computed_decision",
+    "judge_override_reason",
+    "judge_provider_name",
+    "judge_model_name",
+    "judge_raw_response_text",
+    "judge_token_logprobs",
+]
+
 def default_input_path(split: str) -> Path:
     return PREDICTIONS_DIR / f"llm_predictions_{split}_{INPUT_SUFFIX}.parquet"
 
@@ -164,6 +179,13 @@ def _json_dumps(value: Any) -> str:
     return json.dumps(value)
 
 
+def _restore_none_for_missing_judge_objects(df: pd.DataFrame) -> pd.DataFrame:
+    for column in JUDGE_OBJECT_COLUMNS:
+        if column in df.columns:
+            df[column] = df[column].astype("object").where(pd.notna(df[column]), None)
+    return df
+
+
 def _apply_judge_result(row: pd.Series, judge_result: dict[str, Any]) -> dict[str, Any]:
     out = row.to_dict()
     computed_decision = judge_result.get("computed_decision")
@@ -264,7 +286,7 @@ def apply_judge_to_predictions(
 
     if any(row is None for row in rows):
         raise RuntimeError("Judge run completed with missing rows.")
-    return pd.DataFrame(rows)
+    return _restore_none_for_missing_judge_objects(pd.DataFrame(rows))
 
 
 def main(argv: list[str] | None = None) -> None:
