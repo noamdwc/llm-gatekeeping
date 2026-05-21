@@ -1,3 +1,6 @@
+repro:
+	uv run --active dvc repro
+
 format:
 	uv run --active black .
 
