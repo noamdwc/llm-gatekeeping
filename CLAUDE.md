@@ -46,12 +46,14 @@ Do not bypass `validate_colab_handoff`. Missing or malformed Colab handoff
 artifacts should fail with exact paths; there is no fallback to legacy hosted
 LLM classifier outputs.
 
-## Current Known Blocker
+## Colab Handoff
 
-`validate_colab_handoff` currently fails on the downloaded Deepset Colab
-classifier artifact because some rows have `llm_stages_run != 1`. Fix or
-regenerate that artifact before expecting `dvc repro final_verdict_report` to
-complete.
+The classifier model runs in Google Colab specifically for cheap GPU access:
+hosted NIM/OpenAI endpoints no longer expose `logprobs`, and a Colab GPU is
+the most cost-effective way to recover token-level confidence. The handoff
+is working — fresh artifacts pass `validate_colab_handoff` and feed into
+`train_escalating_model` and `final_verdict_report`. If a future handoff
+fails validation, fix the artifact rather than weakening validation.
 
 ## Active DVC Stages
 

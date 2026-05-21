@@ -23,11 +23,37 @@ NLP sub-types (TextFooler, BERT-Attack, BAE, etc.) are currently collapsed into 
 - **LLM** (`src/llm_classifier/llm_classifier.py`) — classifier + conditional judge calls via NVIDIA NIM (or OpenAI). Supports static and dynamic few-shot retrieval.
 - **Escalating model** (`src/escalating_model.py`) — LightGBM classifier that joins Colab/local LLM classifier predictions with DeBERTa predictions and estimates whether the cheap/local LLM output should be escalated to the stronger judge.
 
-> **Status note:** Hosted NVIDIA NIM endpoints no longer expose `logprobs`, which the LLM classifier path uses for token-level confidence. The planned direction is to run the classifier model locally to restore logprob-based confidence, while retaining hosted providers (NIM/OpenAI) for judge calls. This migration has not landed yet.
+> **Status note** Hosted NVIDIA NIM endpoints no longer expose `logprobs`, which the LLM classifier path uses for token-level confidence. The classifier now runs locally in Google Colab to recover logprob-based confidence cheaply, while hosted providers are still used for judge calls.
 
 ## Results
 
-Metrics change based on split, sample limit, thresholds, and whether LLM stages were run. The numbers below are historical snapshots kept for context; refresh from `reports/pipeline_final_verdict_report.md` for the canonical final-verdict path.
+Metrics change based on split, sample limit, thresholds, and whether LLM stages were run. The canonical numbers are produced by `reports/pipeline_final_verdict_report.md`; the historical snapshots below are kept for context.
+
+### Canonical final-verdict results
+
+From `reports/pipeline_final_verdict_report.md` (escalation-gate threshold `0.5`, sigmoid calibration). For each row, the final verdict is the cheap Colab/local LLM classifier output unless the escalation model routes the row to the judge and a judge final label is available.
+
+**Overall** — 6405 rows (3157 adv, 3248 benign), 302 judge calls (**4.72%**).
+
+| Slice                | Rows | Judge rate | Accuracy | Adv recall | Benign recall | Adv precision |
+|----------------------|-----:|-----------:|---------:|-----------:|--------------:|--------------:|
+| Overall              | 6405 | 4.72%      | 94.61%   | 94.39%     | 94.83%        | 94.66%        |
+| Internal splits      | 6027 | 3.80%      | 95.44%   | 96.25%     | 94.66%        | 94.55%        |
+| External datasets    |  378 | 19.31%     | 81.48%   | 66.83%     | 97.77%        | 97.08%        |
+
+**Per-split breakdown:**
+
+| Split             | Rows | Judge rate | Accuracy | Adv recall | Benign recall | Adv precision |
+|-------------------|-----:|-----------:|---------:|-----------:|--------------:|--------------:|
+| test              | 2581 |  2.48%     | 96.09%   | 98.61%     | 91.53%        | 95.45%        |
+| unseen_test       | 1894 |  5.39%     | 92.19%   | 93.80%     | 89.80%        | 93.14%        |
+| safeguard_test    | 1552 |  4.06%     | 98.32%   | 89.35%     | 99.42%        | 94.97%        |
+| external_deepset  |  116 | 29.31%     | 60.34%   | 25.00%     | 98.21%        | 93.75%        |
+| external_jackhhao |  262 | 14.89%     | 90.84%   | 84.89%     | 97.56%        | 97.52%        |
+
+**Judge workload** — 302 of 6405 rows escalated (**4.72%**), a **95.28%** reduction vs. judging every row.
+
+External datasets are intentionally a generalization stress test: `external_deepset` in particular drives the bulk of the adversarial-recall gap and is the most informative target for improvement.
 
 ### Representative results
 
@@ -122,6 +148,11 @@ required by the Colab handoff and escalation model.
 
 ### 2. Run The Colab Local LLM Classifier
 
+The classifier model runs in Google Colab to get a cheap GPU for local
+inference; hosted NIM/OpenAI endpoints no longer expose `logprobs`, and a
+Colab GPU is the most cost-effective way to recover token-level confidence
+without paying for dedicated GPU hosting.
+
 Open and run:
 
 ```bash
@@ -199,11 +230,11 @@ separately.
 
 ### Current Handoff Status
 
-The canonical pipeline is being rerun from the start. Treat the previous
-downloaded Deepset Colab handoff failure as stale until fresh Colab classifier
-artifacts are produced and `dvc repro -s validate_colab_handoff` is run again.
-If validation still fails on the fresh handoff, fix the handoff artifact rather
-than weakening validation or falling back to legacy hosted LLM outputs.
+The Colab handoff works end-to-end: fresh classifier artifacts pass
+`dvc repro -s validate_colab_handoff` and feed cleanly into
+`train_escalating_model` and `final_verdict_report`. If a future handoff
+fails validation, fix the handoff artifact rather than weakening validation
+or falling back to legacy hosted LLM outputs.
 
 ### Non-Canonical Runtime Paths
 
@@ -290,3 +321,12 @@ The ML baseline extracts character-level features that are highly discriminative
 - **Zero-width / BiDi / tag / fullwidth / combining character counts**
 - **Character entropy**
 - **Unique script count**
+
+## AI-Assisted Development
+
+Parts of this project were developed with the help of AI coding assistants —
+primarily **Claude Code** and **OpenAI Codex**. They were used responsibly by
+the author: every suggestion was reviewed, edits were monitored, and generated
+code was tested before being committed. The assistants accelerated boilerplate,
+refactors, and documentation, but the design decisions, evaluation methodology,
+and final review of results are the author's own.
