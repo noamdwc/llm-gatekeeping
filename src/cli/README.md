@@ -5,8 +5,11 @@ This folder contains **human-facing command line entrypoints** intended for runn
 Canonical invocation pattern:
 
 ```bash
-python -m src.cli.<tool> [args...]
+uv run --active python -m src.cli.<tool> [args...]
 ```
+
+Activate the Conda environment first (`conda activate llm_gate`). uv should run
+with `--active` so CLI tools use the Conda-managed ML dependencies.
 
 ## Differences at a glance
 
