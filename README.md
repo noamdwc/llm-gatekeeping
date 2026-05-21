@@ -321,3 +321,12 @@ The ML baseline extracts character-level features that are highly discriminative
 - **Zero-width / BiDi / tag / fullwidth / combining character counts**
 - **Character entropy**
 - **Unique script count**
+
+## AI-Assisted Development
+
+Parts of this project were developed with the help of AI coding assistants —
+primarily **Claude Code** and **OpenAI Codex**. They were used responsibly by
+the author: every suggestion was reviewed, edits were monitored, and generated
+code was tested before being committed. The assistants accelerated boilerplate,
+refactors, and documentation, but the design decisions, evaluation methodology,
+and final review of results are the author's own.
