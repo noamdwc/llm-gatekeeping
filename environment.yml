@@ -41,7 +41,3 @@ dependencies:
   - pytest-mock
   - black=25.1.0
   - threadpoolctl>=3.6.0
-
-  # Linux-only / pip-only packages
-  - pip:
-      - vllm>=0.6.0; platform_system == "Linux" and python_version < "3.14"

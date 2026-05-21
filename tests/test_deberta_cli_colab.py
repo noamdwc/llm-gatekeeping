@@ -193,5 +193,5 @@ def test_colab_notebook_pins_cuda_compatible_torch_before_requirements():
     assert "cu126" in first_install
     assert "--extra-index-url https://download.pytorch.org/whl/cu126" in first_install
     assert "--force-reinstall" not in install_commands
-    assert "grep -Ev '^(torch|vllm)'" in install_commands
+    assert "grep -Ev '^torch'" in install_commands
     assert "%pip install -r /tmp/requirements-deberta.txt" in install_commands
