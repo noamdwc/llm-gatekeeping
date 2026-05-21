@@ -1,4 +1,0 @@
-dataset,accuracy,adversarial_recall,benign_recall,false_negative_rate,false_positive_rate,support_adversarial,support_benign,n
-deepset,0.6121,0.65,0.5714,0.35,0.4286,60,56,116
-jackhhao,0.8817,0.9065,0.8537,0.0935,0.1463,139,123,262
-safeguard,0.7613,0.466,0.8979,0.534,0.1021,648,1401,2049
