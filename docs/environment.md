@@ -3,7 +3,7 @@
 This project uses **Conda** and **uv** together.
 
 Conda is the source of truth for the Python runtime and environment isolation.
-Use Python 3.12, which satisfies the project metadata in `pyproject.toml`.
+Use Python 3.11, which satisfies the project metadata in `pyproject.toml`.
 
 uv is used as the package installer and fast command runner inside the active
 Conda environment. Do not let uv create a separate project virtualenv for this
@@ -21,7 +21,7 @@ project commands without replacing Conda as the environment manager.
 ## Setup
 
 ```bash
-conda create -n llm_gate python=3.12
+conda create -n llm_gate python=3.11
 conda activate llm_gate
 conda install -c conda-forge uv
 uv pip install -r requirements.txt

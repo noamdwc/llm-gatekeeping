@@ -111,7 +111,7 @@ execution.
 
 ```bash
 # Create and activate the Conda environment
-conda create -n llm_gate python=3.12
+conda create -n llm_gate python=3.11
 conda activate llm_gate
 
 # Install uv into the active environment, then install project dependencies
