@@ -136,16 +136,16 @@ def compute_routing_diagnostics(
         "ml_pred_benign_routed_ml": ben_to_ml,
         "ml_pred_benign_routed_llm": ben_to_llm,
         "ml_pred_benign_routed_abstain": ben_to_abstain,
-        "ml_pred_benign_escalation_rate": ((ben_to_llm + ben_to_abstain) / ben_total)
-        if ben_total
-        else 0.0,
+        "ml_pred_benign_escalation_rate": (
+            ((ben_to_llm + ben_to_abstain) / ben_total) if ben_total else 0.0
+        ),
         "ml_pred_adversarial_total": adv_total,
         "ml_pred_adversarial_routed_ml": adv_to_ml,
         "ml_pred_adversarial_routed_llm": adv_to_llm,
         "ml_pred_adversarial_routed_abstain": adv_to_abstain,
-        "ml_pred_adversarial_escalation_rate": ((adv_to_llm + adv_to_abstain) / adv_total)
-        if adv_total
-        else 0.0,
+        "ml_pred_adversarial_escalation_rate": (
+            ((adv_to_llm + adv_to_abstain) / adv_total) if adv_total else 0.0
+        ),
         "unicode_lane_true_total": unicode_true_total,
         "unicode_lane_false_total": unicode_false_total,
         "unicode_lane_unknown_total": unknown_lane_total,

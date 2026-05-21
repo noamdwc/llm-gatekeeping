@@ -7,11 +7,11 @@ Provides:
 
 Usage:
     from src.embeddings import ExemplarBank, get_embeddings
-    
+
     # Build from training data
     bank = ExemplarBank.build(df_train, cfg)
     bank.save("data/processed/exemplar_bank.pkl")
-    
+
     # Load and use
     bank = ExemplarBank.load("data/processed/exemplar_bank.pkl")
     query_emb = get_embeddings(["some text"])[0]

@@ -447,9 +447,7 @@ class DeBERTaClassifier:
         return torch.device(
             "mps"
             if torch.backends.mps.is_available()
-            else "cuda"
-            if torch.cuda.is_available()
-            else "cpu"
+            else "cuda" if torch.cuda.is_available() else "cpu"
         )
 
     def _assert_finite_model(self):
@@ -659,9 +657,9 @@ class DeBERTaClassifier:
             train_history=self.train_history,
             best_epoch=self.best_checkpoint["epoch"] if self.best_checkpoint else None,
             best_metric_name=self.metric_for_best_model,
-            best_metric_value=self.best_checkpoint["metric_value"]
-            if self.best_checkpoint
-            else None,
+            best_metric_value=(
+                self.best_checkpoint["metric_value"] if self.best_checkpoint else None
+            ),
             stopped_early=epoch_callback.stopped_early,
         )
 

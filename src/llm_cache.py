@@ -105,13 +105,15 @@ def serialize_chat_completion(response: Any) -> dict[str, Any]:
                 },
             }
         ],
-        "usage": {
-            "prompt_tokens": _json_scalar(getattr(usage, "prompt_tokens", None)),
-            "completion_tokens": _json_scalar(getattr(usage, "completion_tokens", None)),
-            "total_tokens": _json_scalar(getattr(usage, "total_tokens", None)),
-        }
-        if usage is not None
-        else None,
+        "usage": (
+            {
+                "prompt_tokens": _json_scalar(getattr(usage, "prompt_tokens", None)),
+                "completion_tokens": _json_scalar(getattr(usage, "completion_tokens", None)),
+                "total_tokens": _json_scalar(getattr(usage, "total_tokens", None)),
+            }
+            if usage is not None
+            else None
+        ),
     }
 
 
