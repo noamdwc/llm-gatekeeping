@@ -295,18 +295,29 @@ class MLBaseline(BaseEstimator, ClassifierMixin):
                 "Ensure benign samples are present in the training split."
             )
 
-        X = self._build_features(df_train[text_col], fit=True)
+        X_full = self._build_features(df_train[text_col], fit=True)
 
         for level in ["label_binary", "label_category", "label_type"]:
-            y = df_train[level].values
+            if level == "label_binary":
+                df_level = df_train
+                X_level = X_full
+            else:
+                mask = df_train[level].notna()
+                n_dropped = int((~mask).sum())
+                if n_dropped:
+                    print(f"  [{level}] dropping {n_dropped} NaN-label rows before fit")
+                df_level = df_train[mask]
+                X_level = X_full[mask.values]
+
+            y = df_level[level].values
             le = LabelEncoder()
             y_enc = le.fit_transform(y)
             self.label_encoders[level] = le
 
             if level == "label_binary":
-                model, self.binary_calibrator = self._fit_binary_with_calibration(X, y_enc)
+                model, self.binary_calibrator = self._fit_binary_with_calibration(X_level, y_enc)
             else:
-                model = self._fit_level_model(X, y_enc, level)
+                model = self._fit_level_model(X_level, y_enc, level)
 
             self.models[level] = model
             print(f"  Trained {level}: {len(le.classes_)} classes")
@@ -413,15 +424,23 @@ def evaluate_ml(model: MLBaseline, df: pd.DataFrame, text_col: str, split_name: 
 
     metrics = {}
     for level in ["label_binary", "label_category", "label_type"]:
-        y_true = df_eval[level].values
-        y_pred = preds[f"pred_{level}"].values
+        # Skip rows with NaN ground truth at this level (e.g. binary-only
+        # safeguard rows have no category/type label).
+        mask = df_eval[level].notna()
+        n_skipped = int((~mask).sum())
+        y_true = df_eval[level][mask].values
+        y_pred = preds[f"pred_{level}"][mask.values].values
+        if len(y_true) == 0:
+            print(f"\n--- {level} ---\n(no rows with ground truth at this level)")
+            continue
         acc = accuracy_score(y_true, y_pred)
         f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)
         metrics[f"{split_name}/{level}/accuracy"] = acc
         metrics[f"{split_name}/{level}/macro_f1"] = f1
 
         print(f"\n--- {level} ---")
-        print(f"Accuracy: {acc:.4f}  |  Macro F1: {f1:.4f}")
+        skip_note = f"  ({n_skipped} rows with NaN {level} skipped)" if n_skipped else ""
+        print(f"Accuracy: {acc:.4f}  |  Macro F1: {f1:.4f}{skip_note}")
         print(classification_report(y_true, y_pred, zero_division=0))
 
     if wandb.run is not None:
@@ -527,22 +546,23 @@ def main():
     evaluate_ml(model, df_val, text_col, "val")
     preds_test = evaluate_ml(model, df_test, text_col, "test")
 
-    # Also try unseen attacks if available
-    unseen_path = SPLITS_DIR / "test_unseen.parquet"
-    if unseen_path.exists():
-        df_unseen = pd.read_parquet(unseen_path)
-        if len(df_unseen) > 0:
-            evaluate_ml(model, df_unseen, text_col, "test_unseen")
+    # Also try unseen attacks if available (both unseen_val monitoring and unseen_test)
+    unseen_dfs: dict[str, pd.DataFrame] = {}
+    for unseen_name in ("unseen_val", "unseen_test", "safeguard_test"):
+        unseen_path = SPLITS_DIR / f"{unseen_name}.parquet"
+        if unseen_path.exists():
+            df_unseen = pd.read_parquet(unseen_path)
+            if len(df_unseen) > 0:
+                evaluate_ml(model, df_unseen, text_col, unseen_name)
+                unseen_dfs[unseen_name] = df_unseen
 
     # Research mode: save full predictions for all splits
     if args.research:
         print("\nSaving research prediction parquets...")
         save_research_predictions(model, df_test, text_col, "test")
         save_research_predictions(model, df_val, text_col, "val")
-        if unseen_path.exists():
-            df_unseen = pd.read_parquet(unseen_path)
-            if len(df_unseen) > 0:
-                save_research_predictions(model, df_unseen, text_col, "test_unseen")
+        for unseen_name, df_unseen in unseen_dfs.items():
+            save_research_predictions(model, df_unseen, text_col, unseen_name)
 
     if wandb.run is not None:
         wandb.finish()

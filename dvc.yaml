@@ -37,6 +37,7 @@ stages:
       - dataset
       - labels
       - benign
+      - training_datasets
     outs:
     - data/processed/full_dataset.parquet
 
@@ -51,11 +52,14 @@ stages:
     - configs/default.yaml:
       - splits
       - labels.held_out_attacks
+      - training_datasets
     outs:
     - data/processed/splits/train.parquet
     - data/processed/splits/val.parquet
     - data/processed/splits/test.parquet
-    - data/processed/splits/test_unseen.parquet
+    - data/processed/splits/unseen_val.parquet
+    - data/processed/splits/unseen_test.parquet
+    - data/processed/splits/safeguard_test.parquet
 
   # ── Stage 3: ML Model (train + research predictions) ─────────────────────
   ml_model:
@@ -66,7 +70,9 @@ stages:
     - data/processed/splits/train.parquet
     - data/processed/splits/val.parquet
     - data/processed/splits/test.parquet
-    - data/processed/splits/test_unseen.parquet
+    - data/processed/splits/unseen_val.parquet
+    - data/processed/splits/unseen_test.parquet
+    - data/processed/splits/safeguard_test.parquet
     params:
     - configs/default.yaml:
       - ml
@@ -74,7 +80,9 @@ stages:
     - data/processed/models/ml_baseline.pkl
     - data/processed/predictions/ml_predictions_test.parquet
     - data/processed/predictions/ml_predictions_val.parquet
-    - data/processed/predictions/ml_predictions_test_unseen.parquet
+    - data/processed/predictions/ml_predictions_unseen_val.parquet
+    - data/processed/predictions/ml_predictions_unseen_test.parquet
+    - data/processed/predictions/ml_predictions_safeguard_test.parquet
 
   # ── Stage 3b: DeBERTa Classifier (train + research predictions) ─────────
   deberta_model:
@@ -86,7 +94,9 @@ stages:
     - data/processed/splits/train.parquet
     - data/processed/splits/val.parquet
     - data/processed/splits/test.parquet
-    - data/processed/splits/test_unseen.parquet
+    - data/processed/splits/unseen_val.parquet
+    - data/processed/splits/unseen_test.parquet
+    - data/processed/splits/safeguard_test.parquet
     params:
     - configs/default.yaml:
       - deberta
@@ -97,7 +107,9 @@ stages:
     - artifacts/deberta_classifier/train_history.json
     - data/processed/predictions/deberta_predictions_test.parquet
     - data/processed/predictions/deberta_predictions_val.parquet
-    - data/processed/predictions/deberta_predictions_test_unseen.parquet
+    - data/processed/predictions/deberta_predictions_unseen_val.parquet
+    - data/processed/predictions/deberta_predictions_unseen_test.parquet
+    - data/processed/predictions/deberta_predictions_safeguard_test.parquet
     - reports/deberta_classifier/metrics.json:
         cache: false
     - reports/deberta_classifier/classification_report.json:
@@ -105,193 +117,163 @@ stages:
     - reports/deberta_classifier/summary.md:
         cache: false
 
-  # ── Stage 4: LLM Classifier ─────────────────────────────────────────────
-  llm_classifier:
-    cmd: python -m src.llm_classifier.llm_classifier --split test --research --no-wandb
-    deps:
-    - data/processed/splits/test.parquet
-    - data/processed/splits/train.parquet
-    - src/embeddings.py
-    - src/llm_classifier/
-    - src/utils.py
-    params:
-    - configs/default.yaml:
-      - llm
-    outs:
-    - data/processed/predictions/llm_predictions_test.parquet
-
-  # ── Stage 4b: LLM Classifier on val ────────────────────────────────────
-  llm_classifier_val:
-    cmd: python -m src.llm_classifier.llm_classifier --split val --research --no-wandb
-    deps:
-    - data/processed/splits/train.parquet
-    - data/processed/splits/val.parquet
-    - src/embeddings.py
-    - src/llm_classifier/
-    - src/utils.py
-    params:
-    - configs/default.yaml:
-      - llm
-    outs:
-    - data/processed/predictions/llm_predictions_val.parquet
-
-  # ── Stage 5: Research (merge predictions + hybrid routing + reports) ─────
-  research:
-    cmd: python -m src.research --split test
-    deps:
-    - src/research.py
-    - src/benign_risk_model.py
-    - src/hybrid_router.py
-    - src/evaluate.py
-    - src/utils.py
-    - data/processed/predictions/
-    - data/processed/splits/test.parquet
-    - data/processed/models/risk_model.pkl
-    params:
-    - configs/default.yaml:
-      - hybrid
-    outs:
-    - data/processed/research/research_test.parquet
-    - data/processed/research/hybrid_margin_trace_test.parquet
-
-  # ── Stage 5b: Research on val ──────────────────────────────────────────
-  research_val:
-    cmd: python -m src.research --split val
-    deps:
-    - data/processed/predictions/
-    - data/processed/splits/val.parquet
-    - src/evaluate.py
-    - src/hybrid_router.py
-    - src/research.py
-    - src/utils.py
-    params:
-    - configs/default.yaml:
-      - hybrid
-    outs:
-    - data/processed/research/hybrid_margin_trace_val.parquet
-    - data/processed/research/research_val.parquet
-
-  # ── Stage 5c: Train Risk Model (on val trace + DeBERTa) ─────────────────
-  train_risk_model:
-    cmd: python -m src.cli.train_risk_model
-    deps:
-    - src/benign_risk_model.py
-    - src/cli/train_risk_model.py
-    - data/processed/research/hybrid_margin_trace_val.parquet
-    - data/processed/predictions/deberta_predictions_val.parquet
-    params:
-    - configs/default.yaml:
-      - hybrid.risk_model
-    outs:
-    - data/processed/models/risk_model.pkl
-
-  # ── Stage 6: External LLM Predictions (one stage per dataset) ────────────
-  research_external_llm:
+  # ── Stage 3c: DeBERTa External Predictions (one stage per external dataset) ─
+  deberta_external:
     foreach: ${external_datasets}
     do:
-      cmd: python -m src.cli.research_external --dataset ${key} --mode llm --llm-predictions-path
-        data/processed/predictions_external/llm_predictions_external_${key}.parquet
+      cmd: python -m src.cli.eval_deberta_external --dataset ${key}
       deps:
-      - src/cli/research_external.py
-      - src/eval_external.py
-      - src/embeddings.py
-      - src/llm_classifier/
+      - src/cli/eval_deberta_external.py
+      - src/external_datasets.py
+      - src/models/
       - src/utils.py
-      - data/processed/splits/train.parquet
+      - artifacts/deberta_classifier/model/
+      - artifacts/deberta_classifier/tokenizer/
+      - artifacts/deberta_classifier/label_mapping.json
       params:
       - configs/default.yaml:
         - external_datasets.${key}
+        - deberta
+      outs:
+      - data/processed/predictions_external/deberta_predictions_external_${key}.parquet
+      - reports/research_external/eval_deberta_external_${key}.md:
+          cache: false
+
+  # ── Stage 4c: Judge Colab Local Classifier Outputs ────────────────────
+  # `unseen_val` is intentionally omitted: it is the threshold-selection
+  # split for `train_escalating_model` and its judged output is not consumed
+  # by `final_verdict_report` or any downstream stage.
+  judge_colab_local_predictions:
+    foreach:
+    - test
+    - unseen_test
+    - safeguard_test
+    do:
+      cmd: python -m src.cli.judge_colab_local_predictions --split ${item} --max-concurrency
+        1 --target-rpm 2 --cooldown-on-429 60
+      deps:
+      - data/processed/predictions/llm_predictions_${item}_colab_local_classifier.parquet
+      - data/processed/research/escalating_model_eval_${item}.parquet
+      - src/cli/judge_colab_local_predictions.py
+      - src/llm_classifier/
+      - src/utils.py
+      params:
+      - configs/default.yaml:
         - llm
+        - hybrid.escalating_model
       outs:
-      - data/processed/predictions_external/llm_predictions_external_${key}.parquet
+      - data/processed/predictions/llm_predictions_${item}_colab_local_judged.parquet
 
-  # ── Stage 7: External Dataset Research (strict hybrid; one stage per dataset) ───────────
-  research_external:
-    foreach: ${external_datasets}
-    do:
-      cmd: python -m src.cli.research_external --dataset ${key} --mode hybrid --llm-predictions-path
-        data/processed/predictions_external/llm_predictions_external_${key}.parquet
-      deps:
-      - src/cli/research_external.py
-      - src/eval_external.py
-      - src/ml_classifier/
-      - src/embeddings.py
-      - src/llm_classifier/
-      - src/utils.py
-      - data/processed/models/ml_baseline.pkl
-      - data/processed/splits/train.parquet
-      - data/processed/predictions_external/llm_predictions_external_${key}.parquet
-      params:
-      - configs/default.yaml:
-        - external_datasets.${key}
-        - hybrid.ml_confidence_threshold
-      outs:
-      - data/processed/research_external/research_external_${key}.parquet
-
-  # ── Stage 7b: Post-hoc Benign Risk Model ──────────────────────────────────
-  risk_model:
-    cmd: python -m src.cli.benign_risk_model --train-trace data/processed/research/hybrid_margin_trace_val.parquet
-      --trace data/processed/research/hybrid_margin_trace_test.parquet --split test
+  validate_colab_handoff:
+    cmd: python -m src.cli.validate_colab_handoff --config configs/default.yaml
     deps:
-    - src/benign_risk_model.py
-    - src/cli/benign_risk_model.py
-    - data/processed/research/hybrid_margin_trace_val.parquet
-    - data/processed/research/hybrid_margin_trace_test.parquet
-    outs:
-    - data/processed/research/posthoc_benign_risk_predictions.parquet
-    - data/processed/research/posthoc_benign_risk_summary.csv
-    - reports/posthoc_benign_risk_model.md:
-        cache: false
-    - reports/artifacts/benign_risk_roc.png:
-        cache: false
-    - reports/artifacts/benign_risk_pr.png:
-        cache: false
-    - reports/artifacts/benign_risk_calibration.png:
-        cache: false
-
-  # ── Stage 8: Eval Reports (post-router-patch evaluation markdowns) ───────
-  eval_new:
-    cmd: python -m src.cli.eval_new --split test --config configs/default.yaml --only-main
-    deps:
-    - src/cli/eval_new.py
-    - src/cli/eval_baselines.py
-    - src/baselines/threshold.py
-    - src/research.py
-    - src/evaluate.py
-    - src/utils.py
-    - data/processed/research/research_test.parquet
-    - data/processed/research/posthoc_benign_risk_summary.csv
-    - data/processed/research_external/
+    - src/cli/validate_colab_handoff.py
+    - src/cli/colab_handoff_schema.py
+    - data/processed/predictions/llm_predictions_val_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_val.parquet
+    - data/processed/predictions/llm_predictions_test_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_test.parquet
+    - data/processed/predictions/llm_predictions_unseen_val_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_unseen_val.parquet
+    - data/processed/predictions/llm_predictions_unseen_test_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_unseen_test.parquet
+    - data/processed/predictions/llm_predictions_safeguard_test_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_safeguard_test.parquet
+    - data/processed/predictions_external/llm_predictions_external_deepset.parquet
+    - data/processed/predictions_external/deberta_predictions_external_deepset.parquet
+    - data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
+    - data/processed/predictions_external/deberta_predictions_external_jackhhao.parquet
     params:
     - configs/default.yaml:
-      - llm
       - external_datasets
     outs:
-    - reports/research/eval_report_ml.md:
-        cache: false
-    - reports/research/eval_report_llm.md:
-        cache: false
-    - reports/research/eval_report_hybrid.md:
-        cache: false
-    - reports/research/summary_report.md:
+    - reports/colab_handoff_validation.json:
         cache: false
 
-  # ── Stage 9: External Eval Reports (dynamic foreach from config) ─────────
-  eval_new_external:
+  # ── Stage 5c2: Train Canonical Escalating Model ─────────────────────────
+  train_escalating_model:
+    cmd: python -m src.cli.train_escalating_model
+    deps:
+    - src/logprob_margin.py
+    - src/escalating_model.py
+    - src/cli/train_escalating_model.py
+    - reports/colab_handoff_validation.json
+    - data/processed/predictions/llm_predictions_val_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_val.parquet
+    - data/processed/predictions/llm_predictions_test_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_test.parquet
+    - data/processed/predictions/llm_predictions_unseen_val_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_unseen_val.parquet
+    - data/processed/predictions/llm_predictions_unseen_test_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_unseen_test.parquet
+    - data/processed/predictions/llm_predictions_safeguard_test_colab_local_classifier.parquet
+    - data/processed/predictions/deberta_predictions_safeguard_test.parquet
+    - data/processed/predictions_external/llm_predictions_external_deepset.parquet
+    - data/processed/predictions_external/deberta_predictions_external_deepset.parquet
+    - data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
+    - data/processed/predictions_external/deberta_predictions_external_jackhhao.parquet
+    params:
+    - configs/default.yaml:
+      - hybrid.escalating_model
+      - external_datasets
+    outs:
+    - data/processed/models/escalating_model.pkl
+    - data/processed/research/escalating_model_eval_test.parquet
+    - data/processed/research/escalating_model_eval_unseen_val.parquet
+    - data/processed/research/escalating_model_eval_unseen_test.parquet
+    - data/processed/research/escalating_model_eval_safeguard_test.parquet
+    - data/processed/research/escalating_model_eval_external_deepset.parquet
+    - data/processed/research/escalating_model_eval_external_jackhhao.parquet
+    - data/processed/research/escalating_model_summary.csv
+    - data/processed/research/escalating_model_unseen_val_postscore_split_map.csv
+    - data/processed/research/escalating_model_threshold_sweep_unseen_val.csv
+    - reports/escalating_model_poc.md:
+        cache: false
+
+  # ── Stage 5c3: Judge External Colab Local Classifier Outputs ────────────
+  judge_colab_local_predictions_external:
     foreach: ${external_datasets}
     do:
-      cmd: python -m src.cli.eval_new --config configs/default.yaml --only-external
-        --dataset ${key}
+      cmd: python -m src.cli.judge_colab_local_predictions --split external_${key}
+        --input data/processed/predictions_external/llm_predictions_external_${key}.parquet
+        --output data/processed/predictions_external/llm_predictions_external_${key}_colab_local_judged.parquet
+        --escalation-scores data/processed/research/escalating_model_eval_external_${key}.parquet
+        --max-concurrency 1 --target-rpm 2 --cooldown-on-429 60
       deps:
-      - src/cli/eval_new.py
-      - src/cli/research_external.py
-      - src/evaluate.py
+      - data/processed/predictions_external/llm_predictions_external_${key}.parquet
+      - data/processed/research/escalating_model_eval_external_${key}.parquet
+      - src/cli/judge_colab_local_predictions.py
+      - src/llm_classifier/
       - src/utils.py
-      - data/processed/research_external/research_external_${key}.parquet
       params:
       - configs/default.yaml:
+        - llm
+        - hybrid.escalating_model
         - external_datasets.${key}
-        - hybrid.ml_confidence_threshold
       outs:
-      - reports/research_external/research_external_${key}.md:
-          cache: false
+      - data/processed/predictions_external/llm_predictions_external_${key}_colab_local_judged.parquet
+
+  # ── Stage 8: Canonical Final-Verdict Evaluation Report ──────────────────
+  final_verdict_report:
+    cmd: python -m src.cli.final_verdict_report --config configs/default.yaml
+    deps:
+    - src/cli/final_verdict_report.py
+    - src/evaluate.py
+    - src/utils.py
+    - data/processed/predictions/llm_predictions_test_colab_local_judged.parquet
+    - data/processed/predictions/llm_predictions_unseen_test_colab_local_judged.parquet
+    - data/processed/predictions/llm_predictions_safeguard_test_colab_local_judged.parquet
+    - data/processed/predictions_external/llm_predictions_external_deepset_colab_local_judged.parquet
+    - data/processed/predictions_external/llm_predictions_external_jackhhao_colab_local_judged.parquet
+    - data/processed/models/escalating_model.pkl
+    - data/processed/research/escalating_model_summary.csv
+    - data/processed/research/escalating_model_eval_external_deepset.parquet
+    - data/processed/research/escalating_model_eval_external_jackhhao.parquet
+    - reports/colab_handoff_validation.json
+    params:
+    - configs/default.yaml:
+      - hybrid.escalating_model
+      - external_datasets
+    outs:
+    - reports/pipeline_final_verdict_report.md:
+        cache: false

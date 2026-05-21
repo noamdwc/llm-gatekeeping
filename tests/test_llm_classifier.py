@@ -3,6 +3,7 @@
 import json
 import time
 from collections import defaultdict
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, call
 
 import openai
@@ -916,7 +917,13 @@ class TestFewShotMessages:
         assert adv_msgs[0]["evidence"] != ""
 
     def test_fixed_confidence_values(self, sample_config):
-        """Few-shot messages use 0-100 scale confidence (90 benign, 88 adversarial) — Patch 2."""
+        """Few-shot messages use the canonical fixed 0-100 confidence pair.
+
+        Patch 2 originally set 90/88; the values were retuned during the
+        escalation-model experiments (see commit bed00f3) to 95/84 to widen
+        the benign/adversarial gap fed to logprob features. This test now
+        pins the current canonical values; if you re-tune them, update here.
+        """
         clf = _make_classifier(sample_config, few_shot=[
             ("hello world", "héllo wörld", "Diacritcs"),
         ])
@@ -924,8 +931,8 @@ class TestFewShotMessages:
         parsed = [json.loads(m["content"]) for m in messages if m["role"] == "assistant"]
         benign_conf = [p["confidence"] for p in parsed if p["label"] == "benign"]
         adv_conf = [p["confidence"] for p in parsed if p["label"] == "adversarial"]
-        assert all(c == 90 for c in benign_conf)
-        assert all(c == 88 for c in adv_conf)
+        assert all(c == 95 for c in benign_conf)
+        assert all(c == 84 for c in adv_conf)
 
     def test_few_shot_confidence_scale_is_0_to_100(self, sample_config):
         """All few-shot confidence values must be on 0-100 scale (> 1.0) — Patch 2."""
@@ -1310,9 +1317,10 @@ class TestCallLlmRetry:
             }
         ]
 
-    def test_call_llm_requests_logprobs_by_default(self, sample_config):
+    def test_call_llm_requests_logprobs_by_default_for_openai(self, sample_config):
         sample_config["llm"]["top_logprobs"] = 4
         clf = _make_classifier(sample_config)
+        clf._provider = SimpleNamespace(name="openai")
         response = self._make_response('{"label": "benign", "confidence": 90}')
         mock_client = MagicMock()
         mock_client.chat.completions.create = MagicMock(return_value=response)
@@ -1323,6 +1331,21 @@ class TestCallLlmRetry:
         _, kwargs = mock_client.chat.completions.create.call_args
         assert kwargs["logprobs"] is True
         assert kwargs["top_logprobs"] == 4
+
+    def test_call_llm_skips_logprobs_for_nim(self, sample_config):
+        sample_config["llm"]["top_logprobs"] = 4
+        clf = _make_classifier(sample_config)
+        clf._provider = SimpleNamespace(name="nim")
+        response = self._make_response('{"label": "benign", "confidence": 90}')
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = MagicMock(return_value=response)
+        clf._get_client = MagicMock(return_value=mock_client)
+
+        clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
+
+        _, kwargs = mock_client.chat.completions.create.call_args
+        assert "logprobs" not in kwargs
+        assert "top_logprobs" not in kwargs
 
     def test_call_llm_can_disable_logprobs_explicitly(self, sample_config):
         sample_config["llm"]["capture_logprobs"] = False

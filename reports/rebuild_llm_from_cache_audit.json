@@ -1,0 +1,14 @@
+{
+  "classifier_cache_hit": 0,
+  "classifier_cache_miss": 0,
+  "drop_counts": {
+    "fewshot_in_val_or_test": 10468
+  },
+  "emitted_by_split": {},
+  "emitted_total": 0,
+  "judge_cache_hit": 0,
+  "judge_cache_miss": 0,
+  "smoke_checked": 5,
+  "smoke_hits": 5,
+  "write": true
+}

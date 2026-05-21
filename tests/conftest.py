@@ -27,13 +27,14 @@ def sample_config():
                 "TextFooler",
             ],
             "held_out_attacks": [
-                "Homoglyphs",
+                "BAE",
             ],
         },
         "splits": {
             "train": 0.7,
             "val": 0.15,
             "test": 0.15,
+            "unseen_val_ratio": 0.5,
             "random_seed": 42,
         },
         "benign": {
@@ -74,6 +75,12 @@ def sample_config():
             "margin_threshold_classifier_only": 2.5,
             "margin_threshold_judge": 1.5,
             "production_adversarial_prior": 0.1,
+            "escalating_model": {
+                "enabled": False,
+                "model_path": "data/processed/models/escalating_model.pkl",
+                "calibration_method": "sigmoid",
+                "judge_threshold": 0.5,
+            },
         },
         "evaluation": {
             "calibration_bins": 10,
@@ -109,12 +116,15 @@ def sample_config():
                 "label_col": "type",
                 "label_map": {"jailbreak": "adversarial", "benign": "benign"},
             },
+        },
+        "training_datasets": {
             "safeguard": {
                 "name": "xTRam1/safe-guard-prompt-injection",
-                "split": "test",
+                "train_split": "train",
+                "test_split": "test",
                 "text_col": "text",
                 "label_col": "label",
-                "label_map": {1: "adversarial", 0: "benign"},
+                "label_map": {0: "benign", 1: "adversarial"},
             },
         },
     }

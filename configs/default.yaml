@@ -33,16 +33,20 @@ labels:
     - TextBugger
     - TextFooler
 
-  # Attack types held out entirely for unseen-attack generalization testing
+  # Attack types held out entirely for unseen-attack generalization testing.
+  # Split 50/50 by prompt_hash between unseen_val (monitoring) and unseen_test (final).
   held_out_attacks:
     - Emoji Smuggling
     - Pruthi
+    - TextFooler
+    - BAE
 
 # Data splits
 splits:
   train: 0.7
   val: 0.15
   test: 0.15
+  unseen_val_ratio: 0.5   # fraction of held-out prompt_hashes -> unseen_val
   random_seed: 42
 
 # Benign set construction
@@ -85,8 +89,8 @@ llm:
   capture_logprobs: true
   top_logprobs: 5
   few_shot:
-    unicode: 2
-    nlp: 6
+    unicode: 0
+    nlp: 1
     # Static hard-benign examples (off by default; enable after synthetic generation)
     include_hard_benign: false
     # Dynamic few-shot settings
@@ -114,9 +118,9 @@ ml:
 deberta:
   model_name: "microsoft/deberta-v3-base"
   max_length: 128
-  num_epochs: 15
-  batch_size: 16
-  eval_batch_size: 16
+  num_epochs: 5
+  batch_size: 8
+  eval_batch_size: 8
   max_grad_norm: 0.5
   learning_rate: 5.0e-6
   warmup_ratio: 0.1
@@ -132,7 +136,7 @@ deberta:
     - benign
     - adversarial
 
-# Hybrid router
+# Hybrid / escalation settings
 hybrid:
   ml_confidence_threshold: 0.85
   llm_confidence_threshold: 0.9
@@ -150,13 +154,17 @@ hybrid:
   # DeBERTa confidence threshold for binary fast-path finalization.
   # Samples where DeBERTa max softmax prob >= this skip LLM entirely.
   deberta_confidence_threshold: 0.93
-  # Abstain risk model: replaces blanket "abstain → adversarial" with an
-  # informed decision using DeBERTa probability + logprob margin features.
-  # Train with: python -m src.cli.train_risk_model
-  risk_model:
-    enabled: true
-    threshold: 0.5
-    model_path: "data/processed/models/risk_model.pkl"
+  # Canonical final-verdict gate for deciding whether cheap Colab/local LLM
+  # classifier output should be escalated to the stronger judge.
+  escalating_model:
+    model_path: "data/processed/models/escalating_model.pkl"
+    # Post-score calibration for unseen_val threshold selection. Use "isotonic"
+    # only for explicit experiments; sigmoid/Platt is the default.
+    calibration_method: "sigmoid"
+    # Operating point used by judge_colab_local_predictions to decide which
+    # cheap-classifier rows to escalate. Rows with (calibrated_)escalation_score
+    # >= this threshold are sent to the judge; all others are trusted.
+    judge_threshold: 0.5
 
 # Evaluation
 evaluation:
@@ -176,6 +184,18 @@ baselines:
     positive_label: "INJECTION"
     max_length: 512
 
+# Datasets merged into train/val/test (binary-only; category/type masked NaN)
+training_datasets:
+  safeguard:
+    name: "xTRam1/safe-guard-prompt-injection"
+    train_split: "train"
+    test_split: "test"
+    text_col: "text"
+    label_col: "label"
+    label_map:
+      1: "adversarial"
+      0: "benign"
+
 # External datasets for generalization evaluation (binary-only)
 external_datasets:
   deepset:
@@ -194,14 +214,6 @@ external_datasets:
     label_map:
       jailbreak: "adversarial"
       benign: "benign"
-  safeguard:
-    name: "xTRam1/safe-guard-prompt-injection"
-    split: "test"
-    text_col: "text"
-    label_col: "label"
-    label_map:
-      1: "adversarial"
-      0: "benign"
   # spml:
   #   name: "reshabhs/SPML_Chatbot_Prompt_Injection"
   #   split: "train"

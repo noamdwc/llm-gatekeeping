@@ -179,7 +179,10 @@ class HierarchicalLLMClassifier:
             "max_tokens": max_tokens,
             "response_format": {"type": "json_object"},
         }
-        if self.capture_logprobs:
+        # NIM chat completions can return nullable logprob fields that its
+        # OpenAI-compatible parser rejects as 500s, so only request them from
+        # providers known to handle chat logprobs reliably.
+        if self.capture_logprobs and self._provider.name != "nim":
             request_kwargs["logprobs"] = True
             if self.top_logprobs > 0:
                 request_kwargs["top_logprobs"] = self.top_logprobs
