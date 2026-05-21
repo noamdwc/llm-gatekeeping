@@ -1,3 +1,8 @@
+.PHONY: install-deps repro format lint test test-v ci
+
+install-deps:
+	conda env update -f environment.yml
+
 repro:
 	uv run --active --no-project dvc repro
 
