@@ -3,7 +3,7 @@
 Generated on 2026-05-10 with:
 
 ```bash
-uv run --active python -m src.cli.train_escalating_model
+uv run --active --no-project python -m src.cli.train_escalating_model
 ```
 
 The escalating model is trained on `val`, so the threshold sweep is selected on

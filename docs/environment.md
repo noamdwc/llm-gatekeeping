@@ -4,10 +4,12 @@ This project uses **Conda** and **uv** together.
 
 Conda is the source of truth for the Python runtime and environment isolation.
 Use Python 3.11, which satisfies the project metadata in `pyproject.toml`.
+`environment.yml` is the source of truth for Python dependencies.
 
-uv is used as the package installer and fast command runner inside the active
-Conda environment. Do not let uv create a separate project virtualenv for this
-repo; run commands with `uv run --active ...`.
+uv is used as the fast command runner inside the active Conda environment.
+Python dependencies are installed by Conda from `environment.yml`. Do not let
+uv create a separate project virtualenv for this repo; run commands with
+`uv run --active --no-project ...`. Do not use `uv sync` for this repository.
 
 ## Why both Conda and uv?
 
@@ -15,24 +17,25 @@ Conda provides stable environment isolation for ML dependencies. Keeping uv
 inside the active Conda environment avoids accidental mixing with a separate
 project virtualenv.
 
-uv provides a fast and consistent way to install Python dependencies and run
-project commands without replacing Conda as the environment manager.
+uv provides a fast and consistent way to run project commands without replacing
+Conda as the environment and dependency manager.
+
+`pyproject.toml` exists for project metadata and tool configuration. `uv.lock`
+does not define the runtime environment; the Conda environment file does.
 
 ## Setup
 
 ```bash
-conda create -n llm_gate python=3.11
-conda activate llm_gate
-conda install -c conda-forge uv
-uv pip install -r requirements.txt
+conda env create -f environment.yml
+conda activate llm-gate
 ```
 
 If the environment is already active, all direct commands should go through uv:
 
 ```bash
-uv run --active python -m src.cli.final_verdict_report
-uv run --active dvc repro final_verdict_report
-uv run --active pytest
+uv run --active --no-project python -m src.cli.final_verdict_report
+uv run --active --no-project dvc repro final_verdict_report
+uv run --active --no-project pytest
 ```
 
 ## Makefile shortcuts
@@ -47,5 +50,5 @@ make test-v
 make repro
 ```
 
-Use direct `uv run --active ...` commands when you need custom flags or a
+Use direct `uv run --active --no-project ...` commands when you need custom flags or a
 specific DVC stage.

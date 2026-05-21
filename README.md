@@ -107,16 +107,13 @@ not the documented final artifact.
 Conda owns the Python environment for this project; `uv` is used as the
 command runner inside that active environment. This keeps local runs tied to
 one explicit environment while still giving fast, reproducible command
-execution.
+execution. Python dependencies are managed by `environment.yml`, not by
+`pyproject.toml` or `uv.lock`.
 
 ```bash
 # Create and activate the Conda environment
-conda create -n llm_gate python=3.11
-conda activate llm_gate
-
-# Install uv into the active environment, then install project dependencies
-conda install -c conda-forge uv
-uv pip install -r requirements.txt
+conda env create -f environment.yml
+conda activate llm-gate
 
 # Pick an LLM provider (default: nim) and set the matching API key
 echo "LLM_PROVIDER=nim"        >  .env   # or "openai"
@@ -127,26 +124,27 @@ echo "OPENAI_API_KEY=sk-..."    >> .env  # required when LLM_PROVIDER=openai
 huggingface-cli login
 ```
 
-Always run project commands through `uv run --active ...` after activating the
+Always run project commands through `uv run --active --no-project ...` after activating the
 Conda environment. The `--active` flag tells uv to use the already-active Conda
-environment instead of creating or selecting a separate virtualenv.
+environment, while `--no-project` prevents uv from selecting or creating a
+repo-local `.venv`. Do not use `uv sync` for this repository.
 
 Common local commands are wrapped by the Makefile:
 
 ```bash
-make lint     # uv run --active black --check --diff .
-make format   # uv run --active black .
-make test     # uv run --active pytest
+make lint     # uv run --active --no-project black --check --diff .
+make format   # uv run --active --no-project black .
+make test     # uv run --active --no-project pytest
 make test-v   # verbose pytest with faulthandler
-make repro    # uv run --active dvc repro
+make repro    # uv run --active --no-project dvc repro
 ```
 
 For one-off or stage-specific commands, call uv directly:
 
 ```bash
-uv run --active dvc repro final_verdict_report
-uv run --active python -m src.cli.final_verdict_report
-uv run --active pytest tests/test_final_verdict_report.py -q
+uv run --active --no-project dvc repro final_verdict_report
+uv run --active --no-project python -m src.cli.final_verdict_report
+uv run --active --no-project pytest tests/test_final_verdict_report.py -q
 ```
 
 NIM model names in `configs/default.yaml` are auto-translated to OpenAI equivalents when `LLM_PROVIDER=openai`. After switching providers, run `./run_llm_provider_refresh.sh` to force re-execution of LLM-dependent DVC stages (DVC does not track `LLM_PROVIDER` itself).
@@ -164,11 +162,11 @@ reports/pipeline_final_verdict_report.md
 ### 1. Prepare Local DVC Inputs
 
 ```bash
-uv run --active dvc repro build_splits
-uv run --active dvc repro ml_model
-uv run --active dvc repro deberta_model
-uv run --active dvc repro deberta_external@deepset
-uv run --active dvc repro deberta_external@jackhhao
+uv run --active --no-project dvc repro build_splits
+uv run --active --no-project dvc repro ml_model
+uv run --active --no-project dvc repro deberta_model
+uv run --active --no-project dvc repro deberta_external@deepset
+uv run --active --no-project dvc repro deberta_external@jackhhao
 ```
 
 These stages produce the split files, ML model, and DeBERTa predictions
@@ -202,7 +200,7 @@ data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
 ### 3. Validate The Handoff
 
 ```bash
-uv run --active dvc repro -s validate_colab_handoff
+uv run --active --no-project dvc repro -s validate_colab_handoff
 ```
 
 This validates that every configured Colab artifact exists, is
@@ -214,7 +212,7 @@ legacy hosted LLM classifier outputs.
 ### 4. Resume Through Final Verdict
 
 ```bash
-uv run --active dvc repro final_verdict_report
+uv run --active --no-project dvc repro final_verdict_report
 ```
 
 This trains the escalation model from validated Colab classifier outputs plus
@@ -259,7 +257,7 @@ separately.
 ### Current Handoff Status
 
 The Colab handoff works end-to-end: fresh classifier artifacts pass
-`uv run --active dvc repro -s validate_colab_handoff` and feed cleanly into
+`uv run --active --no-project dvc repro -s validate_colab_handoff` and feed cleanly into
 `train_escalating_model` and `final_verdict_report`. If a future handoff
 fails validation, fix the handoff artifact rather than weakening validation
 or falling back to legacy hosted LLM outputs.
@@ -277,12 +275,12 @@ All training and evaluation scripts support [Weights & Biases](https://wandb.ai/
 
 ```bash
 # Login to wandb
-uv run --active wandb login
+uv run --active --no-project wandb login
 
 # Runs log automatically; disable with --no-wandb
-uv run --active python -m src.ml_classifier.ml_baseline --no-wandb
-uv run --active python -m src.cli.deberta_classifier --no-wandb
-uv run --active python -m src.llm_classifier.llm_classifier --no-wandb
+uv run --active --no-project python -m src.ml_classifier.ml_baseline --no-wandb
+uv run --active --no-project python -m src.cli.deberta_classifier --no-wandb
+uv run --active --no-project python -m src.llm_classifier.llm_classifier --no-wandb
 ```
 
 Tracked metrics include per-level accuracy/F1, LLM token usage, latency, and threshold sweep results. Model artifacts are saved as wandb Artifacts.
