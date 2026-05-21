@@ -1,5 +1,7 @@
 """Tests for src.build_splits — grouped splitting logic with unseen_val + unseen_test."""
 
+import warnings
+
 import yaml
 import pandas as pd
 import pytest
@@ -139,6 +141,29 @@ class TestBuildSplits:
                 splits1[name].reset_index(drop=True),
                 splits2[name].reset_index(drop=True),
             )
+
+    def test_arrow_string_prompt_hashes_do_not_warn(
+        self,
+        sample_config,
+        sample_dataframe,
+        monkeypatch,
+        tmp_path,
+    ):
+        _patch_splits_dir(monkeypatch, tmp_path)
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(sample_config))
+        input_path = tmp_path / "full_dataset.parquet"
+        df = sample_dataframe.astype({"prompt_hash": "string[pyarrow]"})
+        df.to_parquet(input_path, index=False)
+
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always", UserWarning)
+            build_splits(str(config_path), str(input_path))
+
+        user_warnings = [
+            warning for warning in captured if issubclass(warning.category, UserWarning)
+        ]
+        assert not user_warnings
 
 
 def test_safeguard_test_split_written(splits_input, monkeypatch, tmp_path):

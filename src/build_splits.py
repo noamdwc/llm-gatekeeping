@@ -129,7 +129,7 @@ def build_splits(config_path: str = None, input_path: str = None) -> dict[str, p
     drop_mask = (df_main["label_binary"] == "benign") & df_main["prompt_hash"].isin(reserved_benign)
     df_main_remaining = df_main[~drop_mask].copy()
 
-    groups = df_main_remaining["prompt_hash"].unique()
+    groups = df_main_remaining["prompt_hash"].unique().tolist()
     rng.shuffle(groups)
     n = len(groups)
     n_train = int(n * split_cfg["train"])
