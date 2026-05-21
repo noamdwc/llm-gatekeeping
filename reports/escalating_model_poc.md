@@ -12,8 +12,8 @@ Parsed `clf_token_logprobs` features are intentionally omitted in this version e
 | unseen_val        |         1881 |           1881 |          1881 |                         0 |                           0 |          0.072302  |  0.925655 | 0.668005 |               0.460317 |                        0.397351 |               0.0021254   |
 | unseen_test       |         1894 |           1894 |          1894 |                         0 |                           0 |          0.0881732 |  0.92438  | 0.677218 |               0.552632 |                        0.493421 |               0.0063358   |
 | safeguard_test    |         1552 |           1555 |          1552 |                         0 |                           3 |          0.0431701 |  0.976346 | 0.911843 |               0.403846 |                        0.168317 |               0.00257732  |
-| external_deepset  |          116 |            116 |           116 |                         0 |                           0 |          0.405172  |  0.640302 | 0.548201 |               0.5      |                        0.333333 |               0.344828    |
-| external_jackhhao |          262 |            262 |           262 |                         0 |                           0 |          0.0839695 |  0.875852 | 0.492337 |               0.481481 |                        0.7      |               0.0152672   |
+| external_deepset  |          116 |            116 |           116 |                         0 |                           0 |          0.25      |  0.581649 | 0.306473 |               0.166667 |                        0        |               0.258621    |
+| external_jackhhao |          262 |            262 |           262 |                         0 |                           0 |          0.129771  |  0.839074 | 0.562673 |               0.592593 |                        0.8125   |               0.0381679   |
 
 ## Post-score unseen_val Split Diagnostics
 
@@ -47,7 +47,7 @@ Prompt hash overlap: 0
 
 `unseen_val` has only 136 cheap-path errors total. The calibration half has 70 cheap-path errors, and the threshold-selection half has 66 cheap-path errors. Calibration and threshold estimates are therefore noisy.
 
-One missed cheap-path error in the threshold half changes the missed-error rate by about 1.5 percentage points. Per-attack conclusions are diagnostic only. The selected `0.5` threshold is the frozen operating point for the canonical escalation path — both the DVC `final_verdict_report` stage and the `./run_inference.sh --mode escalation` lightweight inference path use it — because it sits on a useful cost/error tradeoff without making judge-everything the default.
+One missed cheap-path error in the threshold half changes the missed-error rate by about 1.5 percentage points. Per-attack conclusions are diagnostic only. The selected `0.5` threshold is the frozen operating point for the canonical escalation path — the DVC `final_verdict_report` stage uses it because it sits on a useful cost/error tradeoff without making judge-everything the default.
 
 ## Threshold Sweep
 

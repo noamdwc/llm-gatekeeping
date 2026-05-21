@@ -8,15 +8,15 @@
 
 | Metric | Value |
 |--------|-------|
-| accuracy | 0.6034 |
-| adversarial_precision | 0.8500 |
-| adversarial_recall | 0.2833 |
-| adversarial_f1 | 0.4250 |
-| benign_precision | 0.5521 |
-| benign_recall | 0.9464 |
-| benign_f1 | 0.6974 |
-| false_positive_rate | 0.0536 |
-| false_negative_rate | 0.7167 |
+| accuracy | 0.5690 |
+| adversarial_precision | 0.7778 |
+| adversarial_recall | 0.2333 |
+| adversarial_f1 | 0.3590 |
+| benign_precision | 0.5306 |
+| benign_recall | 0.9286 |
+| benign_f1 | 0.6753 |
+| false_positive_rate | 0.0714 |
+| false_negative_rate | 0.7667 |
 | uncertain_rate | 0.0000 |
 | judge_override_rate | nan |
 | support_adversarial | 60 |
@@ -26,7 +26,7 @@
 
 | Bin | Count | Avg Confidence | Accuracy |
 |-----|-------|----------------|----------|
-| 0.5-0.6 | 1 | 0.560 | 1.000 |
-| 0.7-0.8 | 3 | 0.744 | 0.333 |
-| 0.8-0.9 | 6 | 0.848 | 0.167 |
-| 0.9-1.0 | 106 | 0.993 | 0.632 |
+| 0.6-0.7 | 1 | 0.677 | 1.000 |
+| 0.7-0.8 | 1 | 0.730 | 0.000 |
+| 0.8-0.9 | 2 | 0.861 | 0.000 |
+| 0.9-1.0 | 112 | 0.997 | 0.580 |

@@ -1,0 +1,75 @@
+{
+  "artifacts": [
+    {
+      "classifier_path": "/Users/noamc/repos/llm-gatekeeping/data/processed/predictions/llm_predictions_val_colab_local_classifier.parquet",
+      "deberta_path": "/Users/noamc/repos/llm-gatekeeping/data/processed/predictions/deberta_predictions_val.parquet",
+      "name": "val",
+      "rows_classifier": 2557,
+      "rows_deberta": 2557,
+      "rows_dropped_classifier_only": 0,
+      "rows_dropped_deberta_only": 0,
+      "rows_joined": 2557
+    },
+    {
+      "classifier_path": "/Users/noamc/repos/llm-gatekeeping/data/processed/predictions/llm_predictions_test_colab_local_classifier.parquet",
+      "deberta_path": "/Users/noamc/repos/llm-gatekeeping/data/processed/predictions/deberta_predictions_test.parquet",
+      "name": "test",
+      "rows_classifier": 2581,
+      "rows_deberta": 2581,
+      "rows_dropped_classifier_only": 0,
+      "rows_dropped_deberta_only": 0,
+      "rows_joined": 2581
+    },
+    {
+      "classifier_path": "/Users/noamc/repos/llm-gatekeeping/data/processed/predictions/llm_predictions_unseen_val_colab_local_classifier.parquet",
+      "deberta_path": "/Users/noamc/repos/llm-gatekeeping/data/processed/predictions/deberta_predictions_unseen_val.parquet",
+      "name": "unseen_val",
+      "rows_classifier": 1881,
+      "rows_deberta": 1881,
+      "rows_dropped_classifier_only": 0,
+      "rows_dropped_deberta_only": 0,
+      "rows_joined": 1881
+    },
+    {
+      "classifier_path": "/Users/noamc/repos/llm-gatekeeping/data/processed/predictions/llm_predictions_unseen_test_colab_local_classifier.parquet",
+      "deberta_path": "/Users/noamc/repos/llm-gatekeeping/data/processed/predictions/deberta_predictions_unseen_test.parquet",
+      "name": "unseen_test",
+      "rows_classifier": 1894,
+      "rows_deberta": 1894,
+      "rows_dropped_classifier_only": 0,
+      "rows_dropped_deberta_only": 0,
+      "rows_joined": 1894
+    },
+    {
+      "classifier_path": "/Users/noamc/repos/llm-gatekeeping/data/processed/predictions/llm_predictions_safeguard_test_colab_local_classifier.parquet",
+      "deberta_path": "/Users/noamc/repos/llm-gatekeeping/data/processed/predictions/deberta_predictions_safeguard_test.parquet",
+      "name": "safeguard_test",
+      "rows_classifier": 1552,
+      "rows_deberta": 1555,
+      "rows_dropped_classifier_only": 0,
+      "rows_dropped_deberta_only": 0,
+      "rows_joined": 1552
+    },
+    {
+      "classifier_path": "/Users/noamc/repos/llm-gatekeeping/data/processed/predictions_external/llm_predictions_external_deepset.parquet",
+      "deberta_path": "/Users/noamc/repos/llm-gatekeeping/data/processed/predictions_external/deberta_predictions_external_deepset.parquet",
+      "name": "external_deepset",
+      "rows_classifier": 116,
+      "rows_deberta": 116,
+      "rows_dropped_classifier_only": 0,
+      "rows_dropped_deberta_only": 0,
+      "rows_joined": 116
+    },
+    {
+      "classifier_path": "/Users/noamc/repos/llm-gatekeeping/data/processed/predictions_external/llm_predictions_external_jackhhao.parquet",
+      "deberta_path": "/Users/noamc/repos/llm-gatekeeping/data/processed/predictions_external/deberta_predictions_external_jackhhao.parquet",
+      "name": "external_jackhhao",
+      "rows_classifier": 262,
+      "rows_deberta": 262,
+      "rows_dropped_classifier_only": 0,
+      "rows_dropped_deberta_only": 0,
+      "rows_joined": 262
+    }
+  ],
+  "ok": true
+}

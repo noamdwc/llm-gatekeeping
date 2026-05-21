@@ -156,8 +156,14 @@ def test_colab_notebook_pins_cuda_compatible_torch_before_requirements():
 
     assert install_cells
     first_install = install_cells[0]
+    install_lines = [
+        line for line in first_install.splitlines()
+        if line.startswith("%pip install") or line.startswith("!grep")
+    ]
+    install_commands = "\n".join(install_lines)
     assert "torch==2.7.1" in first_install
     assert "cu126" in first_install
     assert "--extra-index-url https://download.pytorch.org/whl/cu126" in first_install
-    assert "grep -v '^vllm' requirements.txt" in first_install
-    assert "%pip install -r /tmp/requirements-deberta.txt" in first_install
+    assert "--force-reinstall" not in install_commands
+    assert "grep -Ev '^(torch|vllm)'" in install_commands
+    assert "%pip install -r /tmp/requirements-deberta.txt" in install_commands

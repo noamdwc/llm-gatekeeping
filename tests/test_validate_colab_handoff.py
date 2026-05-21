@@ -161,7 +161,7 @@ def test_main_writes_validation_report_for_main_and_external_targets(tmp_path: P
         )
 
     _classifier_frame().to_parquet(
-        external_dir / "llm_predictions_external_deepset_colab_local_classifier.parquet",
+        external_dir / "llm_predictions_external_deepset.parquet",
         index=False,
     )
     _deberta_frame().to_parquet(

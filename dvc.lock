@@ -176,9 +176,9 @@ stages:
       size: 773857
     - path: src/ml_classifier/
       hash: md5
-      md5: f3ac0420c2afff5a2887e1a8ceebde2b.dir
-      size: 84750
-      nfiles: 12
+      md5: 3bb2d204396336786c9a7f4f2bf2c123.dir
+      size: 64513
+      nfiles: 8
     - path: src/utils.py
       hash: md5
       md5: aa5d2f6b993e019e3d85b3e13a53f23e
@@ -208,28 +208,28 @@ stages:
     outs:
     - path: data/processed/models/ml_baseline.pkl
       hash: md5
-      md5: d386ca62310cd92c3ca4d19f152c8d8c
+      md5: 50ae8728f11d67ccda4fc5e2b703c589
       size: 8219393
     - path: data/processed/predictions/ml_predictions_safeguard_test.parquet
       hash: md5
-      md5: a5eac11c56eff4925739c521e40d83f0
-      size: 1240718
+      md5: 9f81d08e28088b98d00f37d2107d1b7f
+      size: 1240717
     - path: data/processed/predictions/ml_predictions_test.parquet
       hash: md5
-      md5: d40d02b30ae8dd845330c6626fcffeb8
-      size: 1512429
+      md5: 68f3106b449beb3ad487a3e78c18c9e9
+      size: 1512792
     - path: data/processed/predictions/ml_predictions_unseen_test.parquet
       hash: md5
-      md5: b9c62b34d4ff36e2c493f03c5933604f
-      size: 1144384
+      md5: dca0f2b0f3265a2598c5b375a0f2a635
+      size: 1144394
     - path: data/processed/predictions/ml_predictions_unseen_val.parquet
       hash: md5
-      md5: 52ada123e249634a62325aa69fe85173
-      size: 1097150
+      md5: 110f4b805b80acfb848dd62d8ce5059f
+      size: 1097159
     - path: data/processed/predictions/ml_predictions_val.parquet
       hash: md5
-      md5: cab9b17e05d141fad551d997779d355d
-      size: 1327311
+      md5: 5b06604b27ff05efbf646e463ccc63a1
+      size: 1327321
   deberta_model:
     cmd: python -m src.cli.deberta_classifier --research
     deps:
@@ -239,33 +239,33 @@ stages:
       size: 895994
     - path: data/processed/splits/test.parquet
       hash: md5
-      md5: 6f3b155cc731411e6f32422301743f12
-      size: 936516
+      md5: 454d4dcd554e1798da4ee302ba95342a
+      size: 945105
     - path: data/processed/splits/train.parquet
       hash: md5
-      md5: 21fc351cd6e3842a1cea3b6242ab7202
-      size: 4274126
+      md5: 346a957a8f74912cb9486039a76d788d
+      size: 4323633
     - path: data/processed/splits/unseen_test.parquet
       hash: md5
-      md5: 50a4647a8813f60ada5a95416ddef016
-      size: 739461
+      md5: 0c1f2e449b71751fbf45d8fecf7b84ad
+      size: 731514
     - path: data/processed/splits/unseen_val.parquet
       hash: md5
-      md5: bb9392e905b07fd69ca0600ce512052d
-      size: 708535
+      md5: 391ddbeb66338502ccb5ca1b625b6282
+      size: 686847
     - path: data/processed/splits/val.parquet
       hash: md5
-      md5: 7fdce025ed0171ef9dc52be1df20dffe
-      size: 797534
+      md5: 820d0086dcc28d89e06d73b3c814ca1e
+      size: 773857
     - path: src/cli/deberta_classifier.py
       hash: md5
       md5: 84bcd2208c28f5932cfbdf26142b3beb
       size: 24117
     - path: src/models/
       hash: md5
-      md5: 6b8fc9f13dacac917e66ca88f82edbeb.dir
-      size: 96911
-      nfiles: 6
+      md5: 601d643a787dedd34cc3559db3b29896.dir
+      size: 127887
+      nfiles: 9
     - path: src/utils.py
       hash: md5
       md5: aa5d2f6b993e019e3d85b3e13a53f23e
@@ -297,7 +297,7 @@ stages:
       size: 124
     - path: artifacts/deberta_classifier/model/
       hash: md5
-      md5: bead844f86e0ac345a24a10245339694.dir
+      md5: 5120ca88d8b79a2dfeae76d4d826cedf.dir
       size: 737720292
       nfiles: 2
     - path: artifacts/deberta_classifier/tokenizer/
@@ -307,8 +307,8 @@ stages:
       nfiles: 2
     - path: artifacts/deberta_classifier/train_history.json
       hash: md5
-      md5: 9794e86dc2f1f189f2acb01dce788dd3
-      size: 5005
+      md5: c321ca4764a1fa6e84c8ea8ba31bd083
+      size: 5063
     - path: 
         data/processed/predictions/deberta_predictions_safeguard_test.parquet
       hash: md5
@@ -640,6 +640,10 @@ stages:
   final_verdict_report:
     cmd: python -m src.cli.final_verdict_report --config configs/default.yaml
     deps:
+    - path: data/processed/models/escalating_model.pkl
+      hash: md5
+      md5: 1830e8c34a2555561db144e67003c6b5
+      size: 350304
     - path: 
         data/processed/predictions/llm_predictions_safeguard_test_colab_local_judged.parquet
       hash: md5
@@ -658,27 +662,35 @@ stages:
     - path: 
         data/processed/predictions_external/llm_predictions_external_deepset_colab_local_judged.parquet
       hash: md5
-      md5: c0961678e6b90818e737482cc78dbca9
-      size: 155371
+      md5: 2a8b9fd72cbfd33811bb32e79444f098
+      size: 123061
     - path: 
         data/processed/predictions_external/llm_predictions_external_jackhhao_colab_local_judged.parquet
       hash: md5
-      md5: dee6e1551453140cb3075405af4d4ea3
-      size: 496979
+      md5: d6696b07c762c105c8bf87cedc343407
+      size: 995992
     - path: 
         data/processed/research/escalating_model_eval_external_deepset.parquet
       hash: md5
-      md5: a8f436e49c4596bb557683fdb9b7233c
-      size: 180115
+      md5: d6be2e13ab9554f5308edd340a623266
+      size: 120783
     - path: 
         data/processed/research/escalating_model_eval_external_jackhhao.parquet
       hash: md5
-      md5: c49a39a57a4778f8ef770542cf083a66
-      size: 335106
+      md5: 9e3b64f58d48e4df1e550fd5f285c736
+      size: 995045
+    - path: data/processed/research/escalating_model_summary.csv
+      hash: md5
+      md5: 815c7b15eca66b0492efa7e46ca81696
+      size: 1049
+    - path: reports/colab_handoff_validation.json
+      hash: md5
+      md5: bd646813349a13bfa06d2340c4144aa8
+      size: 3390
     - path: src/cli/final_verdict_report.py
       hash: md5
-      md5: 6fe55fa285a156f20f6d66afe8477563
-      size: 12005
+      md5: 316dbd9eeee9837b138cbde56f75ac11
+      size: 12040
     - path: src/evaluate.py
       hash: md5
       md5: ee2845873876531401df897c34e0b0b6
@@ -713,8 +725,8 @@ stages:
     outs:
     - path: reports/pipeline_final_verdict_report.md
       hash: md5
-      md5: 25091dfbbb91f3e022f76ab22a6b08bb
-      size: 3358
+      md5: c1513a819acc994033ed3cfca45c6546
+      size: 3432
   deberta_external@deepset:
     cmd: python -m src.cli.eval_deberta_external --dataset deepset
     deps:
@@ -724,7 +736,7 @@ stages:
       size: 124
     - path: artifacts/deberta_classifier/model/
       hash: md5
-      md5: bead844f86e0ac345a24a10245339694.dir
+      md5: 5120ca88d8b79a2dfeae76d4d826cedf.dir
       size: 737720292
       nfiles: 2
     - path: artifacts/deberta_classifier/tokenizer/
@@ -734,17 +746,17 @@ stages:
       nfiles: 2
     - path: src/cli/eval_deberta_external.py
       hash: md5
-      md5: 231567be8555e27d37fc9c1c86b0191e
-      size: 8145
+      md5: 3e222650be5e6371b0b90b27d1a229b7
+      size: 8195
     - path: src/external_datasets.py
       hash: md5
       md5: 108aa879b62b5ca1f5e5253d217dd9df
       size: 1958
     - path: src/models/
       hash: md5
-      md5: 6b8fc9f13dacac917e66ca88f82edbeb.dir
-      size: 96911
-      nfiles: 6
+      md5: 601d643a787dedd34cc3559db3b29896.dir
+      size: 127887
+      nfiles: 9
     - path: src/utils.py
       hash: md5
       md5: aa5d2f6b993e019e3d85b3e13a53f23e
@@ -781,11 +793,11 @@ stages:
     - path: 
         data/processed/predictions_external/deberta_predictions_external_deepset.parquet
       hash: md5
-      md5: 74dc75ad9ed098cd8ff88725cafa2407
-      size: 21334
+      md5: 97b498ff519e324618089d8b44386f0e
+      size: 21264
     - path: reports/research_external/eval_deberta_external_deepset.md
       hash: md5
-      md5: deabf77c6a07a2c5dceb4cac7d9575e2
+      md5: 37fb92b47012a508f43f9682cb63f7be
       size: 794
   deberta_external@jackhhao:
     cmd: python -m src.cli.eval_deberta_external --dataset jackhhao
@@ -796,7 +808,7 @@ stages:
       size: 124
     - path: artifacts/deberta_classifier/model/
       hash: md5
-      md5: bead844f86e0ac345a24a10245339694.dir
+      md5: 5120ca88d8b79a2dfeae76d4d826cedf.dir
       size: 737720292
       nfiles: 2
     - path: artifacts/deberta_classifier/tokenizer/
@@ -806,17 +818,17 @@ stages:
       nfiles: 2
     - path: src/cli/eval_deberta_external.py
       hash: md5
-      md5: 231567be8555e27d37fc9c1c86b0191e
-      size: 8145
+      md5: 3e222650be5e6371b0b90b27d1a229b7
+      size: 8195
     - path: src/external_datasets.py
       hash: md5
       md5: 108aa879b62b5ca1f5e5253d217dd9df
       size: 1958
     - path: src/models/
       hash: md5
-      md5: 6b8fc9f13dacac917e66ca88f82edbeb.dir
-      size: 96911
-      nfiles: 6
+      md5: 601d643a787dedd34cc3559db3b29896.dir
+      size: 127887
+      nfiles: 9
     - path: src/utils.py
       hash: md5
       md5: aa5d2f6b993e019e3d85b3e13a53f23e
@@ -853,12 +865,12 @@ stages:
     - path: 
         data/processed/predictions_external/deberta_predictions_external_jackhhao.parquet
       hash: md5
-      md5: a571dad41b3683038d25be7fa33445fd
-      size: 223651
+      md5: 559bf8171a3fceebb0d79eb79ae98ca6
+      size: 223515
     - path: reports/research_external/eval_deberta_external_jackhhao.md
       hash: md5
-      md5: 76938a2f37c986d45b0f69af80793d61
-      size: 837
+      md5: 9424f0bf2df2fa7bff8a77d69ca31364
+      size: 838
   generate_synthetic_benign@A:
     cmd: python -m src.cli.generate_synthetic_benign --category A
     deps:
@@ -918,3 +930,586 @@ stages:
       hash: md5
       md5: 625e706c4ac33dbb3c364e67f85d5cac
       size: 70268
+  validate_colab_handoff:
+    cmd: python -m src.cli.validate_colab_handoff --config configs/default.yaml
+    deps:
+    - path: 
+        data/processed/predictions/deberta_predictions_safeguard_test.parquet
+      hash: md5
+      md5: 4e6045f34b62cb26ed190562153aa207
+      size: 983925
+    - path: data/processed/predictions/deberta_predictions_test.parquet
+      hash: md5
+      md5: 721f76c82596b7aeb97860ac52de9001
+      size: 1067377
+    - path: data/processed/predictions/deberta_predictions_unseen_test.parquet
+      hash: md5
+      md5: 8d09b13ee8034e4e859dff8e1af72830
+      size: 837816
+    - path: data/processed/predictions/deberta_predictions_unseen_val.parquet
+      hash: md5
+      md5: a3b081bde84ebd274cd01c6635d54530
+      size: 806427
+    - path: data/processed/predictions/deberta_predictions_val.parquet
+      hash: md5
+      md5: dc00d95589364b77bb90a6c9f4e1318e
+      size: 926511
+    - path: 
+        data/processed/predictions/llm_predictions_safeguard_test_colab_local_classifier.parquet
+      hash: md5
+      md5: f998493993faa9923c0ab35ef6691d5b
+      size: 12010233
+    - path: 
+        data/processed/predictions/llm_predictions_test_colab_local_classifier.parquet
+      hash: md5
+      md5: e3616a57015fe6c805c6ce209c9cd669
+      size: 28082727
+    - path: 
+        data/processed/predictions/llm_predictions_unseen_test_colab_local_classifier.parquet
+      hash: md5
+      md5: 8de1594b1a62565ce49163906c6f6d59
+      size: 18129319
+    - path: 
+        data/processed/predictions/llm_predictions_unseen_val_colab_local_classifier.parquet
+      hash: md5
+      md5: 3bc0576fd668fa9c2fe255dc4fea5978
+      size: 17663342
+    - path: 
+        data/processed/predictions/llm_predictions_val_colab_local_classifier.parquet
+      hash: md5
+      md5: 6f6c2e5ade717635bd9f2325161ddc63
+      size: 25830206
+    - path: 
+        data/processed/predictions_external/deberta_predictions_external_deepset.parquet
+      hash: md5
+      md5: 97b498ff519e324618089d8b44386f0e
+      size: 21264
+    - path: 
+        data/processed/predictions_external/deberta_predictions_external_jackhhao.parquet
+      hash: md5
+      md5: 559bf8171a3fceebb0d79eb79ae98ca6
+      size: 223515
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_deepset.parquet
+      hash: md5
+      md5: d9d2534126b4db87f47a9f65e07cb7a6
+      size: 110161
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
+      hash: md5
+      md5: 5a42de8ab23ecce72b112586d8368901
+      size: 985805
+    - path: src/cli/colab_handoff_schema.py
+      hash: md5
+      md5: 1abf61ff7d17f3eec63ac52811825f8c
+      size: 613
+    - path: src/cli/validate_colab_handoff.py
+      hash: md5
+      md5: a27aa037a19a1e51c1eb944c6e808e5d
+      size: 5676
+    params:
+      configs/default.yaml:
+        external_datasets:
+          deepset:
+            name: deepset/prompt-injections
+            split: test
+            text_col: text
+            label_col: label
+            label_map:
+              1: adversarial
+              0: benign
+          jackhhao:
+            name: jackhhao/jailbreak-classification
+            split: test
+            text_col: prompt
+            label_col: type
+            label_map:
+              jailbreak: adversarial
+              benign: benign
+    outs:
+    - path: reports/colab_handoff_validation.json
+      hash: md5
+      md5: bd646813349a13bfa06d2340c4144aa8
+      size: 3390
+  train_escalating_model:
+    cmd: python -m src.cli.train_escalating_model
+    deps:
+    - path: 
+        data/processed/predictions/deberta_predictions_safeguard_test.parquet
+      hash: md5
+      md5: 4e6045f34b62cb26ed190562153aa207
+      size: 983925
+    - path: data/processed/predictions/deberta_predictions_test.parquet
+      hash: md5
+      md5: 721f76c82596b7aeb97860ac52de9001
+      size: 1067377
+    - path: data/processed/predictions/deberta_predictions_unseen_test.parquet
+      hash: md5
+      md5: 8d09b13ee8034e4e859dff8e1af72830
+      size: 837816
+    - path: data/processed/predictions/deberta_predictions_unseen_val.parquet
+      hash: md5
+      md5: a3b081bde84ebd274cd01c6635d54530
+      size: 806427
+    - path: data/processed/predictions/deberta_predictions_val.parquet
+      hash: md5
+      md5: dc00d95589364b77bb90a6c9f4e1318e
+      size: 926511
+    - path: 
+        data/processed/predictions/llm_predictions_safeguard_test_colab_local_classifier.parquet
+      hash: md5
+      md5: f998493993faa9923c0ab35ef6691d5b
+      size: 12010233
+    - path: 
+        data/processed/predictions/llm_predictions_test_colab_local_classifier.parquet
+      hash: md5
+      md5: e3616a57015fe6c805c6ce209c9cd669
+      size: 28082727
+    - path: 
+        data/processed/predictions/llm_predictions_unseen_test_colab_local_classifier.parquet
+      hash: md5
+      md5: 8de1594b1a62565ce49163906c6f6d59
+      size: 18129319
+    - path: 
+        data/processed/predictions/llm_predictions_unseen_val_colab_local_classifier.parquet
+      hash: md5
+      md5: 3bc0576fd668fa9c2fe255dc4fea5978
+      size: 17663342
+    - path: 
+        data/processed/predictions/llm_predictions_val_colab_local_classifier.parquet
+      hash: md5
+      md5: 6f6c2e5ade717635bd9f2325161ddc63
+      size: 25830206
+    - path: 
+        data/processed/predictions_external/deberta_predictions_external_deepset.parquet
+      hash: md5
+      md5: 97b498ff519e324618089d8b44386f0e
+      size: 21264
+    - path: 
+        data/processed/predictions_external/deberta_predictions_external_jackhhao.parquet
+      hash: md5
+      md5: 559bf8171a3fceebb0d79eb79ae98ca6
+      size: 223515
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_deepset.parquet
+      hash: md5
+      md5: d9d2534126b4db87f47a9f65e07cb7a6
+      size: 110161
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
+      hash: md5
+      md5: 5a42de8ab23ecce72b112586d8368901
+      size: 985805
+    - path: reports/colab_handoff_validation.json
+      hash: md5
+      md5: bd646813349a13bfa06d2340c4144aa8
+      size: 3390
+    - path: src/cli/train_escalating_model.py
+      hash: md5
+      md5: 53fec1687d4e5acf1dbeb0eeb0777075
+      size: 11235
+    - path: src/escalating_model.py
+      hash: md5
+      md5: b024924a97bc5b67340bb9430fc4a199
+      size: 23049
+    - path: src/logprob_margin.py
+      hash: md5
+      md5: fb7bda515157207205ad37cb6556e0ba
+      size: 9649
+    params:
+      configs/default.yaml:
+        external_datasets:
+          deepset:
+            name: deepset/prompt-injections
+            split: test
+            text_col: text
+            label_col: label
+            label_map:
+              1: adversarial
+              0: benign
+          jackhhao:
+            name: jackhhao/jailbreak-classification
+            split: test
+            text_col: prompt
+            label_col: type
+            label_map:
+              jailbreak: adversarial
+              benign: benign
+        hybrid.escalating_model:
+          model_path: data/processed/models/escalating_model.pkl
+          calibration_method: sigmoid
+          judge_threshold: 0.5
+    outs:
+    - path: data/processed/models/escalating_model.pkl
+      hash: md5
+      md5: 1830e8c34a2555561db144e67003c6b5
+      size: 350304
+    - path: 
+        data/processed/research/escalating_model_eval_external_deepset.parquet
+      hash: md5
+      md5: d6be2e13ab9554f5308edd340a623266
+      size: 120783
+    - path: 
+        data/processed/research/escalating_model_eval_external_jackhhao.parquet
+      hash: md5
+      md5: 9e3b64f58d48e4df1e550fd5f285c736
+      size: 995045
+    - path: data/processed/research/escalating_model_eval_safeguard_test.parquet
+      hash: md5
+      md5: 4b918ffb872833938e7fa4b6b1dc60e0
+      size: 12019975
+    - path: data/processed/research/escalating_model_eval_test.parquet
+      hash: md5
+      md5: a4c242fc0061566b933842fa7ba90524
+      size: 28082138
+    - path: data/processed/research/escalating_model_eval_unseen_test.parquet
+      hash: md5
+      md5: aab09bed56eb00323fd70bc13f074d90
+      size: 18115714
+    - path: data/processed/research/escalating_model_eval_unseen_val.parquet
+      hash: md5
+      md5: 11a750af87b2eeb9d18381af8bdfedd4
+      size: 17652618
+    - path: data/processed/research/escalating_model_summary.csv
+      hash: md5
+      md5: 815c7b15eca66b0492efa7e46ca81696
+      size: 1049
+    - path: 
+        data/processed/research/escalating_model_threshold_sweep_unseen_val.csv
+      hash: md5
+      md5: a94aeba867ee59f363e2a8e6d3f44b48
+      size: 1710
+    - path: 
+        data/processed/research/escalating_model_unseen_val_postscore_split_map.csv
+      hash: md5
+      md5: fc34c04002b62343f1b4cff6205735ba
+      size: 48127
+    - path: reports/escalating_model_poc.md
+      hash: md5
+      md5: c1ef641af17d96243303061be76cdcd6
+      size: 9170
+  judge_colab_local_predictions@test:
+    cmd: python -m src.cli.judge_colab_local_predictions --split test 
+      --max-concurrency 1 --target-rpm 2 --cooldown-on-429 60
+    deps:
+    - path: 
+        data/processed/predictions/llm_predictions_test_colab_local_classifier.parquet
+      hash: md5
+      md5: e3616a57015fe6c805c6ce209c9cd669
+      size: 28082727
+    - path: data/processed/research/escalating_model_eval_test.parquet
+      hash: md5
+      md5: a4c242fc0061566b933842fa7ba90524
+      size: 28082138
+    - path: src/cli/judge_colab_local_predictions.py
+      hash: md5
+      md5: de3ef6a0898de0cf497a31fc31fe3e86
+      size: 11637
+    - path: src/llm_classifier/
+      hash: md5
+      md5: e7ace9c8d866f93c199df810a004cec4.dir
+      size: 196321
+      nfiles: 18
+    - path: src/utils.py
+      hash: md5
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
+    params:
+      configs/default.yaml:
+        hybrid.escalating_model:
+          model_path: data/processed/models/escalating_model.pkl
+          calibration_method: sigmoid
+          judge_threshold: 0.5
+        llm:
+          model: meta/llama-3.1-8b-instruct
+          model_quality: meta/llama-3.1-70b-instruct
+          temperature: 0
+          max_concurrency: 1
+          target_rpm: 30
+          cooldown_on_429: 20
+          checkpoint_every: 200
+          resume: true
+          max_tokens_classifier: 200
+          max_tokens_judge: 500
+          judge_confidence_threshold: 0.8
+          capture_logprobs: true
+          top_logprobs: 5
+          few_shot:
+            unicode: 0
+            nlp: 1
+            include_hard_benign: false
+            embedding_model: nvidia/nv-embedqa-e5-v5
+            bank_size_per_type: 15
+            dynamic_k: 2
+    outs:
+    - path: 
+        data/processed/predictions/llm_predictions_test_colab_local_judged.parquet
+      hash: md5
+      md5: b689e6a15dcaa929c248ccf44e45ba0a
+      size: 27980540
+  judge_colab_local_predictions@unseen_test:
+    cmd: python -m src.cli.judge_colab_local_predictions --split unseen_test 
+      --max-concurrency 1 --target-rpm 2 --cooldown-on-429 60
+    deps:
+    - path: 
+        data/processed/predictions/llm_predictions_unseen_test_colab_local_classifier.parquet
+      hash: md5
+      md5: 8de1594b1a62565ce49163906c6f6d59
+      size: 18129319
+    - path: data/processed/research/escalating_model_eval_unseen_test.parquet
+      hash: md5
+      md5: aab09bed56eb00323fd70bc13f074d90
+      size: 18115714
+    - path: src/cli/judge_colab_local_predictions.py
+      hash: md5
+      md5: de3ef6a0898de0cf497a31fc31fe3e86
+      size: 11637
+    - path: src/llm_classifier/
+      hash: md5
+      md5: e7ace9c8d866f93c199df810a004cec4.dir
+      size: 196321
+      nfiles: 18
+    - path: src/utils.py
+      hash: md5
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
+    params:
+      configs/default.yaml:
+        hybrid.escalating_model:
+          model_path: data/processed/models/escalating_model.pkl
+          calibration_method: sigmoid
+          judge_threshold: 0.5
+        llm:
+          model: meta/llama-3.1-8b-instruct
+          model_quality: meta/llama-3.1-70b-instruct
+          temperature: 0
+          max_concurrency: 1
+          target_rpm: 30
+          cooldown_on_429: 20
+          checkpoint_every: 200
+          resume: true
+          max_tokens_classifier: 200
+          max_tokens_judge: 500
+          judge_confidence_threshold: 0.8
+          capture_logprobs: true
+          top_logprobs: 5
+          few_shot:
+            unicode: 0
+            nlp: 1
+            include_hard_benign: false
+            embedding_model: nvidia/nv-embedqa-e5-v5
+            bank_size_per_type: 15
+            dynamic_k: 2
+    outs:
+    - path: 
+        data/processed/predictions/llm_predictions_unseen_test_colab_local_judged.parquet
+      hash: md5
+      md5: ca2edd1b92fe3ca83571396117f77638
+      size: 18041418
+  judge_colab_local_predictions@safeguard_test:
+    cmd: python -m src.cli.judge_colab_local_predictions --split safeguard_test 
+      --max-concurrency 1 --target-rpm 2 --cooldown-on-429 60
+    deps:
+    - path: 
+        data/processed/predictions/llm_predictions_safeguard_test_colab_local_classifier.parquet
+      hash: md5
+      md5: f998493993faa9923c0ab35ef6691d5b
+      size: 12010233
+    - path: data/processed/research/escalating_model_eval_safeguard_test.parquet
+      hash: md5
+      md5: 4b918ffb872833938e7fa4b6b1dc60e0
+      size: 12019975
+    - path: src/cli/judge_colab_local_predictions.py
+      hash: md5
+      md5: de3ef6a0898de0cf497a31fc31fe3e86
+      size: 11637
+    - path: src/llm_classifier/
+      hash: md5
+      md5: e7ace9c8d866f93c199df810a004cec4.dir
+      size: 196321
+      nfiles: 18
+    - path: src/utils.py
+      hash: md5
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
+    params:
+      configs/default.yaml:
+        hybrid.escalating_model:
+          model_path: data/processed/models/escalating_model.pkl
+          calibration_method: sigmoid
+          judge_threshold: 0.5
+        llm:
+          model: meta/llama-3.1-8b-instruct
+          model_quality: meta/llama-3.1-70b-instruct
+          temperature: 0
+          max_concurrency: 1
+          target_rpm: 30
+          cooldown_on_429: 20
+          checkpoint_every: 200
+          resume: true
+          max_tokens_classifier: 200
+          max_tokens_judge: 500
+          judge_confidence_threshold: 0.8
+          capture_logprobs: true
+          top_logprobs: 5
+          few_shot:
+            unicode: 0
+            nlp: 1
+            include_hard_benign: false
+            embedding_model: nvidia/nv-embedqa-e5-v5
+            bank_size_per_type: 15
+            dynamic_k: 2
+    outs:
+    - path: 
+        data/processed/predictions/llm_predictions_safeguard_test_colab_local_judged.parquet
+      hash: md5
+      md5: 6bae66d276c621c45dab50c0fae99314
+      size: 11964098
+  judge_colab_local_predictions_external@deepset:
+    cmd: python -m src.cli.judge_colab_local_predictions --split 
+      external_deepset --input 
+      data/processed/predictions_external/llm_predictions_external_deepset.parquet
+      --output 
+      data/processed/predictions_external/llm_predictions_external_deepset_colab_local_judged.parquet
+      --escalation-scores 
+      data/processed/research/escalating_model_eval_external_deepset.parquet 
+      --max-concurrency 1 --target-rpm 2 --cooldown-on-429 60
+    deps:
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_deepset.parquet
+      hash: md5
+      md5: d9d2534126b4db87f47a9f65e07cb7a6
+      size: 110161
+    - path: 
+        data/processed/research/escalating_model_eval_external_deepset.parquet
+      hash: md5
+      md5: d6be2e13ab9554f5308edd340a623266
+      size: 120783
+    - path: src/cli/judge_colab_local_predictions.py
+      hash: md5
+      md5: de3ef6a0898de0cf497a31fc31fe3e86
+      size: 11637
+    - path: src/llm_classifier/
+      hash: md5
+      md5: e7ace9c8d866f93c199df810a004cec4.dir
+      size: 196321
+      nfiles: 18
+    - path: src/utils.py
+      hash: md5
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
+    params:
+      configs/default.yaml:
+        external_datasets.deepset:
+          name: deepset/prompt-injections
+          split: test
+          text_col: text
+          label_col: label
+          label_map:
+            1: adversarial
+            0: benign
+        hybrid.escalating_model:
+          model_path: data/processed/models/escalating_model.pkl
+          calibration_method: sigmoid
+          judge_threshold: 0.5
+        llm:
+          model: meta/llama-3.1-8b-instruct
+          model_quality: meta/llama-3.1-70b-instruct
+          temperature: 0
+          max_concurrency: 1
+          target_rpm: 30
+          cooldown_on_429: 20
+          checkpoint_every: 200
+          resume: true
+          max_tokens_classifier: 200
+          max_tokens_judge: 500
+          judge_confidence_threshold: 0.8
+          capture_logprobs: true
+          top_logprobs: 5
+          few_shot:
+            unicode: 0
+            nlp: 1
+            include_hard_benign: false
+            embedding_model: nvidia/nv-embedqa-e5-v5
+            bank_size_per_type: 15
+            dynamic_k: 2
+    outs:
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_deepset_colab_local_judged.parquet
+      hash: md5
+      md5: 2a8b9fd72cbfd33811bb32e79444f098
+      size: 123061
+  judge_colab_local_predictions_external@jackhhao:
+    cmd: python -m src.cli.judge_colab_local_predictions --split 
+      external_jackhhao --input 
+      data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
+      --output 
+      data/processed/predictions_external/llm_predictions_external_jackhhao_colab_local_judged.parquet
+      --escalation-scores 
+      data/processed/research/escalating_model_eval_external_jackhhao.parquet 
+      --max-concurrency 1 --target-rpm 2 --cooldown-on-429 60
+    deps:
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
+      hash: md5
+      md5: 5a42de8ab23ecce72b112586d8368901
+      size: 985805
+    - path: 
+        data/processed/research/escalating_model_eval_external_jackhhao.parquet
+      hash: md5
+      md5: 9e3b64f58d48e4df1e550fd5f285c736
+      size: 995045
+    - path: src/cli/judge_colab_local_predictions.py
+      hash: md5
+      md5: de3ef6a0898de0cf497a31fc31fe3e86
+      size: 11637
+    - path: src/llm_classifier/
+      hash: md5
+      md5: e7ace9c8d866f93c199df810a004cec4.dir
+      size: 196321
+      nfiles: 18
+    - path: src/utils.py
+      hash: md5
+      md5: aa5d2f6b993e019e3d85b3e13a53f23e
+      size: 1843
+    params:
+      configs/default.yaml:
+        external_datasets.jackhhao:
+          name: jackhhao/jailbreak-classification
+          split: test
+          text_col: prompt
+          label_col: type
+          label_map:
+            jailbreak: adversarial
+            benign: benign
+        hybrid.escalating_model:
+          model_path: data/processed/models/escalating_model.pkl
+          calibration_method: sigmoid
+          judge_threshold: 0.5
+        llm:
+          model: meta/llama-3.1-8b-instruct
+          model_quality: meta/llama-3.1-70b-instruct
+          temperature: 0
+          max_concurrency: 1
+          target_rpm: 30
+          cooldown_on_429: 20
+          checkpoint_every: 200
+          resume: true
+          max_tokens_classifier: 200
+          max_tokens_judge: 500
+          judge_confidence_threshold: 0.8
+          capture_logprobs: true
+          top_logprobs: 5
+          few_shot:
+            unicode: 0
+            nlp: 1
+            include_hard_benign: false
+            embedding_model: nvidia/nv-embedqa-e5-v5
+            bank_size_per_type: 15
+            dynamic_k: 2
+    outs:
+    - path: 
+        data/processed/predictions_external/llm_predictions_external_jackhhao_colab_local_judged.parquet
+      hash: md5
+      md5: d6696b07c762c105c8bf87cedc343407
+      size: 995992

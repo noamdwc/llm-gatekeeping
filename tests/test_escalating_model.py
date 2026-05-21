@@ -366,12 +366,12 @@ class TestPocEvaluation:
 
 
 class TestTrainEscalatingModelCli:
-    def test_default_external_colab_path_uses_manual_handoff_suffix(self):
+    def test_default_external_colab_path_matches_notebook_output_name(self):
         from src.cli import train_escalating_model
 
         path = train_escalating_model._default_external_colab_path("deepset")
 
-        assert path.name == "llm_predictions_external_deepset_colab_local_classifier.parquet"
+        assert path.name == "llm_predictions_external_deepset.parquet"
 
     def test_cli_fails_when_configured_external_handoff_artifact_is_missing(self, tmp_path, monkeypatch):
         from src.cli import train_escalating_model

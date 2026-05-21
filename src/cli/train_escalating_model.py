@@ -45,10 +45,7 @@ def _default_deberta_path(split: str) -> Path:
 
 
 def _default_external_colab_path(dataset: str) -> Path:
-    return (
-        PREDICTIONS_EXTERNAL_DIR
-        / f"llm_predictions_external_{dataset}_colab_local_classifier.parquet"
-    )
+    return PREDICTIONS_EXTERNAL_DIR / f"llm_predictions_external_{dataset}.parquet"
 
 
 def _default_external_deberta_path(dataset: str) -> Path:

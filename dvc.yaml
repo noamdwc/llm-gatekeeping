@@ -179,9 +179,9 @@ stages:
     - data/processed/predictions/deberta_predictions_unseen_test.parquet
     - data/processed/predictions/llm_predictions_safeguard_test_colab_local_classifier.parquet
     - data/processed/predictions/deberta_predictions_safeguard_test.parquet
-    - data/processed/predictions_external/llm_predictions_external_deepset_colab_local_classifier.parquet
+    - data/processed/predictions_external/llm_predictions_external_deepset.parquet
     - data/processed/predictions_external/deberta_predictions_external_deepset.parquet
-    - data/processed/predictions_external/llm_predictions_external_jackhhao_colab_local_classifier.parquet
+    - data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
     - data/processed/predictions_external/deberta_predictions_external_jackhhao.parquet
     params:
     - configs/default.yaml:
@@ -194,6 +194,7 @@ stages:
   train_escalating_model:
     cmd: python -m src.cli.train_escalating_model
     deps:
+    - src/logprob_margin.py
     - src/escalating_model.py
     - src/cli/train_escalating_model.py
     - reports/colab_handoff_validation.json
@@ -207,9 +208,9 @@ stages:
     - data/processed/predictions/deberta_predictions_unseen_test.parquet
     - data/processed/predictions/llm_predictions_safeguard_test_colab_local_classifier.parquet
     - data/processed/predictions/deberta_predictions_safeguard_test.parquet
-    - data/processed/predictions_external/llm_predictions_external_deepset_colab_local_classifier.parquet
+    - data/processed/predictions_external/llm_predictions_external_deepset.parquet
     - data/processed/predictions_external/deberta_predictions_external_deepset.parquet
-    - data/processed/predictions_external/llm_predictions_external_jackhhao_colab_local_classifier.parquet
+    - data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
     - data/processed/predictions_external/deberta_predictions_external_jackhhao.parquet
     params:
     - configs/default.yaml:
@@ -236,12 +237,12 @@ stages:
     - jackhhao
     do:
       cmd: python -m src.cli.judge_colab_local_predictions --split external_${item}
-        --input data/processed/predictions_external/llm_predictions_external_${item}_colab_local_classifier.parquet
+        --input data/processed/predictions_external/llm_predictions_external_${item}.parquet
         --output data/processed/predictions_external/llm_predictions_external_${item}_colab_local_judged.parquet
         --escalation-scores data/processed/research/escalating_model_eval_external_${item}.parquet
         --max-concurrency 1 --target-rpm 2 --cooldown-on-429 60
       deps:
-      - data/processed/predictions_external/llm_predictions_external_${item}_colab_local_classifier.parquet
+      - data/processed/predictions_external/llm_predictions_external_${item}.parquet
       - data/processed/research/escalating_model_eval_external_${item}.parquet
       - src/cli/judge_colab_local_predictions.py
       - src/llm_classifier/

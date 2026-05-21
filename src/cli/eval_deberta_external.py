@@ -244,11 +244,12 @@ def main(argv: list[str] | None = None):
         for ds_key, ds_cfg in selected.items()
     ]
 
-    reports_dir = Path(args.reports_dir)
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    summary_path = reports_dir / "eval_deberta_external_summary.json"
-    summary_path.write_text(json.dumps(sanitize_for_json(results), indent=2, allow_nan=False))
-    print(f"\nSummary saved -> {summary_path}")
+    if args.dataset == "all":
+        reports_dir = Path(args.reports_dir)
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        summary_path = reports_dir / "eval_deberta_external_summary.json"
+        summary_path.write_text(json.dumps(sanitize_for_json(results), indent=2, allow_nan=False))
+        print(f"\nSummary saved -> {summary_path}")
 
 
 if __name__ == "__main__":
