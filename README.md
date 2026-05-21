@@ -136,8 +136,8 @@ data/processed/predictions/llm_predictions_test_colab_local_classifier.parquet
 data/processed/predictions/llm_predictions_unseen_val_colab_local_classifier.parquet
 data/processed/predictions/llm_predictions_unseen_test_colab_local_classifier.parquet
 data/processed/predictions/llm_predictions_safeguard_test_colab_local_classifier.parquet
-data/processed/predictions_external/llm_predictions_external_deepset_colab_local_classifier.parquet
-data/processed/predictions_external/llm_predictions_external_jackhhao_colab_local_classifier.parquet
+data/processed/predictions_external/llm_predictions_external_deepset.parquet
+data/processed/predictions_external/llm_predictions_external_jackhhao.parquet
 ```
 
 ### 3. Validate The Handoff
@@ -188,6 +188,14 @@ Colab notebook -> *_colab_local_classifier.parquet
                                       |
                          final_verdict_report
 ```
+
+External dataset stages that are DVC `foreach` stages are driven by
+`external_datasets` in `configs/default.yaml`. Aggregate stages with explicit
+DVC `deps`, such as `validate_colab_handoff`, `train_escalating_model`, and
+`final_verdict_report`, cannot dynamically expand those dependency lists from
+the config. When adding a new external dataset, update those aggregate stage
+deps/outs and the Colab artifact path list, or run/report the new dataset
+separately.
 
 ### Current Handoff Status
 

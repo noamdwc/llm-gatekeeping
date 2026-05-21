@@ -232,18 +232,16 @@ stages:
 
   # ── Stage 5c3: Judge External Colab Local Classifier Outputs ────────────
   judge_colab_local_predictions_external:
-    foreach:
-    - deepset
-    - jackhhao
+    foreach: ${external_datasets}
     do:
-      cmd: python -m src.cli.judge_colab_local_predictions --split external_${item}
-        --input data/processed/predictions_external/llm_predictions_external_${item}.parquet
-        --output data/processed/predictions_external/llm_predictions_external_${item}_colab_local_judged.parquet
-        --escalation-scores data/processed/research/escalating_model_eval_external_${item}.parquet
+      cmd: python -m src.cli.judge_colab_local_predictions --split external_${key}
+        --input data/processed/predictions_external/llm_predictions_external_${key}.parquet
+        --output data/processed/predictions_external/llm_predictions_external_${key}_colab_local_judged.parquet
+        --escalation-scores data/processed/research/escalating_model_eval_external_${key}.parquet
         --max-concurrency 1 --target-rpm 2 --cooldown-on-429 60
       deps:
-      - data/processed/predictions_external/llm_predictions_external_${item}.parquet
-      - data/processed/research/escalating_model_eval_external_${item}.parquet
+      - data/processed/predictions_external/llm_predictions_external_${key}.parquet
+      - data/processed/research/escalating_model_eval_external_${key}.parquet
       - src/cli/judge_colab_local_predictions.py
       - src/llm_classifier/
       - src/utils.py
@@ -251,9 +249,9 @@ stages:
       - configs/default.yaml:
         - llm
         - hybrid.escalating_model
-        - external_datasets.${item}
+        - external_datasets.${key}
       outs:
-      - data/processed/predictions_external/llm_predictions_external_${item}_colab_local_judged.parquet
+      - data/processed/predictions_external/llm_predictions_external_${key}_colab_local_judged.parquet
 
   # ── Stage 8: Canonical Final-Verdict Evaluation Report ──────────────────
   final_verdict_report:
