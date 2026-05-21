@@ -38,11 +38,13 @@ class TestCosineSimilarity:
     def test_batch_computation(self):
         """Compute similarity of one vector against multiple."""
         a = np.array([1.0, 0.0, 0.0])
-        b = np.array([
-            [1.0, 0.0, 0.0],  # identical
-            [0.0, 1.0, 0.0],  # orthogonal
-            [0.5, 0.5, 0.0],  # partial
-        ])
+        b = np.array(
+            [
+                [1.0, 0.0, 0.0],  # identical
+                [0.0, 1.0, 0.0],  # orthogonal
+                [0.5, 0.5, 0.0],  # partial
+            ]
+        )
         sims = cosine_similarity(a, b)
         assert sims.shape == (3,)
         assert sims[0] > sims[2] > sims[1]
@@ -68,18 +70,22 @@ class TestExemplarBank:
         # Create fake embeddings for two attack types
         bank.bank["Diacritcs"] = {
             "texts": ["héllö", "wörld", "tëst"],
-            "embeddings": np.array([
-                [1.0, 0.0, 0.0],
-                [0.9, 0.1, 0.0],
-                [0.0, 0.0, 1.0],
-            ]),
+            "embeddings": np.array(
+                [
+                    [1.0, 0.0, 0.0],
+                    [0.9, 0.1, 0.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
         }
         bank.bank["Zero Width"] = {
             "texts": ["he\u200bllo", "wo\u200brld"],
-            "embeddings": np.array([
-                [0.0, 1.0, 0.0],
-                [0.0, 0.9, 0.1],
-            ]),
+            "embeddings": np.array(
+                [
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.9, 0.1],
+                ]
+            ),
         }
         return bank
 
@@ -113,9 +119,7 @@ class TestExemplarBank:
     def test_select_multi_type(self, populated_bank):
         """select_multi_type retrieves from multiple attack types."""
         query = np.array([1.0, 0.0, 0.0])
-        results = populated_bank.select_multi_type(
-            query, ["Diacritcs", "Zero Width"], k_per_type=1
-        )
+        results = populated_bank.select_multi_type(query, ["Diacritcs", "Zero Width"], k_per_type=1)
         assert len(results) == 2
         labels = {r["label"] for r in results}
         assert labels == {"Diacritcs", "Zero Width"}
@@ -178,10 +182,12 @@ class TestSelectPairsByBenign:
         # Benign exemplars
         bank.bank["benign"] = {
             "texts": ["hello world", "good morning"],
-            "embeddings": np.array([
-                [0.7, 0.7, 0.0],
-                [0.0, 0.0, 1.0],
-            ]),
+            "embeddings": np.array(
+                [
+                    [0.7, 0.7, 0.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
         }
         return bank
 
@@ -206,9 +212,9 @@ class TestSelectPairsByBenign:
         pairs = bank_multi_type.select_pairs_by_benign(query, k=1)
         attack_type = pairs[0][2]
         # Diacritcs at [1,0,0] is identical to query; Homoglyphs at [-1,0,0] is opposite
-        assert attack_type == "Diacritcs", (
-            f"Expected Diacritcs (most similar to query), got {attack_type!r}"
-        )
+        assert (
+            attack_type == "Diacritcs"
+        ), f"Expected Diacritcs (most similar to query), got {attack_type!r}"
 
     def test_avoids_type_iteration_order_bias(self, bank_multi_type):
         """Query along +y should pick Zero Width, not Diacritcs (which is first in ATTACK_TYPES)."""
@@ -216,9 +222,9 @@ class TestSelectPairsByBenign:
         pairs = bank_multi_type.select_pairs_by_benign(query, k=1)
         attack_type = pairs[0][2]
         # Zero Width at [0,1,0] is most similar to this query
-        assert attack_type == "Zero Width", (
-            f"Expected Zero Width (most similar to +y query), got {attack_type!r}"
-        )
+        assert (
+            attack_type == "Zero Width"
+        ), f"Expected Zero Width (most similar to +y query), got {attack_type!r}"
 
     def test_k_larger_than_types_returns_all_types(self, bank_multi_type):
         """k >= number of attack types returns one pair per type (capped at available)."""

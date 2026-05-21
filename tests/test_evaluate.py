@@ -209,17 +209,25 @@ class TestGenerateReport:
     def report_inputs(self):
         df = pd.DataFrame({"x": [1, 2]})
         binary = {
-            "accuracy": 0.9, "adversarial_precision": 0.8,
-            "adversarial_recall": 0.85, "adversarial_f1": 0.82,
-            "benign_precision": 0.95, "benign_recall": 0.9,
-            "benign_f1": 0.92, "false_positive_rate": 0.05, "false_negative_rate": 0.15,
-            "support_adversarial": 100, "support_benign": 100,
+            "accuracy": 0.9,
+            "adversarial_precision": 0.8,
+            "adversarial_recall": 0.85,
+            "adversarial_f1": 0.82,
+            "benign_precision": 0.95,
+            "benign_recall": 0.9,
+            "benign_f1": 0.92,
+            "false_positive_rate": 0.05,
+            "false_negative_rate": 0.15,
+            "support_adversarial": 100,
+            "support_benign": 100,
         }
         category = {"category_accuracy": 0.88, "category_f1_macro": 0.87}
         types = {"type_accuracy": 0.75, "type_f1_macro": 0.70}
-        cal = {"calibration_buckets": [
-            {"bin": "0.8-0.9", "count": 50, "avg_confidence": 0.85, "accuracy": 0.82}
-        ]}
+        cal = {
+            "calibration_buckets": [
+                {"bin": "0.8-0.9", "count": 50, "avg_confidence": 0.85, "accuracy": 0.82}
+            ]
+        }
         return df, binary, category, types, cal
 
     def test_contains_all_sections(self, report_inputs):
@@ -240,7 +248,11 @@ class TestGenerateReport:
         assert "## Cost / Usage" not in report_no_usage
 
         report_with_usage = generate_report(
-            df, binary, category, types, cal,
+            df,
+            binary,
+            category,
+            types,
+            cal,
             usage={"total_tokens": 1000, "total_calls": 50},
         )
         assert "## Cost / Usage" in report_with_usage

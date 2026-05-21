@@ -84,17 +84,19 @@ def load_safeguard_split(cfg: dict, dataset_key: str, split_kind: str) -> pd.Dat
 
     raw = datasets.load_dataset(ds_cfg["name"], split=hf_split).to_pandas()
 
-    df = pd.DataFrame({
-        out_text_col: raw[text_col_in].astype(str).values,
-        out_orig_col: raw[text_col_in].astype(str).values,
-        "label_binary": raw[label_col_in].map(label_map).values,
-        "label_category": pd.Series([pd.NA] * len(raw), dtype="object"),
-        "label_type": pd.Series([pd.NA] * len(raw), dtype="object"),
-        "attack_name": pd.Series([pd.NA] * len(raw), dtype="object"),
-        "benign_source": pd.Series([pd.NA] * len(raw), dtype="object"),
-        "is_synthetic_benign": False,
-        "source": dataset_key,
-    })
+    df = pd.DataFrame(
+        {
+            out_text_col: raw[text_col_in].astype(str).values,
+            out_orig_col: raw[text_col_in].astype(str).values,
+            "label_binary": raw[label_col_in].map(label_map).values,
+            "label_category": pd.Series([pd.NA] * len(raw), dtype="object"),
+            "label_type": pd.Series([pd.NA] * len(raw), dtype="object"),
+            "attack_name": pd.Series([pd.NA] * len(raw), dtype="object"),
+            "benign_source": pd.Series([pd.NA] * len(raw), dtype="object"),
+            "is_synthetic_benign": False,
+            "source": dataset_key,
+        }
+    )
     df["prompt_hash"] = df[out_orig_col].fillna("").apply(build_prompt_hash)
     return df
 
@@ -113,16 +115,18 @@ def build_benign_set(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 
     # Unique original prompts → benign seed
     originals = df[orig_col].drop_duplicates().dropna().reset_index(drop=True)
-    benign = pd.DataFrame({
-        text_col: originals,
-        orig_col: originals,
-        cfg["dataset"]["label_col"]: "benign",
-        "label_binary": "benign",
-        "label_category": "benign",
-        "label_type": "benign",
-        "benign_source": "original",
-        "is_synthetic_benign": False,
-    })
+    benign = pd.DataFrame(
+        {
+            text_col: originals,
+            orig_col: originals,
+            cfg["dataset"]["label_col"]: "benign",
+            "label_binary": "benign",
+            "label_category": "benign",
+            "label_type": "benign",
+            "benign_source": "original",
+            "is_synthetic_benign": False,
+        }
+    )
 
     # Optionally integrate synthetic benigns (per-category parquets)
     synth_cfg = cfg.get("benign", {}).get("synthetic", {})
@@ -135,29 +139,35 @@ def build_benign_set(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
             df_synth_valid = df_synth[df_synth["synth_validated"].astype(bool)].copy()
             if len(df_synth_valid) > 0:
                 # Align columns: synthetic rows may have extra synth_* cols (kept as NaN in originals)
-                synth_rows = pd.DataFrame({
-                    text_col: df_synth_valid["modified_sample"].values,
-                    orig_col: df_synth_valid["original_sample"].values,
-                    cfg["dataset"]["label_col"]: "benign",
-                    "label_binary": "benign",
-                    "label_category": "benign",
-                    "label_type": "benign",
-                    "benign_source": "synthetic_validated",
-                    "is_synthetic_benign": True,
-                })
+                synth_rows = pd.DataFrame(
+                    {
+                        text_col: df_synth_valid["modified_sample"].values,
+                        orig_col: df_synth_valid["original_sample"].values,
+                        cfg["dataset"]["label_col"]: "benign",
+                        "label_binary": "benign",
+                        "label_category": "benign",
+                        "label_type": "benign",
+                        "benign_source": "synthetic_validated",
+                        "is_synthetic_benign": True,
+                    }
+                )
                 # Carry synthetic metadata columns
                 for col in df_synth_valid.columns:
                     if col.startswith("synth_"):
                         synth_rows[col] = df_synth_valid[col].values
                 # Deduplicate by prompt_hash before merging
-                existing_hashes = set(benign[text_col].apply(
-                    lambda t: hashlib.md5(str(t).strip().lower().encode()).hexdigest()[:12]
-                ))
+                existing_hashes = set(
+                    benign[text_col].apply(
+                        lambda t: hashlib.md5(str(t).strip().lower().encode()).hexdigest()[:12]
+                    )
+                )
                 new_hashes = df_synth_valid["prompt_hash"].tolist()
                 mask = [h not in existing_hashes for h in new_hashes]
                 synth_rows = synth_rows[mask].reset_index(drop=True)
                 benign = pd.concat([benign, synth_rows], ignore_index=True)
-                print(f"  Integrated {synth_rows.shape[0]} synthetic benign samples from {len(synth_files)} files")
+                print(
+                    f"  Integrated {synth_rows.shape[0]} synthetic benign samples from {len(synth_files)} files"
+                )
         else:
             raise FileNotFoundError(
                 f"benign.synthetic.enabled=True but no parquets found in {synth_dir}.\n"
@@ -207,7 +217,9 @@ def preprocess(config_path: str = None, output_dir: str = None) -> pd.DataFrame:
     df = df.drop_duplicates(subset=[text_col]).reset_index(drop=True)
     n_dropped = n_before - len(df)
     if n_dropped:
-        print(f"  Dropped {n_dropped} duplicate text rows from Mindgard+benign ({len(df)} remaining)")
+        print(
+            f"  Dropped {n_dropped} duplicate text rows from Mindgard+benign ({len(df)} remaining)"
+        )
 
     # Add prompt hash for grouped splitting
     orig_col = cfg["dataset"]["original_text_col"]

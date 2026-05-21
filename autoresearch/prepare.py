@@ -21,14 +21,19 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
 import dotenv
+
 dotenv.load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 
 import numpy as np
 import pandas as pd
 
 from src.utils import (
-    load_config, build_sample_id,
-    MODELS_DIR, SPLITS_DIR, PREDICTIONS_DIR, PREDICTIONS_EXTERNAL_DIR,
+    load_config,
+    build_sample_id,
+    MODELS_DIR,
+    SPLITS_DIR,
+    PREDICTIONS_DIR,
+    PREDICTIONS_EXTERNAL_DIR,
     DEBERTA_ARTIFACTS_DIR,
 )
 from src.evaluate import binary_metrics
@@ -56,6 +61,7 @@ EXT_GATE_ACCURACY = 0.50
 # Merge pre-computed predictions
 # ---------------------------------------------------------------------------
 
+
 def merge_predictions(
     ml_df: pd.DataFrame,
     deberta_df: pd.DataFrame | None,
@@ -70,17 +76,25 @@ def merge_predictions(
 
     # Join DeBERTa
     if deberta_df is not None:
-        deb_cols = [c for c in deberta_df.columns
-                    if c.startswith("deberta_") or c == "sample_id"]
+        deb_cols = [c for c in deberta_df.columns if c.startswith("deberta_") or c == "sample_id"]
         deb = deberta_df[deb_cols].drop_duplicates("sample_id")
         merged = merged.merge(deb, on="sample_id", how="left")
 
     # Join LLM
     if llm_df is not None:
-        llm_cols = ["sample_id", "llm_pred_binary", "llm_pred_raw", "llm_pred_category",
-                     "llm_conf_binary", "llm_evidence", "llm_stages_run",
-                     "clf_confidence", "clf_token_logprobs",
-                     "judge_independent_confidence", "judge_token_logprobs"]
+        llm_cols = [
+            "sample_id",
+            "llm_pred_binary",
+            "llm_pred_raw",
+            "llm_pred_category",
+            "llm_conf_binary",
+            "llm_evidence",
+            "llm_stages_run",
+            "clf_confidence",
+            "clf_token_logprobs",
+            "judge_independent_confidence",
+            "judge_token_logprobs",
+        ]
         llm_cols = [c for c in llm_cols if c in llm_df.columns]
         llm = llm_df[llm_cols].drop_duplicates("sample_id")
         merged = merged.merge(llm, on="sample_id", how="left")
@@ -91,47 +105,62 @@ def merge_predictions(
         if val is None:
             return False
         try:
-            return bool(pd.notna(val)) if not hasattr(val, '__len__') else len(val) > 0
+            return bool(pd.notna(val)) if not hasattr(val, "__len__") else len(val) > 0
         except (TypeError, ValueError):
             return False
 
     margins = []
     for _, row in merged.iterrows():
-        if _has_logprobs(row.get("clf_token_logprobs")) or _has_logprobs(row.get("judge_token_logprobs")):
+        if _has_logprobs(row.get("clf_token_logprobs")) or _has_logprobs(
+            row.get("judge_token_logprobs")
+        ):
             mf = extract_preferred_margin_features_from_row(row)
-            margins.append({
-                "margin": mf.margin,
-                "top1_logprob": mf.top1_logprob,
-                "top2_logprob": mf.top2_logprob,
-                "margin_source_stage": mf.source_stage,
-                "is_judge_stage": int(mf.source_stage == "judge") if mf.source_stage else 0,
-            })
+            margins.append(
+                {
+                    "margin": mf.margin,
+                    "top1_logprob": mf.top1_logprob,
+                    "top2_logprob": mf.top2_logprob,
+                    "margin_source_stage": mf.source_stage,
+                    "is_judge_stage": int(mf.source_stage == "judge") if mf.source_stage else 0,
+                }
+            )
         else:
-            margins.append({
-                "margin": None, "top1_logprob": None, "top2_logprob": None,
-                "margin_source_stage": None, "is_judge_stage": 0,
-            })
+            margins.append(
+                {
+                    "margin": None,
+                    "top1_logprob": None,
+                    "top2_logprob": None,
+                    "margin_source_stage": None,
+                    "is_judge_stage": 0,
+                }
+            )
     margin_df = pd.DataFrame(margins, index=merged.index)
     merged = pd.concat([merged, margin_df], axis=1)
 
     # Compute risk_score
     if risk_model is not None:
-        risk_features = pd.DataFrame({
-            "margin": pd.to_numeric(merged["margin"], errors="coerce").fillna(0.0),
-            "top1_logprob": pd.to_numeric(merged["top1_logprob"], errors="coerce").fillna(0.0),
-            "top2_logprob": pd.to_numeric(merged["top2_logprob"], errors="coerce").fillna(0.0),
-            "self_reported_confidence": pd.to_numeric(
-                merged.get("llm_conf_binary", pd.Series(0.5, index=merged.index)),
-                errors="coerce",
-            ).fillna(0.5),
-            "is_judge_stage": pd.to_numeric(merged["is_judge_stage"], errors="coerce").fillna(0),
-            "deberta_proba_binary_adversarial": pd.to_numeric(
-                merged.get("deberta_proba_binary_adversarial",
-                            pd.Series(0.5, index=merged.index)),
-                errors="coerce",
-            ).fillna(0.5),
-            "is_abstain": 0,
-        }, index=merged.index)
+        risk_features = pd.DataFrame(
+            {
+                "margin": pd.to_numeric(merged["margin"], errors="coerce").fillna(0.0),
+                "top1_logprob": pd.to_numeric(merged["top1_logprob"], errors="coerce").fillna(0.0),
+                "top2_logprob": pd.to_numeric(merged["top2_logprob"], errors="coerce").fillna(0.0),
+                "self_reported_confidence": pd.to_numeric(
+                    merged.get("llm_conf_binary", pd.Series(0.5, index=merged.index)),
+                    errors="coerce",
+                ).fillna(0.5),
+                "is_judge_stage": pd.to_numeric(merged["is_judge_stage"], errors="coerce").fillna(
+                    0
+                ),
+                "deberta_proba_binary_adversarial": pd.to_numeric(
+                    merged.get(
+                        "deberta_proba_binary_adversarial", pd.Series(0.5, index=merged.index)
+                    ),
+                    errors="coerce",
+                ).fillna(0.5),
+                "is_abstain": 0,
+            },
+            index=merged.index,
+        )
         merged["risk_score"] = risk_model.predict_risk_batch(risk_features)
     else:
         merged["risk_score"] = None
@@ -142,6 +171,7 @@ def merge_predictions(
 # ---------------------------------------------------------------------------
 # Apply routing
 # ---------------------------------------------------------------------------
+
 
 def apply_routing(merged: pd.DataFrame, route_fn) -> pd.Series:
     """Apply experiment.route() to each row and return predicted labels."""
@@ -156,6 +186,7 @@ def apply_routing(merged: pd.DataFrame, route_fn) -> pd.Series:
 # Dataset score
 # ---------------------------------------------------------------------------
 
+
 def dataset_score(y_true, y_pred, min_adv_recall=0.50, min_accuracy=0.50):
     """Compute score for a single dataset. Returns -1.0 if gates fail."""
     metrics = binary_metrics(y_true, y_pred)
@@ -163,13 +194,18 @@ def dataset_score(y_true, y_pred, min_adv_recall=0.50, min_accuracy=0.50):
     accuracy = metrics["accuracy"]
     if adv_recall < min_adv_recall or accuracy < min_accuracy:
         return -1.0, metrics
-    score = 0.4 * metrics["adversarial_f1"] + 0.4 * metrics["benign_f1"] + 0.2 * (1 - metrics["false_positive_rate"])
+    score = (
+        0.4 * metrics["adversarial_f1"]
+        + 0.4 * metrics["benign_f1"]
+        + 0.2 * (1 - metrics["false_positive_rate"])
+    )
     return score, metrics
 
 
 # ---------------------------------------------------------------------------
 # Load predictions for a dataset
 # ---------------------------------------------------------------------------
+
 
 def load_val_predictions():
     """Load pre-computed ML, DeBERTa, LLM predictions for val split."""
@@ -189,14 +225,16 @@ def load_external_predictions(ds_key, ds_cfg, cfg, ml_model, deberta_model=None)
 
     # ML predictions (instant, local)
     from src.cli.research_external import run_ml_full
+
     ml_df = run_ml_full(ml_model, df, text_col)
 
     # DeBERTa predictions (instant, local)
     deberta_df = None
     if deberta_model is not None:
         deberta_df = deberta_model.predict(df, text_col)
-        deberta_df.insert(0, "sample_id",
-                          df[text_col].reset_index(drop=True).apply(build_sample_id))
+        deberta_df.insert(
+            0, "sample_id", df[text_col].reset_index(drop=True).apply(build_sample_id)
+        )
 
     # LLM predictions (cached)
     llm_path = PREDICTIONS_EXTERNAL_DIR / f"llm_predictions_external_{ds_key}.parquet"
@@ -215,11 +253,13 @@ def load_external_predictions(ds_key, ds_cfg, cfg, ml_model, deberta_model=None)
 
 RESULTS_TSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results.tsv")
 
+
 def _get_git_short_hash():
     try:
         return subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"],
-            cwd=PROJECT_ROOT, text=True,
+            cwd=PROJECT_ROOT,
+            text=True,
         ).strip()
     except Exception:
         return "unknown"
@@ -230,7 +270,8 @@ def _get_experiment_description():
     try:
         diff = subprocess.check_output(
             ["git", "diff", "--", "autoresearch/experiment.py"],
-            cwd=PROJECT_ROOT, text=True,
+            cwd=PROJECT_ROOT,
+            text=True,
         ).strip()
         if not diff:
             return "no changes"
@@ -267,6 +308,7 @@ def _append_results_tsv(composite, all_scores):
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     t0 = time.time()
 
@@ -277,6 +319,7 @@ def main():
     # Load experiment module and inject unicode types from config
     sys.path.insert(0, os.path.join(PROJECT_ROOT, "autoresearch"))
     import experiment
+
     cfg = load_config()
     experiment.UNICODE_TYPES = cfg.get("labels", {}).get("unicode_attacks", [])
     print(f"  Unicode types: {len(experiment.UNICODE_TYPES)}")
@@ -291,6 +334,7 @@ def main():
     risk_cfg = cfg.get("hybrid", {}).get("risk_model", {})
     if risk_cfg.get("enabled", False):
         from src.benign_risk_model import RiskModel
+
         risk_path = risk_cfg.get("model_path", MODELS_DIR / "risk_model.pkl")
         if os.path.exists(risk_path):
             risk_model = RiskModel.load(risk_path)
@@ -298,6 +342,7 @@ def main():
 
     # Load ML model (for external datasets)
     from src.ml_classifier.ml_baseline import MLBaseline
+
     ml_model = MLBaseline(cfg)
     ml_model.load(str(MODELS_DIR / "ml_baseline.pkl"))
 
@@ -305,6 +350,7 @@ def main():
     deberta_model = None
     if DEBERTA_ARTIFACTS_DIR.exists() and (DEBERTA_ARTIFACTS_DIR / "model").exists():
         from src.models.deberta_classifier import DeBERTaClassifier
+
         deberta_model = DeBERTaClassifier.load(DEBERTA_ARTIFACTS_DIR, cfg)
         print("  DeBERTa model loaded")
 
@@ -316,9 +362,9 @@ def main():
     merged = merge_predictions(ml_df, deberta_df, llm_df, risk_model)
     y_pred = apply_routing(merged, experiment.route)
     y_true = merged["label_binary"]
-    val_s, val_m = dataset_score(y_true, y_pred,
-                                  min_adv_recall=VAL_GATE_ADV_RECALL,
-                                  min_accuracy=VAL_GATE_ACCURACY)
+    val_s, val_m = dataset_score(
+        y_true, y_pred, min_adv_recall=VAL_GATE_ADV_RECALL, min_accuracy=VAL_GATE_ACCURACY
+    )
     all_scores["val"] = val_s
     n_adv = (y_true == "adversarial").sum()
     n_ben = (y_true == "benign").sum()
@@ -340,13 +386,17 @@ def main():
         print(f"\n--- {ds_key} ---")
         try:
             ml_ext, deb_ext, llm_ext = load_external_predictions(
-                ds_key, ds_cfg, cfg, ml_model, deberta_model)
+                ds_key, ds_cfg, cfg, ml_model, deberta_model
+            )
             merged_ext = merge_predictions(ml_ext, deb_ext, llm_ext, risk_model)
             y_pred_ext = apply_routing(merged_ext, experiment.route)
             y_true_ext = merged_ext["label_binary"]
-            ext_s, ext_m = dataset_score(y_true_ext, y_pred_ext,
-                                          min_adv_recall=EXT_GATE_ADV_RECALL,
-                                          min_accuracy=EXT_GATE_ACCURACY)
+            ext_s, ext_m = dataset_score(
+                y_true_ext,
+                y_pred_ext,
+                min_adv_recall=EXT_GATE_ADV_RECALL,
+                min_accuracy=EXT_GATE_ACCURACY,
+            )
             all_scores[ds_key] = ext_s
             n_adv = (y_true_ext == "adversarial").sum()
             n_ben = (y_true_ext == "benign").sum()
@@ -354,9 +404,12 @@ def main():
             print(f"  {ds_key}_score: {ext_s:.4f}")
             print(f"  accuracy: {ext_m['accuracy']:.4f}")
             print(f"  adv_f1: {ext_m['adversarial_f1']:.4f}, ben_f1: {ext_m['benign_f1']:.4f}")
-            print(f"  FPR: {ext_m['false_positive_rate']:.4f}, FNR: {ext_m['false_negative_rate']:.4f}")
+            print(
+                f"  FPR: {ext_m['false_positive_rate']:.4f}, FNR: {ext_m['false_negative_rate']:.4f}"
+            )
         except Exception as e:
             import traceback
+
             traceback.print_exc()
             print(f"  ERROR: {e}")
             all_scores[ds_key] = -1.0

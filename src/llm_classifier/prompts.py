@@ -39,12 +39,14 @@ Constraints:
 - If label=="adversarial": evidence must be non-empty and copied exactly from INPUT_PROMPT.
 """
 
+
 def build_classifier_messages(text: str, few_shot_examples: list[dict]) -> list[dict]:
     return [
-        {'role': 'system', 'content': _CLASSIFIER_SYSTEM_PROMPT},
+        {"role": "system", "content": _CLASSIFIER_SYSTEM_PROMPT},
         *few_shot_examples,
-        {'role': 'user', 'content': f'INPUT_PROMPT:\n{text}'},
+        {"role": "user", "content": f"INPUT_PROMPT:\n{text}"},
     ]
+
 
 _JUDGE_SYSTEM_PROMPT = f"""You are a strict security judge.
 
@@ -109,8 +111,14 @@ CANDIDATE_JSON:
 {classifier_output}
 """
 
+
 def build_judge_messages(text: str, classifier_output: dict) -> list[dict]:
     return [
-        {'role': 'system', 'content': _JUDGE_SYSTEM_PROMPT},
-        {'role': 'user', 'content': _JUDGE_USER_PROMPT.format(text=text, classifier_output=json.dumps(classifier_output, ensure_ascii=False))},
-        ]
+        {"role": "system", "content": _JUDGE_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": _JUDGE_USER_PROMPT.format(
+                text=text, classifier_output=json.dumps(classifier_output, ensure_ascii=False)
+            ),
+        },
+    ]

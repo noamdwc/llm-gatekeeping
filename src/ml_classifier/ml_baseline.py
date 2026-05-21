@@ -42,6 +42,7 @@ from src.utils import load_config, build_sample_id, SPLITS_DIR, MODELS_DIR, PRED
 from src.llm_classifier.constants import NLP_TYPES
 from src.ml_classifier.utils import extract_features_df
 
+
 class MLBaseline(BaseEstimator, ClassifierMixin):
     """Character-level TF-IDF + handcrafted features + logistic regression."""
 
@@ -82,7 +83,11 @@ class MLBaseline(BaseEstimator, ClassifierMixin):
 
         filtered = df[mask]
         n_excluded = total - len(filtered)
-        n_benign = (filtered["label_binary"] == "benign").sum() if "label_binary" in filtered.columns else "?"
+        n_benign = (
+            (filtered["label_binary"] == "benign").sum()
+            if "label_binary" in filtered.columns
+            else "?"
+        )
 
         print(
             f"  [ML training] scope=benign_plus_unicode_only | "
@@ -215,8 +220,7 @@ class MLBaseline(BaseEstimator, ClassifierMixin):
             if n_jobs == 1:
                 raise
             print(
-                f"  [hyperparam search] {level}: n_jobs={n_jobs} failed; "
-                "retrying with n_jobs=1"
+                f"  [hyperparam search] {level}: n_jobs={n_jobs} failed; " "retrying with n_jobs=1"
             )
             grid = GridSearchCV(
                 estimator=self._build_logistic_model(base_c),
@@ -419,7 +423,9 @@ def evaluate_ml(model: MLBaseline, df: pd.DataFrame, text_col: str, split_name: 
     preds = model.predict(df_eval, text_col)
 
     print(f"\n{'=' * 60}")
-    print(f"ML Baseline Results — {split_name}  [scope: benign + unicode, {n_excluded} NLP rows excluded]")
+    print(
+        f"ML Baseline Results — {split_name}  [scope: benign + unicode, {n_excluded} NLP rows excluded]"
+    )
     print(f"{'=' * 60}")
 
     metrics = {}
@@ -463,7 +469,10 @@ GROUND_TRUTH_COLS = [
 
 
 def save_research_predictions(
-    model: MLBaseline, df: pd.DataFrame, text_col: str, split_name: str,
+    model: MLBaseline,
+    df: pd.DataFrame,
+    text_col: str,
+    split_name: str,
 ):
     """Run predict_full() and save ground truth + ML predictions as parquet."""
     ml_df = model.predict_full(df, text_col)
@@ -482,8 +491,11 @@ def main():
     parser = argparse.ArgumentParser(description="Train and evaluate ML baseline")
     parser.add_argument("--config", default=None)
     parser.add_argument("--no-wandb", action="store_true", help="Disable wandb logging")
-    parser.add_argument("--research", action="store_true",
-                        help="Save full prediction parquets for research pipeline")
+    parser.add_argument(
+        "--research",
+        action="store_true",
+        help="Save full prediction parquets for research pipeline",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)

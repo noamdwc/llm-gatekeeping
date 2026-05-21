@@ -26,8 +26,8 @@ CTRL_LOG = REPO / "autoresearch" / "controller.log"
 PYTHON = "/Users/noamc/miniconda3/envs/llm_gate/bin/python"
 PREPARE = REPO / "autoresearch" / "prepare.py"
 
-RUN_TIMEOUT = 2 * 60        # 2 min (no API calls, just local models)
-CLAUDE_TIMEOUT = 5 * 60     # 5 min for Claude to pick experiment
+RUN_TIMEOUT = 2 * 60  # 2 min (no API calls, just local models)
+CLAUDE_TIMEOUT = 5 * 60  # 5 min for Claude to pick experiment
 NOTIFY_EVERY = 5
 
 CLAUDE_PROMPT = (
@@ -47,7 +47,11 @@ METRIC_KEYS = ("score", "val_score", "deepset_score", "jackhhao_score", "safegua
 
 def sh(*args, check=True):
     return subprocess.run(
-        list(args), cwd=REPO, check=check, text=True, capture_output=True,
+        list(args),
+        cwd=REPO,
+        check=check,
+        text=True,
+        capture_output=True,
     ).stdout.strip()
 
 
@@ -62,10 +66,17 @@ def notify(msg):
     log(f"NOTIFY: {msg}")
     try:
         subprocess.run(
-            ["claude", "-p", "--allowedTools", "mcp__telegram-notify__notify",
-             f'Use the mcp__telegram-notify__notify tool. '
-             f'path="autoresearch/results.tsv" message="{msg}"'],
-            cwd=REPO, timeout=60, capture_output=True,
+            [
+                "claude",
+                "-p",
+                "--allowedTools",
+                "mcp__telegram-notify__notify",
+                f"Use the mcp__telegram-notify__notify tool. "
+                f'path="autoresearch/results.tsv" message="{msg}"',
+            ],
+            cwd=REPO,
+            timeout=60,
+            capture_output=True,
         )
     except Exception:
         pass
@@ -128,9 +139,11 @@ def experiment_changed():
 def call_claude():
     try:
         proc = subprocess.Popen(
-            ["claude", "-p", "--allowedTools", "Edit,Read",
-             CLAUDE_PROMPT],
-            cwd=REPO, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            ["claude", "-p", "--allowedTools", "Edit,Read", CLAUDE_PROMPT],
+            cwd=REPO,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
         )
         output_lines = []
         for line in proc.stdout:
@@ -151,7 +164,11 @@ def call_claude():
 def run_prepare():
     with RUN_LOG.open("w") as f:
         proc = subprocess.Popen(
-            [PYTHON, str(PREPARE)], cwd=REPO, stdout=f, stderr=subprocess.STDOUT, text=True,
+            [PYTHON, str(PREPARE)],
+            cwd=REPO,
+            stdout=f,
+            stderr=subprocess.STDOUT,
+            text=True,
         )
         try:
             proc.wait(timeout=RUN_TIMEOUT)
@@ -220,7 +237,9 @@ def main():
             kept += 1
             append_result(commit, metrics, "keep", desc)
             log(f"KEEP score={score:.4f} (was {bs:.4f})")
-            notify(f"autoresearch improvement!\\nScore: {bs:.4f} -> {score:.4f} (+{score-bs:.4f})\\nChange: {desc}")
+            notify(
+                f"autoresearch improvement!\\nScore: {bs:.4f} -> {score:.4f} (+{score-bs:.4f})\\nChange: {desc}"
+            )
         else:
             discarded += 1
             append_result(commit, metrics, "discard", desc)
@@ -232,7 +251,9 @@ def main():
 
         if n % NOTIFY_EVERY == 0:
             bs2, _ = best_score(parse_results())
-            notify(f"autoresearch status\\nExperiments: {n} ({kept}K {discarded}D {crashed}C)\\nBest: {bs2:.4f}")
+            notify(
+                f"autoresearch status\\nExperiments: {n} ({kept}K {discarded}D {crashed}C)\\nBest: {bs2:.4f}"
+            )
 
     log(f"Done. {n} experiments ({kept}K {discarded}D {crashed}C)")
     bs_final, _ = best_score(parse_results())

@@ -164,7 +164,9 @@ class SyntheticBenignGenerator:
         provider = get_provider()
         self.provider = provider
         self.generation_model = resolve_model(
-            synth_cfg.get("generation_model", cfg.get("llm", {}).get("model", "meta/llama-3.1-8b-instruct")),
+            synth_cfg.get(
+                "generation_model", cfg.get("llm", {}).get("model", "meta/llama-3.1-8b-instruct")
+            ),
             provider,
         )
         self.batch_size = synth_cfg.get("batch_size", 20)
@@ -221,9 +223,7 @@ class SyntheticBenignGenerator:
                     if all_prompts:
                         return all_prompts
                     # Fallback: find first JSON object with "prompts" key
-                    match = re.search(
-                        r'\{"prompts"\s*:\s*\[.*?\]\s*\}', raw, re.DOTALL
-                    )
+                    match = re.search(r'\{"prompts"\s*:\s*\[.*?\]\s*\}', raw, re.DOTALL)
                     if match:
                         parsed = json.loads(match.group())
                     else:
@@ -233,7 +233,7 @@ class SyntheticBenignGenerator:
                 if attempt == max_retries - 1:
                     print(f"  API error after {max_retries} retries, skipping batch")
                     return []
-                wait = min(2 ** attempt * 5, 60)
+                wait = min(2**attempt * 5, 60)
                 print(f"  API error, retrying in {wait}s...")
                 time.sleep(wait)
             except (json.JSONDecodeError, KeyError, IndexError):
@@ -288,7 +288,9 @@ class SyntheticBenignGenerator:
             # Request slightly more than needed to account for dedup losses
             request_n = min(batch_size + 5, self.batch_size)
             batch = self._call_llm_for_batch(category, request_n, model=model)
-            batch = self._dedup_within_batch(batch, existing_hashes | {_build_prompt_hash(t) for t in all_texts})
+            batch = self._dedup_within_batch(
+                batch, existing_hashes | {_build_prompt_hash(t) for t in all_texts}
+            )
             all_texts.extend(batch)
             collected = len(all_texts)
             if not batch:
@@ -362,23 +364,25 @@ class SyntheticBenignGenerator:
 
         records = []
         for text, score in zip(texts, val_scores):
-            records.append({
-                "modified_sample": text,
-                "original_sample": text,
-                "attack_name": "benign",
-                "label_binary": "benign",
-                "label_category": "benign",
-                "label_type": "benign",
-                "prompt_hash": _build_prompt_hash(text),
-                # Synthetic-specific metadata
-                "synth_category": category,
-                "synth_source": source,
-                "synth_template_id": None,
-                "synth_model": model or self.generation_model,
-                "synth_validated": validated,
-                "synth_val_score": score,
-                "synth_val_method": val_method,
-            })
+            records.append(
+                {
+                    "modified_sample": text,
+                    "original_sample": text,
+                    "attack_name": "benign",
+                    "label_binary": "benign",
+                    "label_category": "benign",
+                    "label_type": "benign",
+                    "prompt_hash": _build_prompt_hash(text),
+                    # Synthetic-specific metadata
+                    "synth_category": category,
+                    "synth_source": source,
+                    "synth_template_id": None,
+                    "synth_model": model or self.generation_model,
+                    "synth_validated": validated,
+                    "synth_val_score": score,
+                    "synth_val_method": val_method,
+                }
+            )
         return records
 
     def to_dataframe(

@@ -102,13 +102,15 @@ def generate_report(
     for key, value in binary.items():
         lines.append(f"| {key} | {_format_metric_value(value)} |")
 
-    lines.extend([
-        "",
-        "## Calibration",
-        "",
-        "| Bin | Count | Avg Confidence | Accuracy |",
-        "|-----|-------|----------------|----------|",
-    ])
+    lines.extend(
+        [
+            "",
+            "## Calibration",
+            "",
+            "| Bin | Count | Avg Confidence | Accuracy |",
+            "|-----|-------|----------------|----------|",
+        ]
+    )
     for bucket in calibration.get("calibration_buckets", []):
         lines.append(
             f"| {bucket['bin']} | {bucket['count']} | "
@@ -118,7 +120,9 @@ def generate_report(
     return "\n".join(lines)
 
 
-def evaluate_deberta(df: pd.DataFrame, model, text_col: str = "modified_sample") -> tuple[dict, dict, pd.DataFrame]:
+def evaluate_deberta(
+    df: pd.DataFrame, model, text_col: str = "modified_sample"
+) -> tuple[dict, dict, pd.DataFrame]:
     preds = model.predict(df, text_col)
     binary = binary_metrics(df["label_binary"], preds["deberta_pred_binary"])
     calibration = calibration_metrics(

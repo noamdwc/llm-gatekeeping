@@ -88,7 +88,10 @@ def _candidate_thresholds(scores) -> list[float]:
 
 def tune_threshold_low_fnr(y_true, scores, max_fnr: float = 0.02) -> dict:
     """Pick the highest threshold with FNR <= max_fnr, else nearest violation."""
-    evaluations = [evaluate_at_threshold(y_true, scores, threshold) for threshold in _candidate_thresholds(scores)]
+    evaluations = [
+        evaluate_at_threshold(y_true, scores, threshold)
+        for threshold in _candidate_thresholds(scores)
+    ]
     feasible = [row for row in evaluations if row["false_negative_rate"] <= max_fnr]
     if feasible:
         best = max(feasible, key=lambda row: row["threshold"])
@@ -111,7 +114,10 @@ def tune_threshold_low_fnr(y_true, scores, max_fnr: float = 0.02) -> dict:
 
 def tune_threshold_bounded_fpr(y_true, scores, max_fpr: float = 0.05) -> dict:
     """Pick the lowest threshold with FPR <= max_fpr, else nearest violation."""
-    evaluations = [evaluate_at_threshold(y_true, scores, threshold) for threshold in _candidate_thresholds(scores)]
+    evaluations = [
+        evaluate_at_threshold(y_true, scores, threshold)
+        for threshold in _candidate_thresholds(scores)
+    ]
     feasible = [row for row in evaluations if row["false_positive_rate"] <= max_fpr]
     if feasible:
         best = min(feasible, key=lambda row: row["threshold"])

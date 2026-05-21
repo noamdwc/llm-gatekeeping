@@ -9,7 +9,7 @@ from src.logprob_margin import (
 
 
 def test_find_classifier_label_start_position():
-    tokens = [{"token": "{"}, {"token": "\""}, {"token": "label"}, {"token": "\":"}, {"token": "ben"}]
+    tokens = [{"token": "{"}, {"token": '"'}, {"token": "label"}, {"token": '":'}, {"token": "ben"}]
     assert find_label_start_position(tokens, mode="clf") == 4
 
 
@@ -17,8 +17,8 @@ def test_find_judge_label_start_position():
     tokens = [
         {"token": "{"},
         {"token": "_label"},
-        {"token": "\":"},
-        {"token": " \""},
+        {"token": '":'},
+        {"token": ' "'},
         {"token": "adv"},
     ]
     assert find_label_start_position(tokens, mode="judge") == 4
@@ -27,9 +27,9 @@ def test_find_judge_label_start_position():
 def test_extract_margin_features_handles_missing_token_names():
     tokens = [
         {"token": "{"},
-        {"token": "\""},
+        {"token": '"'},
         {"token": "label"},
-        {"token": "\":"},
+        {"token": '":'},
         {
             "token": "ben",
             "top_logprobs": [
@@ -47,15 +47,28 @@ def test_extract_margin_features_handles_missing_token_names():
 def test_preferred_margin_uses_judge_before_classifier():
     row = {
         "clf_token_logprobs": [
-            {}, {}, {}, {},
-            {"top_logprobs": [{"token": "ben", "logprob": -0.2}, {"token": "adv", "logprob": -0.8}]},
+            {},
+            {},
+            {},
+            {},
+            {
+                "top_logprobs": [
+                    {"token": "ben", "logprob": -0.2},
+                    {"token": "adv", "logprob": -0.8},
+                ]
+            },
         ],
         "judge_token_logprobs": [
             {"token": "{"},
             {"token": "_label"},
-            {"token": "\":"},
-            {"token": " \""},
-            {"top_logprobs": [{"token": "adv", "logprob": -0.1}, {"token": "ben", "logprob": -1.6}]},
+            {"token": '":'},
+            {"token": ' "'},
+            {
+                "top_logprobs": [
+                    {"token": "adv", "logprob": -0.1},
+                    {"token": "ben", "logprob": -1.6},
+                ]
+            },
         ],
     }
     result = extract_preferred_margin_features_from_row(row)

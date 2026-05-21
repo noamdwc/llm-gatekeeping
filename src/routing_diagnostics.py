@@ -62,16 +62,18 @@ def compute_unicode_lane_mask(
         type_norm = pd.Series([""] * n)
 
     unicode_types_norm = {
-        normalize_attack_token(v)
-        for v in (unicode_types or [])
-        if v is not None and pd.notna(v)
+        normalize_attack_token(v) for v in (unicode_types or []) if v is not None and pd.notna(v)
     }
     if not unicode_types_norm and type_col in df.columns and category_col in df.columns:
         unicode_types_norm = {
-            t for t, is_unicode_cat in zip(type_norm.values, unicode_by_category) if is_unicode_cat and t
+            t
+            for t, is_unicode_cat in zip(type_norm.values, unicode_by_category)
+            if is_unicode_cat and t
         }
 
-    unicode_by_type = type_norm.isin(unicode_types_norm).values if unicode_types_norm else np.zeros(n, dtype=bool)
+    unicode_by_type = (
+        type_norm.isin(unicode_types_norm).values if unicode_types_norm else np.zeros(n, dtype=bool)
+    )
     unicode_lane = unicode_by_category | unicode_by_type
     lane_reliable = cat_has_value | type_has_value
     return unicode_lane, lane_reliable
@@ -94,7 +96,9 @@ def compute_routing_diagnostics(
     ml_is_adv = df[ml_pred_col].map(is_adversarial_label) if total else pd.Series(dtype=bool)
     ben_mask = ~ml_is_adv if total else pd.Series(dtype=bool)
     adv_mask = ml_is_adv if total else pd.Series(dtype=bool)
-    esc_mask = (df[route_col] == "llm") | (df[route_col] == "abstain") if total else pd.Series(dtype=bool)
+    esc_mask = (
+        (df[route_col] == "llm") | (df[route_col] == "abstain") if total else pd.Series(dtype=bool)
+    )
 
     ben_total = int(ben_mask.sum()) if total else 0
     ben_to_ml = int(((df[route_col] == "ml") & ben_mask).sum()) if total else 0
@@ -132,12 +136,16 @@ def compute_routing_diagnostics(
         "ml_pred_benign_routed_ml": ben_to_ml,
         "ml_pred_benign_routed_llm": ben_to_llm,
         "ml_pred_benign_routed_abstain": ben_to_abstain,
-        "ml_pred_benign_escalation_rate": ((ben_to_llm + ben_to_abstain) / ben_total) if ben_total else 0.0,
+        "ml_pred_benign_escalation_rate": ((ben_to_llm + ben_to_abstain) / ben_total)
+        if ben_total
+        else 0.0,
         "ml_pred_adversarial_total": adv_total,
         "ml_pred_adversarial_routed_ml": adv_to_ml,
         "ml_pred_adversarial_routed_llm": adv_to_llm,
         "ml_pred_adversarial_routed_abstain": adv_to_abstain,
-        "ml_pred_adversarial_escalation_rate": ((adv_to_llm + adv_to_abstain) / adv_total) if adv_total else 0.0,
+        "ml_pred_adversarial_escalation_rate": ((adv_to_llm + adv_to_abstain) / adv_total)
+        if adv_total
+        else 0.0,
         "unicode_lane_true_total": unicode_true_total,
         "unicode_lane_false_total": unicode_false_total,
         "unicode_lane_unknown_total": unknown_lane_total,

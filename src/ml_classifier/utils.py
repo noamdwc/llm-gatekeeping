@@ -1,10 +1,10 @@
-'''
+"""
 Features engineering:
   - Character n-gram TF-IDF
   - Unicode category distribution
   - Non-ASCII ratio, zero-width char count, entropy
   - Control character presence
-'''
+"""
 
 import math
 import unicodedata
@@ -12,6 +12,7 @@ import pandas as pd
 from collections import Counter
 
 from src.ml_classifier.constants import ZERO_WIDTH_CHARS, CONTROL_CATS, BIDI_CHARS
+
 
 def char_entropy(text: str) -> float:
     """Shannon entropy of character distribution."""
@@ -24,11 +25,23 @@ def char_entropy(text: str) -> float:
 
 def _empty_features() -> dict:
     return {
-        "non_ascii_ratio": 0, "zero_width_count": 0, "zero_width_ratio": 0,
-        "bidi_count": 0, "control_count": 0, "tag_count": 0,
-        "fullwidth_count": 0, "combining_count": 0, "combining_ratio": 0,
-        "char_entropy": 0, "unique_scripts": 0, "text_length": 0,
-        "cat_Lu": 0, "cat_Ll": 0, "cat_Mn": 0, "cat_Cf": 0, "cat_So": 0,
+        "non_ascii_ratio": 0,
+        "zero_width_count": 0,
+        "zero_width_ratio": 0,
+        "bidi_count": 0,
+        "control_count": 0,
+        "tag_count": 0,
+        "fullwidth_count": 0,
+        "combining_count": 0,
+        "combining_ratio": 0,
+        "char_entropy": 0,
+        "unique_scripts": 0,
+        "text_length": 0,
+        "cat_Lu": 0,
+        "cat_Ll": 0,
+        "cat_Mn": 0,
+        "cat_Cf": 0,
+        "cat_So": 0,
     }
 
 

@@ -165,7 +165,7 @@ class HFDetector:
         latencies = []
         outputs = []
         for start in range(0, len(texts), self.batch_size):
-            batch = texts[start:start + self.batch_size]
+            batch = texts[start : start + self.batch_size]
             t0 = time.perf_counter()
             batch_outputs = self._predict_scores(batch)
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
@@ -181,11 +181,13 @@ class HFDetector:
             scores.append(adversarial_score)
             labels.append("adversarial" if adversarial_score >= self.threshold else "benign")
 
-        result = pd.DataFrame({
-            "sample_id": work_df[text_col].apply(build_sample_id),
-            "adversarial_score": np.asarray(scores, dtype=float),
-            "predicted_label": labels,
-            "model_id": self.model_id,
-            "latency_ms": np.asarray(latencies, dtype=float),
-        })
+        result = pd.DataFrame(
+            {
+                "sample_id": work_df[text_col].apply(build_sample_id),
+                "adversarial_score": np.asarray(scores, dtype=float),
+                "predicted_label": labels,
+                "model_id": self.model_id,
+                "latency_ms": np.asarray(latencies, dtype=float),
+            }
+        )
         return result

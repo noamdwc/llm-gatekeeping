@@ -123,11 +123,23 @@ class TestExtractFeaturesDf:
     def test_expected_columns(self):
         result = extract_features_df(pd.Series(["test"]))
         expected_cols = {
-            "non_ascii_ratio", "zero_width_count", "zero_width_ratio",
-            "bidi_count", "control_count", "tag_count",
-            "fullwidth_count", "combining_count", "combining_ratio",
-            "char_entropy", "unique_scripts", "text_length",
-            "cat_Lu", "cat_Ll", "cat_Mn", "cat_Cf", "cat_So",
+            "non_ascii_ratio",
+            "zero_width_count",
+            "zero_width_ratio",
+            "bidi_count",
+            "control_count",
+            "tag_count",
+            "fullwidth_count",
+            "combining_count",
+            "combining_ratio",
+            "char_entropy",
+            "unique_scripts",
+            "text_length",
+            "cat_Lu",
+            "cat_Ll",
+            "cat_Mn",
+            "cat_Cf",
+            "cat_So",
         }
         assert expected_cols == set(result.columns)
 
@@ -148,10 +160,13 @@ class TestMLBaseline:
         """predict() returns expected columns."""
         preds = fitted_ml_model.predict(sample_dataframe, "modified_sample")
         expected = {
-            "pred_label_binary", "confidence_label_binary",
+            "pred_label_binary",
+            "confidence_label_binary",
             "confidence_label_binary_cal",
-            "pred_label_category", "confidence_label_category",
-            "pred_label_type", "confidence_label_type",
+            "pred_label_category",
+            "confidence_label_category",
+            "pred_label_type",
+            "confidence_label_type",
         }
         assert expected == set(preds.columns)
 
@@ -190,7 +205,9 @@ class TestMLBaseline:
 
         pd.testing.assert_frame_equal(preds_orig, preds_loaded)
 
-    def test_load_legacy_artifact_without_calibrator(self, fitted_ml_model, sample_dataframe, tmp_path):
+    def test_load_legacy_artifact_without_calibrator(
+        self, fitted_ml_model, sample_dataframe, tmp_path
+    ):
         """Old model artifacts without binary_calibrator still load and predict."""
         legacy_path = tmp_path / "legacy_model.pkl"
         with open(legacy_path, "wb") as f:
@@ -219,9 +236,7 @@ class TestMLBaseline:
         for level in ["label_binary", "label_category", "label_type"]:
             known = set(fitted_ml_model.label_encoders[level].classes_)
             predicted = set(preds[f"pred_{level}"].unique())
-            assert predicted.issubset(known), (
-                f"Unknown labels in pred_{level}: {predicted - known}"
-            )
+            assert predicted.issubset(known), f"Unknown labels in pred_{level}: {predicted - known}"
 
 
 def test_ml_baseline_trains_with_nan_category_rows(sample_config):
@@ -230,28 +245,53 @@ def test_ml_baseline_trains_with_nan_category_rows(sample_config):
     import numpy as np
     from src.ml_classifier.ml_baseline import MLBaseline
 
-    df = pd.DataFrame({
-        "modified_sample": [
-            "abc def", "xyz qwe", "lmnop", "another text",
-            "safeguard benign one", "safeguard benign two",
-            "safeguard adversarial one", "safeguard adversarial two",
-        ],
-        "original_sample": ["a"] * 8,
-        "attack_name": ["Diacritcs", "Zero Width", None, None, None, None, None, None],
-        "label_binary": [
-            "adversarial", "adversarial", "benign", "benign",
-            "benign", "benign", "adversarial", "adversarial",
-        ],
-        "label_category": [
-            "unicode_attack", "unicode_attack", "benign", "benign",
-            np.nan, np.nan, np.nan, np.nan,
-        ],
-        "label_type": [
-            "Diacritcs", "Zero Width", "benign", "benign",
-            np.nan, np.nan, np.nan, np.nan,
-        ],
-        "source": ["mindgard"] * 4 + ["safeguard"] * 4,
-    })
+    df = pd.DataFrame(
+        {
+            "modified_sample": [
+                "abc def",
+                "xyz qwe",
+                "lmnop",
+                "another text",
+                "safeguard benign one",
+                "safeguard benign two",
+                "safeguard adversarial one",
+                "safeguard adversarial two",
+            ],
+            "original_sample": ["a"] * 8,
+            "attack_name": ["Diacritcs", "Zero Width", None, None, None, None, None, None],
+            "label_binary": [
+                "adversarial",
+                "adversarial",
+                "benign",
+                "benign",
+                "benign",
+                "benign",
+                "adversarial",
+                "adversarial",
+            ],
+            "label_category": [
+                "unicode_attack",
+                "unicode_attack",
+                "benign",
+                "benign",
+                np.nan,
+                np.nan,
+                np.nan,
+                np.nan,
+            ],
+            "label_type": [
+                "Diacritcs",
+                "Zero Width",
+                "benign",
+                "benign",
+                np.nan,
+                np.nan,
+                np.nan,
+                np.nan,
+            ],
+            "source": ["mindgard"] * 4 + ["safeguard"] * 4,
+        }
+    )
 
     model = MLBaseline(sample_config)
     model.fit(df, "modified_sample")

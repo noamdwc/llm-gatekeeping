@@ -42,16 +42,18 @@ logger = logging.getLogger(__name__)
 def _format_monitor_metrics(epoch_metrics: dict) -> str:
     """Render compact per-split monitor metrics for the epoch log line."""
     parts = []
-    split_names = sorted({
-        key.removesuffix("_f1")
-        for key in epoch_metrics
-        if (
-            key.endswith("_f1")
-            and not key.startswith("eval_")
-            and f"{key.removesuffix('_f1')}_precision" in epoch_metrics
-            and f"{key.removesuffix('_f1')}_recall" in epoch_metrics
-        )
-    })
+    split_names = sorted(
+        {
+            key.removesuffix("_f1")
+            for key in epoch_metrics
+            if (
+                key.endswith("_f1")
+                and not key.startswith("eval_")
+                and f"{key.removesuffix('_f1')}_precision" in epoch_metrics
+                and f"{key.removesuffix('_f1')}_recall" in epoch_metrics
+            )
+        }
+    )
     for split in split_names:
         parts.append(
             f"{split}_f1={epoch_metrics[f'{split}_f1']:.4f} "
@@ -90,7 +92,10 @@ class PromptDataset(Dataset):
 
     def __init__(self, tokenizer, texts: list[str], labels: list[int] | None, max_length: int):
         self.encodings = tokenizer(
-            texts, truncation=True, max_length=max_length, padding=False,
+            texts,
+            truncation=True,
+            max_length=max_length,
+            padding=False,
         )
         self.labels = labels
 
@@ -155,7 +160,13 @@ class _LightningDeBERTaModule(pl.LightningModule):
         self.n_batches = 0
 
     def _dump_failure_artifact(
-        self, epoch: int, step: int, stage: str, batch, loss, logits,
+        self,
+        epoch: int,
+        step: int,
+        stage: str,
+        batch,
+        loss,
+        logits,
     ) -> list[str]:
         if not self.debug.save_bad_batch:
             return []
@@ -191,7 +202,9 @@ class _LightningDeBERTaModule(pl.LightningModule):
             first_bad_step=step,
             first_bad_stage=stage,
             first_bad_param=first_bad_param,
-            debug_artifact_paths=self._dump_failure_artifact(epoch, step, stage, batch, loss, logits),
+            debug_artifact_paths=self._dump_failure_artifact(
+                epoch, step, stage, batch, loss, logits
+            ),
         )
         self.trainer.should_stop = True
 
@@ -230,8 +243,7 @@ class _LightningDeBERTaModule(pl.LightningModule):
             )
         if forward_problems:
             reason = (
-                f"Non-finite at epoch {epoch} step {batch_idx} (forward): "
-                f"{forward_problems}"
+                f"Non-finite at epoch {epoch} step {batch_idx} (forward): " f"{forward_problems}"
             )
             self._record_failure(reason, epoch, batch_idx, "forward", batch, loss, logits)
             return loss.detach()
@@ -245,7 +257,9 @@ class _LightningDeBERTaModule(pl.LightningModule):
                 f"Non-finite grad at epoch {epoch} step {batch_idx}: "
                 f"{len(bad_grads)} params, first={first_name}"
             )
-            self._record_failure(reason, epoch, batch_idx, "backward", batch, loss, logits, first_name)
+            self._record_failure(
+                reason, epoch, batch_idx, "backward", batch, loss, logits, first_name
+            )
             return loss.detach()
 
         if verbose and self.debug.log_param_stats:
@@ -263,7 +277,9 @@ class _LightningDeBERTaModule(pl.LightningModule):
                 f"Non-finite params after optimizer step at epoch {epoch} "
                 f"step {batch_idx}: {len(bad_params)} params, first={first_name}"
             )
-            self._record_failure(reason, epoch, batch_idx, "post_step", batch, loss, logits, first_name)
+            self._record_failure(
+                reason, epoch, batch_idx, "post_step", batch, loss, logits, first_name
+            )
             return loss.detach()
 
         if verbose:
@@ -325,10 +341,9 @@ class _DeBERTaEpochEndCallback(pl.Callback):
         }
         for split_name, monitor_loader in self.monitor_loaders.items():
             split_metrics = self.classifier._evaluate(monitor_loader, self.selected_device)
-            epoch_metrics.update({
-                f"{split_name}_{key}": value
-                for key, value in split_metrics.items()
-            })
+            epoch_metrics.update(
+                {f"{split_name}_{key}": value for key, value in split_metrics.items()}
+            )
 
         self.classifier.train_history.append(epoch_metrics)
         if self.on_epoch_end is not None:
@@ -399,8 +414,7 @@ class DeBERTaClassifier:
     def _snapshot_model_state(self) -> dict[str, torch.Tensor]:
         """Capture a CPU copy of the current model weights."""
         return {
-            name: tensor.detach().cpu().clone()
-            for name, tensor in self.model.state_dict().items()
+            name: tensor.detach().cpu().clone() for name, tensor in self.model.state_dict().items()
         }
 
     def _update_best_checkpoint(self, epoch: int, metric_value: float):
@@ -430,20 +444,24 @@ class DeBERTaClassifier:
             return torch.device(device)
         if force_cpu:
             return torch.device("cpu")
-        return torch.device("mps" if torch.backends.mps.is_available() else
-                            "cuda" if torch.cuda.is_available() else "cpu")
+        return torch.device(
+            "mps"
+            if torch.backends.mps.is_available()
+            else "cuda"
+            if torch.cuda.is_available()
+            else "cpu"
+        )
 
     def _assert_finite_model(self):
         """Raise ValueError if model contains non-finite parameters."""
         bad = find_nonfinite_params(self.model)
         if bad:
             names = [name for name, _ in bad[:5]]
-            raise ValueError(
-                f"Model contains non-finite parameters ({len(bad)} total): {names}"
-            )
+            raise ValueError(f"Model contains non-finite parameters ({len(bad)} total): {names}")
 
-    def _sanity_forward(self, train_loader, device, debug: DebugConfig,
-                        train_texts: list[str]) -> TrainingResult:
+    def _sanity_forward(
+        self, train_loader, device, debug: DebugConfig, train_texts: list[str]
+    ) -> TrainingResult:
         """Run forward-only passes to check for NaN without backward/optimizer."""
         logger.info(f"Running sanity forward on {debug.sanity_batches} batches...")
         self.model.eval()
@@ -457,8 +475,9 @@ class DeBERTaClassifier:
 
                 if debug.log_batch_text:
                     # Decode input_ids back to text for logging
-                    texts = self.tokenizer.batch_decode(batch["input_ids"],
-                                                        skip_special_tokens=True)
+                    texts = self.tokenizer.batch_decode(
+                        batch["input_ids"], skip_special_tokens=True
+                    )
                     logger.info(f"Sanity batch {step} texts: {texts[:3]}")
 
                 outputs = self.model(**batch)
@@ -469,8 +488,10 @@ class DeBERTaClassifier:
                 loss_summary = summarize_tensor("loss", loss)
                 logits_summary = summarize_tensor("logits", logits)
                 logger.info(f"  loss: {loss_summary}")
-                logger.info(f"  logits: min={logits_summary.min:.4f} max={logits_summary.max:.4f} "
-                            f"nan={logits_summary.has_nan} inf={logits_summary.has_inf}")
+                logger.info(
+                    f"  logits: min={logits_summary.min:.4f} max={logits_summary.max:.4f} "
+                    f"nan={logits_summary.has_nan} inf={logits_summary.has_inf}"
+                )
 
                 problems = check_tensor_finite("loss", loss)
                 problems.extend(check_tensor_finite("logits", logits))
@@ -488,14 +509,19 @@ class DeBERTaClassifier:
         logger.info("Sanity forward passed — no NaN detected.")
         return TrainingResult(success=True)
 
-    def train(self, df_train: pd.DataFrame, df_val: pd.DataFrame,
-              text_col: str, label_col: str = "label_binary",
-              force_cpu: bool = False,
-              device: str | None = None,
-              debug: DebugConfig | None = None,
-              monitor_dfs: dict[str, pd.DataFrame] | None = None,
-              on_epoch_end: Callable[[dict], None] | None = None,
-              on_train_batch_end: Callable[[dict], None] | None = None) -> TrainingResult:
+    def train(
+        self,
+        df_train: pd.DataFrame,
+        df_val: pd.DataFrame,
+        text_col: str,
+        label_col: str = "label_binary",
+        force_cpu: bool = False,
+        device: str | None = None,
+        debug: DebugConfig | None = None,
+        monitor_dfs: dict[str, pd.DataFrame] | None = None,
+        on_epoch_end: Callable[[dict], None] | None = None,
+        on_train_batch_end: Callable[[dict], None] | None = None,
+    ) -> TrainingResult:
         if debug is None:
             debug = DebugConfig()
 
@@ -535,13 +561,25 @@ class DeBERTaClassifier:
 
         train_texts = df_train[text_col].tolist()
         train_ds = PromptDataset(self.tokenizer, train_texts, train_labels, self.max_length)
-        val_ds = PromptDataset(self.tokenizer, df_val[text_col].tolist(), val_labels, self.max_length)
+        val_ds = PromptDataset(
+            self.tokenizer, df_val[text_col].tolist(), val_labels, self.max_length
+        )
 
         collator = DataCollatorWithPadding(tokenizer=self.tokenizer)
-        train_loader = DataLoader(train_ds, batch_size=self.batch_size, shuffle=True,
-                                  collate_fn=collator, pin_memory=False)
-        val_loader = DataLoader(val_ds, batch_size=self.eval_batch_size, shuffle=False,
-                                collate_fn=collator, pin_memory=False)
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=self.batch_size,
+            shuffle=True,
+            collate_fn=collator,
+            pin_memory=False,
+        )
+        val_loader = DataLoader(
+            val_ds,
+            batch_size=self.eval_batch_size,
+            shuffle=False,
+            collate_fn=collator,
+            pin_memory=False,
+        )
         monitor_loaders = {}
         for split_name, monitor_df in (monitor_dfs or {}).items():
             monitor_labels = [self.label2id[l] for l in monitor_df[label_col]]
@@ -621,7 +659,9 @@ class DeBERTaClassifier:
             train_history=self.train_history,
             best_epoch=self.best_checkpoint["epoch"] if self.best_checkpoint else None,
             best_metric_name=self.metric_for_best_model,
-            best_metric_value=self.best_checkpoint["metric_value"] if self.best_checkpoint else None,
+            best_metric_value=self.best_checkpoint["metric_value"]
+            if self.best_checkpoint
+            else None,
             stopped_early=epoch_callback.stopped_early,
         )
 
@@ -646,10 +686,12 @@ class DeBERTaClassifier:
             "accuracy": accuracy_score(all_labels, all_preds),
             "f1": f1_score(all_labels, all_preds, average="binary", pos_label=1),
             "macro_f1": f1_score(all_labels, all_preds, average="macro", zero_division=0),
-            "precision": precision_score(all_labels, all_preds, average="binary",
-                                         pos_label=1, zero_division=0),
-            "recall": recall_score(all_labels, all_preds, average="binary",
-                                    pos_label=1, zero_division=0),
+            "precision": precision_score(
+                all_labels, all_preds, average="binary", pos_label=1, zero_division=0
+            ),
+            "recall": recall_score(
+                all_labels, all_preds, average="binary", pos_label=1, zero_division=0
+            ),
         }
         for label_id, label_name in self.id2label.items():
             metrics[f"f1_{label_name}"] = f1_score(
@@ -700,7 +742,9 @@ class DeBERTaClassifier:
                 param_health = "unknown"
                 try:
                     bad_params = find_nonfinite_params(self.model)
-                    param_health = f"{len(bad_params)} non-finite params" if bad_params else "all finite"
+                    param_health = (
+                        f"{len(bad_params)} non-finite params" if bad_params else "all finite"
+                    )
                 except Exception:
                     pass
 
@@ -722,10 +766,12 @@ class DeBERTaClassifier:
         adv_idx = self.label2id["adversarial"]
         adv_probs = all_probs[:, adv_idx]
         pred_indices = np.where(adv_probs >= self.threshold, adv_idx, 1 - adv_idx)
-        results = pd.DataFrame({
-            "deberta_pred_binary": [self.id2label[i] for i in pred_indices],
-            "deberta_conf_binary": np.max(all_probs, axis=1),
-        })
+        results = pd.DataFrame(
+            {
+                "deberta_pred_binary": [self.id2label[i] for i in pred_indices],
+                "deberta_conf_binary": np.max(all_probs, axis=1),
+            }
+        )
         for i, lbl in self.id2label.items():
             results[f"deberta_proba_binary_{lbl}"] = all_probs[:, i]
 
@@ -745,7 +791,10 @@ class DeBERTaClassifier:
         self.model.float().save_pretrained(model_dir)
         self.tokenizer.save_pretrained(tokenizer_dir)
 
-        label_mapping = {"label2id": self.label2id, "id2label": {str(k): v for k, v in self.id2label.items()}}
+        label_mapping = {
+            "label2id": self.label2id,
+            "id2label": {str(k): v for k, v in self.id2label.items()},
+        }
         (output_dir / "label_mapping.json").write_text(json.dumps(label_mapping, indent=2))
 
         if self.train_history is not None:
@@ -768,7 +817,9 @@ class DeBERTaClassifier:
                 "metric_name": self.best_checkpoint["metric_name"],
                 "metric_value": self.best_checkpoint["metric_value"],
             }
-            (output_dir / "best_checkpoint.json").write_text(json.dumps(checkpoint_metadata, indent=2))
+            (output_dir / "best_checkpoint.json").write_text(
+                json.dumps(checkpoint_metadata, indent=2)
+            )
 
         logger.info(f"Model saved to {output_dir}")
 
@@ -783,7 +834,8 @@ class DeBERTaClassifier:
 
         instance.tokenizer = AutoTokenizer.from_pretrained(output_dir / "tokenizer")
         instance.model = AutoModelForSequenceClassification.from_pretrained(
-            output_dir / "model", dtype=torch.float32,
+            output_dir / "model",
+            dtype=torch.float32,
         )
 
         selected_device = instance._select_device(force_cpu, device)

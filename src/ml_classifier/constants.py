@@ -1,4 +1,3 @@
-
 # Common zero-width / invisible characters
 ZERO_WIDTH_CHARS = {
     "\u200b",  # ZWSP

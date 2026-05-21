@@ -132,7 +132,9 @@ class HierarchicalLLMClassifier:
         self._provider = get_provider()
         self._thread_local = threading.local()
         self.model = resolve_model(cfg["llm"]["model"], self._provider)
-        self.model_quality = resolve_model(cfg["llm"].get("model_quality", cfg["llm"]["model"]), self._provider)
+        self.model_quality = resolve_model(
+            cfg["llm"].get("model_quality", cfg["llm"]["model"]), self._provider
+        )
         self.temperature = cfg["llm"]["temperature"]
         self.max_concurrency = int(cfg.get("llm", {}).get("max_concurrency", 8))
         self.capture_logprobs = bool(cfg.get("llm", {}).get("capture_logprobs", True))
@@ -167,7 +169,10 @@ class HierarchicalLLMClassifier:
         return client
 
     def _call_llm(
-        self, messages: list[dict], max_tokens: int, stage: str,
+        self,
+        messages: list[dict],
+        max_tokens: int,
+        stage: str,
         model: str | None = None,
         max_retries: int = 5,
     ) -> dict:
@@ -229,8 +234,10 @@ class HierarchicalLLMClassifier:
                             raise
                         wait = self._rate_limiter.compute_retry_delay(attempt, exc)
                         self._rate_limiter.stats.record_retry(wait)
-                        print(f"\n429 rate limit → global cooldown, retrying in {wait:.1f}s "
-                              f"(attempt {attempt + 1}/{max_retries})")
+                        print(
+                            f"\n429 rate limit → global cooldown, retrying in {wait:.1f}s "
+                            f"(attempt {attempt + 1}/{max_retries})"
+                        )
                         time.sleep(wait)
                     except (openai.APIConnectionError, openai.APIError) as exc:
                         self._rate_limiter.stats.record_request(success=False)
@@ -238,8 +245,10 @@ class HierarchicalLLMClassifier:
                             raise
                         wait = self._rate_limiter.compute_retry_delay(attempt, exc)
                         self._rate_limiter.stats.record_retry(wait)
-                        print(f"\nAPI error ({type(exc).__name__}), retrying in {wait:.1f}s "
-                              f"(attempt {attempt + 1}/{max_retries})")
+                        print(
+                            f"\nAPI error ({type(exc).__name__}), retrying in {wait:.1f}s "
+                            f"(attempt {attempt + 1}/{max_retries})"
+                        )
                         time.sleep(wait)
 
         prompt_tokens = 0
@@ -323,9 +332,7 @@ class HierarchicalLLMClassifier:
                     {
                         "token": alt.get("token"),
                         "logprob": (
-                            float(alt.get("logprob"))
-                            if alt.get("logprob") is not None
-                            else None
+                            float(alt.get("logprob")) if alt.get("logprob") is not None else None
                         ),
                     }
                     for alt in top_items
@@ -356,7 +363,9 @@ class HierarchicalLLMClassifier:
     def _get_dynamic_few_shot(self, text: str) -> list[tuple[str, str, str]]:
         """Get dynamic few-shot examples using embedding similarity."""
         k = self.cfg["llm"]["few_shot"].get("dynamic_k", 2)
-        query_emb = get_embeddings([text], model=self.exemplar_bank.embedding_model, input_type="query")[0]
+        query_emb = get_embeddings(
+            [text], model=self.exemplar_bank.embedding_model, input_type="query"
+        )[0]
         pairs = self.exemplar_bank.select_pairs_by_benign(query_emb, k=k)
 
         return pairs
@@ -369,20 +378,23 @@ class HierarchicalLLMClassifier:
         else:
             pairs = self._get_static_few_shot(text)
 
-
-
-        for (benign_text, attack_text, attack_type) in pairs:
+        for benign_text, attack_text, attack_type in pairs:
             # Add benign example (fixed confidence for reproducibility)
             messages.append({"role": "user", "content": f"INPUT_PROMPT:\n{benign_text}"})
-            messages.append({
-                "role": "assistant", "content": json.dumps({
-                    "label": 'benign',
-                    "confidence": 95,
-                    "nlp_attack_type": 'none',
-                    "evidence": "",
-                    "reason": "No active attempt to override instructions, exfiltrate data, or hijack tools.",
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "label": "benign",
+                            "confidence": 95,
+                            "nlp_attack_type": "none",
+                            "evidence": "",
+                            "reason": "No active attempt to override instructions, exfiltrate data, or hijack tools.",
+                        }
+                    ),
                 }
-            )})
+            )
             # Add attack example
             # For NLP attacks the text looks benign; no extractable substring shows adversarial intent
             if attack_type in NLP_TYPES:
@@ -390,17 +402,24 @@ class HierarchicalLLMClassifier:
                 adv_reason = f"Perturbed tokens characteristic of {attack_type} adversarial attack."
             else:
                 evidence = attack_text[:80]
-                adv_reason = f"Contains {attack_type} obfuscation; active adversarial prompt detected."
+                adv_reason = (
+                    f"Contains {attack_type} obfuscation; active adversarial prompt detected."
+                )
             messages.append({"role": "user", "content": f"INPUT_PROMPT:\n{attack_text}"})
-            messages.append({
-                "role": "assistant", "content": json.dumps({
-                    "label": 'adversarial',
-                    "confidence": 84,
-                    "nlp_attack_type": attack_type if attack_type in NLP_TYPES else 'none',
-                    "evidence": evidence,
-                    "reason": adv_reason,
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "label": "adversarial",
+                            "confidence": 84,
+                            "nlp_attack_type": attack_type if attack_type in NLP_TYPES else "none",
+                            "evidence": evidence,
+                            "reason": adv_reason,
+                        }
+                    ),
                 }
-            )})
+            )
         return messages
 
     # -- Category derivation -----------------------------------------------
@@ -467,9 +486,9 @@ class HierarchicalLLMClassifier:
             "benign", "adversarial", or "uncertain".
         """
         messages = build_classifier_messages(text, self._build_few_shot_messages(text))
-        result = self._coerce_result_dict(self._call_llm(
-            messages, self.cfg["llm"]["max_tokens_classifier"], "classifier"
-        ))
+        result = self._coerce_result_dict(
+            self._call_llm(messages, self.cfg["llm"]["max_tokens_classifier"], "classifier")
+        )
         # Normalize label: LLM should output binary labels; any deviation defaults to adversarial
         label = result.get("label", "")
         if label not in ("benign", "adversarial", "uncertain"):
@@ -497,10 +516,14 @@ class HierarchicalLLMClassifier:
             {"label": str, "confidence": float, "reasoning": str}
         """
         messages = build_judge_messages(text, classifier_output)
-        result = self._coerce_result_dict(self._call_llm(
-            messages, self.cfg["llm"]["max_tokens_judge"], "judge",
-            model=self.model_quality,
-        ))
+        result = self._coerce_result_dict(
+            self._call_llm(
+                messages,
+                self.cfg["llm"]["max_tokens_judge"],
+                "judge",
+                model=self.model_quality,
+            )
+        )
         decision = decide_accept_or_override(result, classifier_output)
         result["computed_decision"] = decision
 
@@ -508,8 +531,12 @@ class HierarchicalLLMClassifier:
         # If prompt is a benign productivity task and has no bypass intent, force benign.
         is_benign_task, is_bypass_intent = self._compute_benign_task_override_flags(text)
         if is_benign_task and not is_bypass_intent:
-            final_conf = self._normalize_confidence_0_100(result.get("final_confidence"), default=0.0)
-            ind_conf = self._normalize_confidence_0_100(result.get("independent_confidence"), default=0.0)
+            final_conf = self._normalize_confidence_0_100(
+                result.get("final_confidence"), default=0.0
+            )
+            ind_conf = self._normalize_confidence_0_100(
+                result.get("independent_confidence"), default=0.0
+            )
             forced_conf = max(80.0, final_conf, ind_conf)
             result.update(
                 {
@@ -560,7 +587,11 @@ class HierarchicalLLMClassifier:
             if judge_result.get("computed_decision") == "override_candidate":
                 # Use independent_label from judge; preserve 3-way value
                 raw_label = judge_result.get("independent_label", clf_result["label"])
-                label = raw_label if raw_label in ("benign", "adversarial", "uncertain") else "adversarial"
+                label = (
+                    raw_label
+                    if raw_label in ("benign", "adversarial", "uncertain")
+                    else "adversarial"
+                )
                 # clf_result["confidence"] is already [0,1]; multiply by 100 so
                 # _normalize_confidence() divides it back to [0,1] as a safe fallback.
                 confidence = self._normalize_confidence(
@@ -577,7 +608,9 @@ class HierarchicalLLMClassifier:
 
         # Derive categories from each stage's nlp_attack_type
         clf_nlp_attack_type = clf_result.get("nlp_attack_type", "none")
-        clf_category = self._derive_category(clf_result.get("label", label_binary), clf_nlp_attack_type)
+        clf_category = self._derive_category(
+            clf_result.get("label", label_binary), clf_nlp_attack_type
+        )
 
         judge_category = None
         if judge_result is not None:
@@ -587,16 +620,19 @@ class HierarchicalLLMClassifier:
             judge_category = self._derive_category(judge_ind_binary, judge_nlp_attack_type)
 
         # Final category: use judge's if it overrode, else classifier's
-        if judge_result is not None and judge_result.get("computed_decision") == "override_candidate":
+        if (
+            judge_result is not None
+            and judge_result.get("computed_decision") == "override_candidate"
+        ):
             label_category = judge_category
         else:
             label_category = clf_category
 
         result = {
-            "label": label,              # 3-way: benign|adversarial|uncertain
-            "label_binary": label_binary, # always binary: benign|adversarial
+            "label": label,  # 3-way: benign|adversarial|uncertain
+            "label_binary": label_binary,  # always binary: benign|adversarial
             "label_category": label_category,
-            "label_type": None,           # LLM does not predict type
+            "label_type": None,  # LLM does not predict type
             "confidence": confidence,
             "evidence": evidence,
             "llm_stages_run": stages_run,
@@ -622,7 +658,9 @@ class HierarchicalLLMClassifier:
             result["judge_independent_confidence"] = judge_conf
             result["judge_independent_evidence"] = judge_result.get("independent_evidence", "")
             result["judge_computed_decision"] = judge_result.get("computed_decision")
-            result["judge_benign_task_override"] = judge_result.get("judge_benign_task_override", False)
+            result["judge_benign_task_override"] = judge_result.get(
+                "judge_benign_task_override", False
+            )
             result["judge_override_reason"] = judge_result.get("judge_override_reason")
             result["judge_token_logprobs"] = judge_result.get("_token_logprobs")
             result["judge_provider_name"] = judge_result.get("_provider_name")
@@ -749,6 +787,7 @@ def build_few_shot_examples(df: pd.DataFrame, cfg: dict) -> tuple[list[tuple[str
 # Checkpointing / resume helpers
 # ---------------------------------------------------------------------------
 
+
 def _checkpoint_path(split: str) -> Path:
     return PREDICTIONS_DIR / f"llm_checkpoint_{split}.parquet"
 
@@ -828,6 +867,7 @@ def _finalize_checkpoint(split: str, out_path: str):
     cp = _checkpoint_path(split)
     if cp.exists():
         import shutil
+
         shutil.move(str(cp), out_path)
 
 
@@ -835,29 +875,53 @@ def main():
     parser = argparse.ArgumentParser(description="Run hierarchical LLM classifier")
     parser.add_argument("--config", default=None)
     parser.add_argument("--split", default="test", help="Which split to evaluate on")
-    parser.add_argument("--limit", type=int, default=None, help="Max samples to classify (default: full split)")
+    parser.add_argument(
+        "--limit", type=int, default=None, help="Max samples to classify (default: full split)"
+    )
     parser.add_argument("--output", default=None, help="Output predictions CSV path")
     parser.add_argument("--no-wandb", action="store_true", help="Disable wandb logging")
     parser.add_argument("--dynamic", action="store_true", help="Use dynamic few-shot retrieval")
-    parser.add_argument("--bank-path", default=None, help="Path to exemplar bank pickle (built if not exists)")
-    parser.add_argument("--research", action="store_true",
-                        help="Save research-grade parquet with full prediction columns")
+    parser.add_argument(
+        "--bank-path", default=None, help="Path to exemplar bank pickle (built if not exists)"
+    )
+    parser.add_argument(
+        "--research",
+        action="store_true",
+        help="Save research-grade parquet with full prediction columns",
+    )
 
     # Rate limiting / concurrency controls
     rate_group = parser.add_argument_group("rate-limiting", "API rate-limit controls")
-    rate_group.add_argument("--target-rpm", type=float, default=None,
-                            help="Target requests per minute (default: config llm.target_rpm or 60)")
-    rate_group.add_argument("--max-concurrency", type=int, default=None,
-                            help="Max parallel API workers (default: config llm.max_concurrency)")
-    rate_group.add_argument("--cooldown-on-429", type=float, default=None,
-                            help="Global cooldown seconds after a 429 (default: config llm.cooldown_on_429 or 15)")
+    rate_group.add_argument(
+        "--target-rpm",
+        type=float,
+        default=None,
+        help="Target requests per minute (default: config llm.target_rpm or 60)",
+    )
+    rate_group.add_argument(
+        "--max-concurrency",
+        type=int,
+        default=None,
+        help="Max parallel API workers (default: config llm.max_concurrency)",
+    )
+    rate_group.add_argument(
+        "--cooldown-on-429",
+        type=float,
+        default=None,
+        help="Global cooldown seconds after a 429 (default: config llm.cooldown_on_429 or 15)",
+    )
 
     # Resume / checkpoint controls
     resume_group = parser.add_argument_group("resume", "Checkpoint / resume controls")
-    resume_group.add_argument("--no-resume", action="store_true",
-                              help="Start fresh, ignore existing checkpoint")
-    resume_group.add_argument("--checkpoint-every", type=int, default=None,
-                              help="Save checkpoint every N samples (default: config llm.checkpoint_every or 200)")
+    resume_group.add_argument(
+        "--no-resume", action="store_true", help="Start fresh, ignore existing checkpoint"
+    )
+    resume_group.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=None,
+        help="Save checkpoint every N samples (default: config llm.checkpoint_every or 200)",
+    )
 
     args = parser.parse_args()
 
@@ -885,8 +949,10 @@ def main():
         cooldown_on_429=cooldown,
     )
 
-    print(f"Rate limiter: target_rpm={target_rpm}, max_concurrency={max_concurrency}, "
-          f"cooldown_on_429={cooldown}s")
+    print(
+        f"Rate limiter: target_rpm={target_rpm}, max_concurrency={max_concurrency}, "
+        f"cooldown_on_429={cooldown}s"
+    )
 
     # Init wandb
     if not args.no_wandb:
@@ -926,8 +992,10 @@ def main():
         if completed_ids:
             n_before = len(df_eval)
             df_eval = df_eval[~df_eval["sample_id"].isin(completed_ids)].reset_index(drop=True)
-            print(f"Resuming: {len(completed_ids)} already done, {n_before - len(df_eval)} skipped, "
-                  f"{len(df_eval)} remaining")
+            print(
+                f"Resuming: {len(completed_ids)} already done, {n_before - len(df_eval)} skipped, "
+                f"{len(df_eval)} remaining"
+            )
     elif not args.no_resume:
         # Starting fresh: remove stale checkpoint
         cp = _checkpoint_path(args.split)
@@ -963,7 +1031,10 @@ def main():
 
     # Classify with checkpointing
     classifier = HierarchicalLLMClassifier(
-        cfg, few_shot, dynamic=args.dynamic, exemplar_bank=exemplar_bank,
+        cfg,
+        few_shot,
+        dynamic=args.dynamic,
+        exemplar_bank=exemplar_bank,
         rate_limiter=rate_limiter,
     )
 
@@ -972,9 +1043,15 @@ def main():
 
     # Ground-truth columns for checkpoint rows
     gt_col_names = [
-        "modified_sample", "original_sample", "attack_name",
-        "label_binary", "label_category", "label_type", "prompt_hash",
-        "benign_source", "is_synthetic_benign",
+        "modified_sample",
+        "original_sample",
+        "attack_name",
+        "label_binary",
+        "label_category",
+        "label_type",
+        "prompt_hash",
+        "benign_source",
+        "is_synthetic_benign",
     ]
     gt_cols = [c for c in gt_col_names if c in df_eval.columns]
 
@@ -998,7 +1075,9 @@ def main():
                 print(f"\n  [checkpoint] saved {completed_count[0] + len(completed_ids)} total")
 
     results = classifier.predict_batch(
-        texts, on_result=on_result, max_workers=max_concurrency,
+        texts,
+        on_result=on_result,
+        max_workers=max_concurrency,
     )
 
     # Flush remaining buffer
@@ -1030,7 +1109,12 @@ def main():
     print(f"\nUsage stats: {json.dumps(combined_stats, indent=2)}")
 
     if wandb.run is not None:
-        wandb.log({**usage, **{f"limiter/{k}": v for k, v in limiter_stats.items() if not isinstance(v, dict)}})
+        wandb.log(
+            {
+                **usage,
+                **{f"limiter/{k}": v for k, v in limiter_stats.items() if not isinstance(v, dict)},
+            }
+        )
         wandb.finish()
 
 

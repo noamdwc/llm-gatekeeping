@@ -29,9 +29,9 @@ def _stratified_hash_split(
     """
     all_hashes: set = set(df_held["prompt_hash"].unique())
     # Primary attack per hash = first attack encountered (stable for stratification).
-    primary_attack = (
-        df_held.drop_duplicates(subset=["prompt_hash"]).set_index("prompt_hash")["attack_name"]
-    )
+    primary_attack = df_held.drop_duplicates(subset=["prompt_hash"]).set_index("prompt_hash")[
+        "attack_name"
+    ]
 
     val_hashes: set = set()
     test_hashes: set = set()
@@ -115,8 +115,12 @@ def build_splits(config_path: str = None, input_path: str = None) -> dict[str, p
     val_benign_hashes, test_benign_hashes = _allocate_benign_hashes(
         df_main_benign, target_v, target_t, rng
     )
-    df_unseen_val_benign = df_main_benign[df_main_benign["prompt_hash"].isin(val_benign_hashes)].copy()
-    df_unseen_test_benign = df_main_benign[df_main_benign["prompt_hash"].isin(test_benign_hashes)].copy()
+    df_unseen_val_benign = df_main_benign[
+        df_main_benign["prompt_hash"].isin(val_benign_hashes)
+    ].copy()
+    df_unseen_test_benign = df_main_benign[
+        df_main_benign["prompt_hash"].isin(test_benign_hashes)
+    ].copy()
 
     df_unseen_val = pd.concat([df_unseen_val_adv, df_unseen_val_benign], ignore_index=True)
     df_unseen_test = pd.concat([df_unseen_test_adv, df_unseen_test_benign], ignore_index=True)
@@ -180,9 +184,9 @@ def build_splits(config_path: str = None, input_path: str = None) -> dict[str, p
 
         # Final guard: now must be disjoint
         held_hashes = set(df_held["prompt_hash"])
-        assert held_hashes.isdisjoint(training_pool_hashes), (
-            f"{ds_key}_test still overlaps training pool after dedup"
-        )
+        assert held_hashes.isdisjoint(
+            training_pool_hashes
+        ), f"{ds_key}_test still overlaps training pool after dedup"
 
         splits[f"{ds_key}_test"] = df_held
 
@@ -198,7 +202,9 @@ def build_splits(config_path: str = None, input_path: str = None) -> dict[str, p
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Build train/val/test/unseen_val/unseen_test splits")
+    parser = argparse.ArgumentParser(
+        description="Build train/val/test/unseen_val/unseen_test splits"
+    )
     parser.add_argument("--config", default=None, help="Path to config YAML")
     parser.add_argument("--input", default=None, help="Path to full_dataset.parquet")
     args = parser.parse_args()

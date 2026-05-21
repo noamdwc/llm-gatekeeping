@@ -17,43 +17,47 @@ from src.cli.train_escalating_model import main as train_escalating_main
 
 
 def _make_colab_df() -> pd.DataFrame:
-    return pd.DataFrame([
-        {
-            "sample_id": "s1",
-            "label_binary": "adversarial",
-            "llm_pred_binary": "benign",
-            "llm_conf_binary": 0.80,
-            "clf_confidence": 0.70,
-            "clf_token_logprobs": "unused",
-            "attack_name": "A",
-        },
-        {
-            "sample_id": "s2",
-            "label_binary": "benign",
-            "llm_pred_binary": "benign",
-            "llm_conf_binary": 0.60,
-            "clf_confidence": 0.90,
-            "clf_token_logprobs": "unused",
-            "attack_name": "B",
-        },
-        {
-            "sample_id": "s3",
-            "label_binary": "adversarial",
-            "llm_pred_binary": "adversarial",
-            "llm_conf_binary": 0.40,
-            "clf_confidence": 0.30,
-            "clf_token_logprobs": "unused",
-            "attack_name": "C",
-        },
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "sample_id": "s1",
+                "label_binary": "adversarial",
+                "llm_pred_binary": "benign",
+                "llm_conf_binary": 0.80,
+                "clf_confidence": 0.70,
+                "clf_token_logprobs": "unused",
+                "attack_name": "A",
+            },
+            {
+                "sample_id": "s2",
+                "label_binary": "benign",
+                "llm_pred_binary": "benign",
+                "llm_conf_binary": 0.60,
+                "clf_confidence": 0.90,
+                "clf_token_logprobs": "unused",
+                "attack_name": "B",
+            },
+            {
+                "sample_id": "s3",
+                "label_binary": "adversarial",
+                "llm_pred_binary": "adversarial",
+                "llm_conf_binary": 0.40,
+                "clf_confidence": 0.30,
+                "clf_token_logprobs": "unused",
+                "attack_name": "C",
+            },
+        ]
+    )
 
 
 def _make_deberta_df() -> pd.DataFrame:
-    return pd.DataFrame([
-        {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.90},
-        {"sample_id": "s2", "deberta_proba_binary_adversarial": 0.20},
-        {"sample_id": "s4", "deberta_proba_binary_adversarial": 0.75},
-    ])
+    return pd.DataFrame(
+        [
+            {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.90},
+            {"sample_id": "s2", "deberta_proba_binary_adversarial": 0.20},
+            {"sample_id": "s4", "deberta_proba_binary_adversarial": 0.75},
+        ]
+    )
 
 
 def _make_training_dataset(n: int = 20) -> EscalatingDataset:
@@ -62,18 +66,22 @@ def _make_training_dataset(n: int = 20) -> EscalatingDataset:
     for i in range(n):
         label = "adversarial" if i % 2 == 0 else "benign"
         pred = "benign" if i % 4 == 0 else label
-        rows.append({
-            "sample_id": f"s{i}",
-            "label_binary": label,
-            "llm_pred_binary": pred,
-            "llm_conf_binary": 0.55 + (i % 5) * 0.04,
-            "clf_confidence": 0.50 + (i % 7) * 0.03,
-            "clf_token_logprobs": "unused",
-        })
-        deberta_rows.append({
-            "sample_id": f"s{i}",
-            "deberta_proba_binary_adversarial": 0.15 + (i % 8) * 0.09,
-        })
+        rows.append(
+            {
+                "sample_id": f"s{i}",
+                "label_binary": label,
+                "llm_pred_binary": pred,
+                "llm_conf_binary": 0.55 + (i % 5) * 0.04,
+                "clf_confidence": 0.50 + (i % 7) * 0.03,
+                "clf_token_logprobs": "unused",
+            }
+        )
+        deberta_rows.append(
+            {
+                "sample_id": f"s{i}",
+                "deberta_proba_binary_adversarial": 0.15 + (i % 8) * 0.09,
+            }
+        )
     return EscalatingDataset(pd.DataFrame(rows), pd.DataFrame(deberta_rows))
 
 
@@ -83,20 +91,24 @@ def _make_prediction_frames(n: int = 20) -> tuple[pd.DataFrame, pd.DataFrame]:
     for i in range(n):
         label = "adversarial" if i % 2 == 0 else "benign"
         pred = "benign" if i % 4 == 0 else label
-        colab_rows.append({
-            "sample_id": f"s{i}",
-            "label_binary": label,
-            "llm_pred_binary": pred,
-            "llm_conf_binary": 0.55 + (i % 5) * 0.04,
-            "clf_confidence": 0.50 + (i % 7) * 0.03,
-            "clf_token_logprobs": "unused",
-            "prompt_hash": f"h{i // 2}",
-            "attack_name": "BAE" if label == "adversarial" else None,
-        })
-        deberta_rows.append({
-            "sample_id": f"s{i}",
-            "deberta_proba_binary_adversarial": 0.15 + (i % 8) * 0.09,
-        })
+        colab_rows.append(
+            {
+                "sample_id": f"s{i}",
+                "label_binary": label,
+                "llm_pred_binary": pred,
+                "llm_conf_binary": 0.55 + (i % 5) * 0.04,
+                "clf_confidence": 0.50 + (i % 7) * 0.03,
+                "clf_token_logprobs": "unused",
+                "prompt_hash": f"h{i // 2}",
+                "attack_name": "BAE" if label == "adversarial" else None,
+            }
+        )
+        deberta_rows.append(
+            {
+                "sample_id": f"s{i}",
+                "deberta_proba_binary_adversarial": 0.15 + (i % 8) * 0.09,
+            }
+        )
     return pd.DataFrame(colab_rows), pd.DataFrame(deberta_rows)
 
 
@@ -137,23 +149,27 @@ class TestEscalatingDataset:
 
     def test_derives_classifier_logprob_features_from_llm_prediction_output(self):
         colab = _make_colab_df().iloc[:1].copy()
-        colab.loc[0, "clf_token_logprobs"] = json.dumps([
-            {"token": "{"},
-            {"token": "\""},
-            {"token": "label"},
-            {"token": "\":"},
-            {
-                "token": " benign",
-                "top_logprobs": [
-                    {"token": " benign", "logprob": -0.20},
-                    {"token": " adversarial", "logprob": -1.30},
-                    {"token": " other", "logprob": -5.00},
-                ],
-            },
-        ])
-        deberta = pd.DataFrame([
-            {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.90},
-        ])
+        colab.loc[0, "clf_token_logprobs"] = json.dumps(
+            [
+                {"token": "{"},
+                {"token": '"'},
+                {"token": "label"},
+                {"token": '":'},
+                {
+                    "token": " benign",
+                    "top_logprobs": [
+                        {"token": " benign", "logprob": -0.20},
+                        {"token": " adversarial", "logprob": -1.30},
+                        {"token": " other", "logprob": -5.00},
+                    ],
+                },
+            ]
+        )
+        deberta = pd.DataFrame(
+            [
+                {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.90},
+            ]
+        )
 
         ds = EscalatingDataset(colab, deberta)
 
@@ -163,17 +179,21 @@ class TestEscalatingDataset:
 
     def test_uses_selected_label_token_logprob_when_top_logprobs_are_absent(self):
         colab = _make_colab_df().iloc[:1].copy()
-        colab.loc[0, "clf_token_logprobs"] = json.dumps([
-            {"token": "{\"", "logprob": -0.01},
-            {"token": "label", "logprob": -0.02},
-            {"token": "\":", "logprob": -0.03},
-            {"token": " \"", "logprob": -0.04},
-            {"token": "ben", "logprob": -0.25},
-            {"token": "ign", "logprob": 0.0},
-        ])
-        deberta = pd.DataFrame([
-            {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.90},
-        ])
+        colab.loc[0, "clf_token_logprobs"] = json.dumps(
+            [
+                {"token": '{"', "logprob": -0.01},
+                {"token": "label", "logprob": -0.02},
+                {"token": '":', "logprob": -0.03},
+                {"token": ' "', "logprob": -0.04},
+                {"token": "ben", "logprob": -0.25},
+                {"token": "ign", "logprob": 0.0},
+            ]
+        )
+        deberta = pd.DataFrame(
+            [
+                {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.90},
+            ]
+        )
 
         ds = EscalatingDataset(colab, deberta)
 
@@ -188,11 +208,13 @@ class TestEscalatingDataset:
 
     def test_duplicate_deberta_rows_are_collapsed_to_one_sample(self):
         colab = _make_colab_df().iloc[:2].copy()
-        deberta = pd.DataFrame([
-            {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.90},
-            {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.90},
-            {"sample_id": "s2", "deberta_proba_binary_adversarial": 0.20},
-        ])
+        deberta = pd.DataFrame(
+            [
+                {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.90},
+                {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.90},
+                {"sample_id": "s2", "deberta_proba_binary_adversarial": 0.20},
+            ]
+        )
 
         ds = EscalatingDataset(colab, deberta)
 
@@ -203,10 +225,12 @@ class TestEscalatingDataset:
 
     def test_conflicting_duplicate_deberta_rows_are_averaged(self):
         colab = _make_colab_df().iloc[:1].copy()
-        deberta = pd.DataFrame([
-            {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.90},
-            {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.10},
-        ])
+        deberta = pd.DataFrame(
+            [
+                {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.90},
+                {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.10},
+            ]
+        )
 
         ds = EscalatingDataset(colab, deberta)
 
@@ -215,9 +239,11 @@ class TestEscalatingDataset:
     def test_conflicting_duplicate_colab_rows_raise(self):
         colab = pd.concat([_make_colab_df().iloc[:1], _make_colab_df().iloc[:1]], ignore_index=True)
         colab.loc[1, "llm_pred_binary"] = "adversarial"
-        deberta = pd.DataFrame([
-            {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.90},
-        ])
+        deberta = pd.DataFrame(
+            [
+                {"sample_id": "s1", "deberta_proba_binary_adversarial": 0.90},
+            ]
+        )
 
         with pytest.raises(ValueError, match="conflicting duplicate sample_id"):
             EscalatingDataset(colab, deberta)
@@ -279,10 +305,12 @@ class TestPocEvaluation:
         assert summary["top_10pct_adversarial_fn_rate"] is None
 
     def test_threshold_sweep_reports_operating_point_metrics(self):
-        scored = pd.DataFrame({
-            "needs_escalation": [1, 0, 1, 0],
-            "escalation_score": [0.90, 0.80, 0.40, 0.10],
-        })
+        scored = pd.DataFrame(
+            {
+                "needs_escalation": [1, 0, 1, 0],
+                "escalation_score": [0.90, 0.80, 0.40, 0.10],
+            }
+        )
 
         sweep = evaluate_threshold_sweep(scored, thresholds=[0.50, 0.85])
 
@@ -308,38 +336,42 @@ class TestPocEvaluation:
         assert high["non_escalated_error_rate"] == pytest.approx(1 / 3)
 
     def test_postscore_split_map_is_prompt_hash_grouped_and_balances_errors(self):
-        scored = pd.DataFrame([
-            {
-                "sample_id": f"a{i}",
-                "prompt_hash": f"adv_err_{i}",
-                "label_binary": "adversarial",
-                "attack_name": "BAE",
-                "needs_escalation": 1,
-                "escalation_score": 0.90,
-            }
-            for i in range(4)
-        ] + [
-            {
-                "sample_id": f"b{i}",
-                "prompt_hash": f"ben_err_{i}",
-                "label_binary": "benign",
-                "attack_name": None,
-                "needs_escalation": 1,
-                "escalation_score": 0.80,
-            }
-            for i in range(4)
-        ] + [
-            {
-                "sample_id": f"ok{i}_{j}",
-                "prompt_hash": f"ok_{i}",
-                "label_binary": "adversarial" if i % 2 == 0 else "benign",
-                "attack_name": "TextFooler" if i % 2 == 0 else None,
-                "needs_escalation": 0,
-                "escalation_score": 0.10,
-            }
-            for i in range(4)
-            for j in range(3)
-        ])
+        scored = pd.DataFrame(
+            [
+                {
+                    "sample_id": f"a{i}",
+                    "prompt_hash": f"adv_err_{i}",
+                    "label_binary": "adversarial",
+                    "attack_name": "BAE",
+                    "needs_escalation": 1,
+                    "escalation_score": 0.90,
+                }
+                for i in range(4)
+            ]
+            + [
+                {
+                    "sample_id": f"b{i}",
+                    "prompt_hash": f"ben_err_{i}",
+                    "label_binary": "benign",
+                    "attack_name": None,
+                    "needs_escalation": 1,
+                    "escalation_score": 0.80,
+                }
+                for i in range(4)
+            ]
+            + [
+                {
+                    "sample_id": f"ok{i}_{j}",
+                    "prompt_hash": f"ok_{i}",
+                    "label_binary": "adversarial" if i % 2 == 0 else "benign",
+                    "attack_name": "TextFooler" if i % 2 == 0 else None,
+                    "needs_escalation": 0,
+                    "escalation_score": 0.10,
+                }
+                for i in range(4)
+                for j in range(3)
+            ]
+        )
 
         split_map, diagnostics = build_postscore_split_map(scored, seed=42)
         assigned = scored.merge(split_map, on="prompt_hash", how="left", validate="many_to_one")
@@ -361,7 +393,13 @@ class TestPocEvaluation:
             rows=("sample_id", "size"),
             cheap_errors=("needs_escalation", "sum"),
         )
-        assert abs(summary.loc["calibration", "cheap_errors"] - summary.loc["threshold", "cheap_errors"]) <= 1
+        assert (
+            abs(
+                summary.loc["calibration", "cheap_errors"]
+                - summary.loc["threshold", "cheap_errors"]
+            )
+            <= 1
+        )
         assert abs(summary.loc["calibration", "rows"] - summary.loc["threshold", "rows"]) <= 3
 
 
@@ -373,7 +411,9 @@ class TestTrainEscalatingModelCli:
 
         assert path.name == "llm_predictions_external_deepset.parquet"
 
-    def test_cli_fails_when_configured_external_handoff_artifact_is_missing(self, tmp_path, monkeypatch):
+    def test_cli_fails_when_configured_external_handoff_artifact_is_missing(
+        self, tmp_path, monkeypatch
+    ):
         from src.cli import train_escalating_model
 
         train_colab, train_deberta = _make_prediction_frames(n=24)
@@ -389,21 +429,25 @@ class TestTrainEscalatingModelCli:
             deberta_path = tmp_path / f"deberta_predictions_{split}.parquet"
             colab.to_parquet(colab_path, index=False)
             deberta.to_parquet(deberta_path, index=False)
-            eval_args.extend([
-                "--eval-split",
-                split,
-                str(colab_path),
-                str(deberta_path),
-            ])
+            eval_args.extend(
+                [
+                    "--eval-split",
+                    split,
+                    str(colab_path),
+                    str(deberta_path),
+                ]
+            )
 
         external_deberta = tmp_path / "deberta_predictions_external_deepset.parquet"
-        pd.DataFrame([
-            {
-                "sample_id": "external-1",
-                "label_binary": "benign",
-                "deberta_proba_binary_adversarial": 0.1,
-            }
-        ]).to_parquet(external_deberta, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "sample_id": "external-1",
+                    "label_binary": "benign",
+                    "deberta_proba_binary_adversarial": 0.1,
+                }
+            ]
+        ).to_parquet(external_deberta, index=False)
 
         config_path = tmp_path / "default.yaml"
         config_path.write_text(
@@ -420,29 +464,35 @@ class TestTrainEscalatingModelCli:
 
         monkeypatch.setattr(train_escalating_model, "PREDICTIONS_EXTERNAL_DIR", tmp_path)
         with pytest.raises(FileNotFoundError, match="manual Colab handoff artifact"):
-            train_escalating_main([
-                "--config",
-                str(config_path),
-                "--train-colab-predictions",
-                str(train_colab_path),
-                "--train-deberta-predictions",
-                str(train_deberta_path),
-                "--model-output",
-                str(tmp_path / "models" / "escalating_model.pkl"),
-                "--research-output-dir",
-                str(tmp_path / "research"),
-                "--summary-output",
-                str(tmp_path / "research" / "escalating_model_summary.csv"),
-                "--threshold-sweep-output",
-                str(tmp_path / "research" / "escalating_model_threshold_sweep_unseen_val.csv"),
-                "--postscore-split-map-output",
-                str(tmp_path / "research" / "escalating_model_unseen_val_postscore_split_map.csv"),
-                "--report-output",
-                str(tmp_path / "reports" / "escalating_model_poc.md"),
-                "--external-dataset",
-                "deepset",
-                *eval_args,
-            ])
+            train_escalating_main(
+                [
+                    "--config",
+                    str(config_path),
+                    "--train-colab-predictions",
+                    str(train_colab_path),
+                    "--train-deberta-predictions",
+                    str(train_deberta_path),
+                    "--model-output",
+                    str(tmp_path / "models" / "escalating_model.pkl"),
+                    "--research-output-dir",
+                    str(tmp_path / "research"),
+                    "--summary-output",
+                    str(tmp_path / "research" / "escalating_model_summary.csv"),
+                    "--threshold-sweep-output",
+                    str(tmp_path / "research" / "escalating_model_threshold_sweep_unseen_val.csv"),
+                    "--postscore-split-map-output",
+                    str(
+                        tmp_path
+                        / "research"
+                        / "escalating_model_unseen_val_postscore_split_map.csv"
+                    ),
+                    "--report-output",
+                    str(tmp_path / "reports" / "escalating_model_poc.md"),
+                    "--external-dataset",
+                    "deepset",
+                    *eval_args,
+                ]
+            )
 
     def test_cli_writes_expected_artifacts(self, tmp_path):
         train_colab, train_deberta = _make_prediction_frames(n=24)
@@ -458,12 +508,14 @@ class TestTrainEscalatingModelCli:
             deberta_path = tmp_path / f"deberta_predictions_{split}.parquet"
             colab.to_parquet(colab_path, index=False)
             deberta.to_parquet(deberta_path, index=False)
-            eval_args.extend([
-                "--eval-split",
-                split,
-                str(colab_path),
-                str(deberta_path),
-            ])
+            eval_args.extend(
+                [
+                    "--eval-split",
+                    split,
+                    str(colab_path),
+                    str(deberta_path),
+                ]
+            )
 
         config_path = tmp_path / "default.yaml"
         config_path.write_text(
@@ -476,31 +528,37 @@ class TestTrainEscalatingModelCli:
         model_output = tmp_path / "models" / "escalating_model.pkl"
         research_output_dir = tmp_path / "research"
         summary_output = research_output_dir / "escalating_model_summary.csv"
-        threshold_sweep_output = research_output_dir / "escalating_model_threshold_sweep_unseen_val.csv"
-        split_map_output = research_output_dir / "escalating_model_unseen_val_postscore_split_map.csv"
+        threshold_sweep_output = (
+            research_output_dir / "escalating_model_threshold_sweep_unseen_val.csv"
+        )
+        split_map_output = (
+            research_output_dir / "escalating_model_unseen_val_postscore_split_map.csv"
+        )
         report_output = tmp_path / "reports" / "escalating_model_poc.md"
 
-        train_escalating_main([
-            "--config",
-            str(config_path),
-            "--train-colab-predictions",
-            str(train_colab_path),
-            "--train-deberta-predictions",
-            str(train_deberta_path),
-            "--model-output",
-            str(model_output),
-            "--research-output-dir",
-            str(research_output_dir),
-            "--summary-output",
-            str(summary_output),
-            "--threshold-sweep-output",
-            str(threshold_sweep_output),
-            "--postscore-split-map-output",
-            str(split_map_output),
-            "--report-output",
-            str(report_output),
-            *eval_args,
-        ])
+        train_escalating_main(
+            [
+                "--config",
+                str(config_path),
+                "--train-colab-predictions",
+                str(train_colab_path),
+                "--train-deberta-predictions",
+                str(train_deberta_path),
+                "--model-output",
+                str(model_output),
+                "--research-output-dir",
+                str(research_output_dir),
+                "--summary-output",
+                str(summary_output),
+                "--threshold-sweep-output",
+                str(threshold_sweep_output),
+                "--postscore-split-map-output",
+                str(split_map_output),
+                "--report-output",
+                str(report_output),
+                *eval_args,
+            ]
+        )
 
         assert model_output.exists()
         for split in ["test", "unseen_val", "unseen_test", "safeguard_test"]:
@@ -521,7 +579,9 @@ class TestTrainEscalatingModelCli:
         assert set(sweep["threshold"]) >= {0.0, 0.5, 1.0}
         split_map = pd.read_csv(split_map_output)
         assert set(split_map["postscore_split"]) == {"calibration", "threshold"}
-        unseen_eval = pd.read_parquet(research_output_dir / "escalating_model_eval_unseen_val.parquet")
+        unseen_eval = pd.read_parquet(
+            research_output_dir / "escalating_model_eval_unseen_val.parquet"
+        )
         assert "calibrated_escalation_score" in unseen_eval.columns
         threshold_hashes = set(split_map.query("postscore_split == 'threshold'")["prompt_hash"])
         expected_threshold_rows = unseen_eval["prompt_hash"].isin(threshold_hashes).sum()

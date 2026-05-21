@@ -20,6 +20,4 @@ def test_uv_active_commands_disable_project_environment():
             if "uv run --active" in line and "uv run --active --no-project" not in line:
                 offenders.append(f"{path}:{line_number}: {line.strip()}")
 
-    assert not offenders, "uv active commands must include --no-project:\n" + "\n".join(
-        offenders
-    )
+    assert not offenders, "uv active commands must include --no-project:\n" + "\n".join(offenders)

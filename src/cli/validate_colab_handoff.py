@@ -68,13 +68,10 @@ def validate_artifact_pair(
         ["sample_id", "deberta_proba_binary_adversarial"],
     )
 
-    judge_columns = sorted(
-        column for column in classifier.columns if column.startswith("judge_")
-    )
+    judge_columns = sorted(column for column in classifier.columns if column.startswith("judge_"))
     if judge_columns:
         raise ValueError(
-            f"{classifier_path} must be classifier-only; "
-            f"found judge columns: {judge_columns}"
+            f"{classifier_path} must be classifier-only; " f"found judge columns: {judge_columns}"
         )
 
     invalid_stage_rows = classifier[classifier["llm_stages_run"] != 1]
@@ -109,9 +106,7 @@ def validate_artifact_pair(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Validate Colab classifier handoff artifacts."
-    )
+    parser = argparse.ArgumentParser(description="Validate Colab classifier handoff artifacts.")
     parser.add_argument("--config", default=None)
     parser.add_argument("--predictions-dir", type=Path, default=PREDICTIONS_DIR)
     parser.add_argument(

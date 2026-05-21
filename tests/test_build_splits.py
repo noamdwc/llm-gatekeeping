@@ -45,7 +45,14 @@ class TestBuildSplits:
         _patch_splits_dir(monkeypatch, tmp_path)
         config_path, input_path = splits_input
         splits = build_splits(config_path, input_path)
-        assert set(splits.keys()) == {"train", "val", "test", "unseen_val", "unseen_test", "safeguard_test"}
+        assert set(splits.keys()) == {
+            "train",
+            "val",
+            "test",
+            "unseen_val",
+            "unseen_test",
+            "safeguard_test",
+        }
 
     def test_no_prompt_hash_overlap_within_groups(self, splits_input, monkeypatch, tmp_path):
         """Disjoint within main (train/val/test) and within unseen (unseen_val/unseen_test).
@@ -76,15 +83,15 @@ class TestBuildSplits:
         held_out = {"BAE"}
         for name in ["train", "val", "test"]:
             attacks = set(splits[name]["attack_name"].unique())
-            assert attacks.isdisjoint(held_out), (
-                f"held-out attack leaked into {name}: {attacks & held_out}"
-            )
+            assert attacks.isdisjoint(
+                held_out
+            ), f"held-out attack leaked into {name}: {attacks & held_out}"
         for name in ["unseen_val", "unseen_test"]:
             adv_rows = splits[name][splits[name]["label_binary"] == "adversarial"]
             adv_attacks = set(adv_rows["attack_name"].unique())
-            assert adv_attacks.issubset(held_out), (
-                f"non-held-out attack in {name}: {adv_attacks - held_out}"
-            )
+            assert adv_attacks.issubset(
+                held_out
+            ), f"non-held-out attack in {name}: {adv_attacks - held_out}"
 
     def test_unseen_splits_stratified_per_attack(self, splits_input, monkeypatch, tmp_path):
         _patch_splits_dir(monkeypatch, tmp_path)
@@ -121,7 +128,7 @@ class TestBuildSplits:
             b_hashes[name] = set(b["prompt_hash"].unique())
         names = list(b_hashes)
         for i, a in enumerate(names):
-            for b in names[i + 1:]:
+            for b in names[i + 1 :]:
                 assert b_hashes[a].isdisjoint(b_hashes[b]), f"benign overlap {a}/{b}"
 
     def test_all_samples_accounted_for(self, splits_input, monkeypatch, tmp_path, sample_dataframe):
@@ -174,10 +181,12 @@ def test_safeguard_test_split_written(splits_input, monkeypatch, tmp_path):
 
     _patch_splits_dir(monkeypatch, tmp_path)
 
-    fake = pd.DataFrame({
-        "text": ["benign hi", "do bad thing", "another benign"],
-        "label": [0, 1, 0],
-    })
+    fake = pd.DataFrame(
+        {
+            "text": ["benign hi", "do bad thing", "another benign"],
+            "label": [0, 1, 0],
+        }
+    )
 
     class _FakeDS:
         def to_pandas(self):

@@ -17,10 +17,7 @@ def _notebook() -> dict:
 
 def _all_source() -> str:
     nb = _notebook()
-    return "\n".join(
-        "".join(cell.get("source", []))
-        for cell in nb["cells"]
-    )
+    return "\n".join("".join(cell.get("source", [])) for cell in nb["cells"])
 
 
 def test_notebook_exists_and_targets_colab_gpu():
@@ -39,8 +36,7 @@ def test_notebook_code_cells_are_valid_python_or_colab_magics():
             continue
         source = "".join(cell.get("source", []))
         normalized = "\n".join(
-            "pass" if line.startswith("%") else line
-            for line in source.splitlines()
+            "pass" if line.startswith("%") else line for line in source.splitlines()
         )
         compile(normalized, f"{NOTEBOOK}:{cell.get('id')}", "exec")
 
@@ -81,7 +77,9 @@ def test_notebook_only_sets_sampling_generation_flags_when_sampling():
     assert "do_sample = cfg['llm']['temperature'] > 0" in source
     assert "'do_sample': do_sample" in source
     assert "if do_sample:" in source
-    assert "generation_kwargs['temperature'] = max(float(cfg['llm']['temperature']), 1e-6)" in source
+    assert (
+        "generation_kwargs['temperature'] = max(float(cfg['llm']['temperature']), 1e-6)" in source
+    )
     assert "generation_kwargs['top_p'] = float(cfg['llm'].get('top_p', 1.0))" in source
     assert "'temperature': max(float(cfg['llm']['temperature']), 1e-6)" not in source
 
@@ -111,9 +109,14 @@ def test_notebook_left_pads_decoder_only_generation_inputs():
 def test_notebook_defines_batch_output_targets_and_paths():
     source = _all_source()
 
-    assert "MAIN_SPLITS = ['train', 'val', 'test', 'unseen_val', 'unseen_test', 'safeguard_test']" in source
+    assert (
+        "MAIN_SPLITS = ['train', 'val', 'test', 'unseen_val', 'unseen_test', 'safeguard_test']"
+        in source
+    )
     assert "EXTERNAL_DATASETS = ['deepset', 'jackhhao']" in source
-    assert "PREDICTIONS_EXTERNAL_DIR = f'{DRIVE_ROOT}/data/processed/predictions_external'" in source
+    assert (
+        "PREDICTIONS_EXTERNAL_DIR = f'{DRIVE_ROOT}/data/processed/predictions_external'" in source
+    )
     assert "def make_main_target(split: str) -> dict:" in source
     assert "def make_external_target(dataset_key: str) -> dict:" in source
     assert "llm_checkpoint_{split}_{OUTPUT_SUFFIX}.parquet" in source
@@ -193,10 +196,15 @@ def test_notebook_filters_invalid_checkpoint_and_final_rows():
     source = _all_source()
 
     assert "def valid_prediction_mask(df: pd.DataFrame) -> pd.Series" in source
-    assert "successful_checkpoint_df = valid_checkpoint_df[valid_checkpoint_df['llm_parse_success'].eq(True)].copy()" in source
+    assert (
+        "successful_checkpoint_df = valid_checkpoint_df[valid_checkpoint_df['llm_parse_success'].eq(True)].copy()"
+        in source
+    )
     assert "required_non_null_columns = ['sample_id', *PREDICTION_COLUMNS]" in source
     assert "df[required_non_null_columns].notna().all(axis=1)" in source
-    assert "valid_checkpoint_df = checkpoint_df[valid_prediction_mask(checkpoint_df)].copy()" in source
+    assert (
+        "valid_checkpoint_df = checkpoint_df[valid_prediction_mask(checkpoint_df)].copy()" in source
+    )
     assert "invalid_checkpoint_rows = len(checkpoint_df) - len(valid_checkpoint_df)" in source
     assert "final_df = final_df[valid_prediction_mask(final_df)].copy()" in source
     assert "assert_valid_output(out_df, target)" in source
@@ -207,7 +215,10 @@ def test_notebook_rejects_all_parse_failure_outputs():
 
     assert "def assert_has_parsed_rows(out_df: pd.DataFrame, target: dict) -> None:" in source
     assert "parse_success_count = int(out_df['llm_parse_success'].eq(True).sum())" in source
-    assert "raise AssertionError(f\"{target['progress_label']} produced zero parsed classifier rows" in source
+    assert (
+        "raise AssertionError(f\"{target['progress_label']} produced zero parsed classifier rows"
+        in source
+    )
     assert "assert_has_parsed_rows(final_df, target)" in source
     assert "assert_has_parsed_rows(out_df, target)" in source
 
@@ -215,7 +226,10 @@ def test_notebook_rejects_all_parse_failure_outputs():
 def test_notebook_prints_parse_failure_diagnostics():
     source = _all_source()
 
-    assert "def print_parse_diagnostics(out_df: pd.DataFrame, target: dict, limit: int = 5) -> None:" in source
+    assert (
+        "def print_parse_diagnostics(out_df: pd.DataFrame, target: dict, limit: int = 5) -> None:"
+        in source
+    )
     assert "llm_raw_response_text" in source
     assert "llm_evidence" in source
     assert "Parse successes:" in source
@@ -235,7 +249,10 @@ def test_notebook_runs_all_targets_and_reports_summary():
     source = _all_source()
 
     assert "TARGETS = [make_main_target(split) for split in MAIN_SPLITS]" in source
-    assert "TARGETS.extend(make_external_target(dataset_key) for dataset_key in EXTERNAL_DATASETS)" in source
+    assert (
+        "TARGETS.extend(make_external_target(dataset_key) for dataset_key in EXTERNAL_DATASETS)"
+        in source
+    )
     assert "run_results = []" in source
     assert "for target in TARGETS:" in source
     assert "run_results.append(run_target(target))" in source

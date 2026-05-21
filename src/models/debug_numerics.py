@@ -119,6 +119,7 @@ def validate_labels(labels: list, num_labels: int) -> list[str]:
 def log_label_distribution(labels: list, id2label: dict, log: logging.Logger):
     """Log the distribution of labels."""
     from collections import Counter
+
     counts = Counter(labels)
     log.info("Label distribution:")
     for label_id in sorted(counts.keys()):
@@ -136,8 +137,10 @@ def log_param_stats(model: torch.nn.Module, log: logging.Logger, top_k: int = 5)
     log.info(f"Parameter stats (top {top_k} by size):")
     for name, p in params[:top_k]:
         s = summarize_tensor(name, p.data)
-        log.info(f"  {name}: shape={s.shape} mean={s.mean:.6f} std={s.std:.6f} "
-                 f"min={s.min:.6f} max={s.max:.6f} nan={s.has_nan} inf={s.has_inf}")
+        log.info(
+            f"  {name}: shape={s.shape} mean={s.mean:.6f} std={s.std:.6f} "
+            f"min={s.min:.6f} max={s.max:.6f} nan={s.has_nan} inf={s.has_inf}"
+        )
 
 
 # ── Bad batch dump ───────────────────────────────────────────────────────────
