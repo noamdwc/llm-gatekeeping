@@ -1,0 +1,27 @@
+[project]
+name = "llm-gatekeeping"
+version = "0.1.0"
+description = "Robust adversarial prompt detection and LLM gatekeeping experiments"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = []
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | venv
+  | env
+  | build
+  | dist
+  | data
+  | reports
+  | notebooks
+  | artifacts
+  | \.dvc
+)/
+'''
