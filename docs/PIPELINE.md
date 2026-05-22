@@ -50,9 +50,9 @@ uv run --active --no-project pytest tests/test_final_verdict_report.py -q
 ```
 
 NIM model names in `configs/default.yaml` are auto-translated to OpenAI
-equivalents when `LLM_PROVIDER=openai`. After switching providers, run
-`./run_llm_provider_refresh.sh` to force re-execution of LLM-dependent DVC
-stages (DVC does not track `LLM_PROVIDER` itself).
+equivalents when `LLM_PROVIDER=openai`. After switching providers, force
+re-execution of LLM-dependent DVC stages with `dvc repro -f` on the
+affected stages (DVC does not track `LLM_PROVIDER` itself).
 
 ## Canonical Pipeline
 

@@ -1,6 +1,8 @@
 # LLM Security Gatekeeper
 
-A multi-stage detector for adversarial prompts, prompt injection, and jailbreak attempts — designed to catch attacks while keeping inference cost low by routing only uncertain cases to an LLM judge.
+A multi-stage classifier that detects prompt-injection and jailbreak attacks at **94.6% accuracy while calling an LLM judge on only 4.7% of prompts** — a 95% reduction in inference cost versus judging every prompt.
+
+DeBERTa-v3 binary classifier → LightGBM escalation router → selective LLM judge (NVIDIA NIM). Trained on 11.3k adversarial samples (Mindgard) + 2k synthetic benigns; evaluated on held-out attack families and three external datasets (deepset, jackhhao, safeguard) for generalization.
 
 ## Headline results
 
@@ -23,6 +25,8 @@ Per-split detail:
 | safeguard_test    | 1552 |  4.06%     | 98.32%   | 89.35%     | 99.42%        | 94.97%        |
 | external_deepset  |  116 | 29.31%     | 60.34%   | 25.00%     | 98.21%        | 93.75%        |
 | external_jackhhao |  262 | 14.89%     | 90.84%   | 84.89%     | 97.56%        | 97.52%        |
+
+> External datasets are out-of-distribution stress tests — different label conventions and attack distributions. They are not the production target.
 
 ## Architecture
 
