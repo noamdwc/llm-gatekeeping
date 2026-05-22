@@ -1,47 +1,20 @@
 # LLM Security Gatekeeper
 
-A research project on **cost-efficient, leakage-aware detection of adversarial prompts, prompt injection, and jailbreak attempts**. The goal is not a single best model but a clear-eyed view of the tradeoffs between recall, false positives, latency/cost, and robustness on both internal and external datasets.
+A multi-stage detector for adversarial prompts, prompt injection, and jailbreak attempts — designed to catch attacks while keeping inference cost low by routing only uncertain cases to an LLM judge.
 
-The system pairs a fine-tuned DeBERTa classifier with a local/Colab LLM classifier handoff, then escalates selected low-confidence cases to an LLM judge. Splits are grouped by prompt hash and a subset of attack families is held out so generalization can be measured without leakage.
+## Headline results
 
-Built on the [Mindgard evaded prompt injection dataset](https://huggingface.co/datasets/Mindgard/evaded-prompt-injection-and-jailbreak-samples) (~11.3k adversarial samples across 20 attack types + ~2k synthetic benign samples), with additional evaluation on external datasets (`deepset`, `jackhhao`, `safeguard`).
+On 6,405 prompts across in-distribution and external datasets (from `reports/pipeline_final_verdict_report.md`):
 
-## Classification Hierarchy
+| Slice                        | Rows  | Accuracy | Adv recall | Benign recall | Judge calls |
+|------------------------------|------:|---------:|-----------:|--------------:|------------:|
+| In-distribution              | 6,027 | **95.4%**| 96.3%      | 94.7%         | 3.8%        |
+| External (deepset, jackhhao) |   378 | 81.5%    | 66.8%      | 97.8%         | 19.3%       |
+| **Overall**                  | 6,405 | **94.6%**| 94.4%      | 94.8%         | **4.7%**    |
 
-```
-Level 0: Binary     →  adversarial | benign
-Level 1: Category   →  unicode_attack | nlp_attack
-Level 2: Type       →  12 unicode sub-types (NLP sub-types collapsed; see note below)
-```
+The cascade calls the LLM judge on only **4.7%** of prompts — a **95% reduction** versus judging every prompt — while preserving near-baseline accuracy. External-dataset performance is reported as a deliberate generalization stress test, not headline performance; the FNR gap on `deepset` is the most informative target for future work.
 
-NLP sub-types (TextFooler, BERT-Attack, BAE, etc.) are currently collapsed into a single `nlp_attack` label because the existing word-substitution attacks are difficult to separate reliably in this dataset — observed sub-type accuracy is around 17.9%, which is dataset- and model-specific rather than a universal claim about NLP attacks. Unicode-based attacks (homoglyphs, zero-width chars, diacritics, etc.) classify cleanly at roughly 88–100% in our experiments.
-
-## Classifier backends
-
-- **ML** (`src/ml_classifier/ml_baseline.py`) — char n-gram TF-IDF + handcrafted Unicode features, LogisticRegression per hierarchy level. Instant, no API.
-- **DeBERTa** (`src/cli/deberta_classifier.py`, `src/models/`) — fine-tuned `microsoft/deberta-v3-base` per hierarchy level. Strong neural baseline; produces `deberta_predictions_*.parquet`.
-- **LLM** (`src/llm_classifier/llm_classifier.py`) — classifier + conditional judge calls via NVIDIA NIM (or OpenAI). Supports static and dynamic few-shot retrieval.
-- **Escalating model** (`src/escalating_model.py`) — LightGBM classifier that joins Colab/local LLM classifier predictions with DeBERTa predictions and estimates whether the cheap/local LLM output should be escalated to the stronger judge.
-
-> **Status note** Hosted NVIDIA NIM endpoints no longer expose `logprobs`, which the LLM classifier path uses for token-level confidence. The classifier now runs locally in Google Colab to recover logprob-based confidence cheaply, while hosted providers are still used for judge calls.
-
-## Results
-
-Metrics change based on split, sample limit, thresholds, and whether LLM stages were run. The canonical numbers are produced by `reports/pipeline_final_verdict_report.md`; the historical snapshots below are kept for context.
-
-### Canonical final-verdict results
-
-From `reports/pipeline_final_verdict_report.md` (escalation-gate threshold `0.5`, sigmoid calibration). For each row, the final verdict is the cheap Colab/local LLM classifier output unless the escalation model routes the row to the judge and a judge final label is available.
-
-**Overall** — 6405 rows (3157 adv, 3248 benign), 302 judge calls (**4.72%**).
-
-| Slice                | Rows | Judge rate | Accuracy | Adv recall | Benign recall | Adv precision |
-|----------------------|-----:|-----------:|---------:|-----------:|--------------:|--------------:|
-| Overall              | 6405 | 4.72%      | 94.61%   | 94.39%     | 94.83%        | 94.66%        |
-| Internal splits      | 6027 | 3.80%      | 95.44%   | 96.25%     | 94.66%        | 94.55%        |
-| External datasets    |  378 | 19.31%     | 81.48%   | 66.83%     | 97.77%        | 97.08%        |
-
-**Per-split breakdown:**
+Per-split detail:
 
 | Split             | Rows | Judge rate | Accuracy | Adv recall | Benign recall | Adv precision |
 |-------------------|-----:|-----------:|---------:|-----------:|--------------:|--------------:|
@@ -51,56 +24,34 @@ From `reports/pipeline_final_verdict_report.md` (escalation-gate threshold `0.5`
 | external_deepset  |  116 | 29.31%     | 60.34%   | 25.00%     | 98.21%        | 93.75%        |
 | external_jackhhao |  262 | 14.89%     | 90.84%   | 84.89%     | 97.56%        | 97.52%        |
 
-**Judge workload** — 302 of 6405 rows escalated (**4.72%**), a **95.28%** reduction vs. judging every row.
+## Architecture
 
-External datasets are intentionally a generalization stress test: `external_deepset` in particular drives the bulk of the adversarial-recall gap and is the most informative target for improvement.
+`DeBERTa-v3 binary classifier` ⟶ `LightGBM escalation router` (decides which prompts the cheap classifier is uncertain about) ⟶ `selective LLM judge` (NVIDIA NIM / OpenAI) on the routed subset.
 
-### Representative results
+Splits are grouped by prompt hash, and two attack families (Emoji Smuggling, Pruthi) are held out so generalization can be measured without leakage. Evaluation also covers three external datasets (`deepset`, `jackhhao`, `safeguard`).
 
-Historical main test split snapshot from the legacy component-report path.
+Built on the [Mindgard evaded prompt injection dataset](https://huggingface.co/datasets/Mindgard/evaded-prompt-injection-and-jailbreak-samples) (~11.3k adversarial samples across 20 attack types) plus ~2k synthetic benign samples generated and filter-validated in-house.
 
-#### Unicode/type-scope ML metrics
+## Stack
 
-Evaluated only on samples within the ML classifier's unicode-attack scope:
+DeBERTa-v3-base · LightGBM · scikit-learn · DVC · Weights & Biases · PyTorch · HuggingFace Transformers · NVIDIA NIM / OpenAI APIs
 
-| Model              | Rows | Accuracy | Adv F1 | Benign F1 | FPR    | FNR    |
-|--------------------|------|----------|--------|-----------|--------|--------|
-| ML (unicode scope) | 1070 | 0.9888   | 0.9921 | 0.9804    | 0.0000 | 0.0156 |
+## Classification Hierarchy
 
-#### Full binary test-split metrics
+```
+Level 0: Binary     →  adversarial | benign
+Level 1: Category   →  unicode_attack | nlp_attack
+Level 2: Type       →  12 unicode sub-types (NLP sub-types collapsed)
+```
 
-Evaluated on the entire binary test split (adversarial vs. benign across all attack families):
+NLP sub-types (TextFooler, BERT-Attack, BAE, etc.) are collapsed into a single `nlp_attack` label because word-substitution attacks are difficult to separate reliably in this dataset (observed sub-type accuracy ~17.9%). Unicode-based attacks (homoglyphs, zero-width chars, diacritics, etc.) classify cleanly at 88–100%.
 
-| Model  | Rows | Accuracy | Adv F1 | Benign F1 | FPR    | FNR    |
-|--------|------|----------|--------|-----------|--------|--------|
-| Hybrid | 1618 | 0.9580   | 0.9743 | 0.8844    | 0.1333 | 0.0212 |
-| LLM    | 1618 | 0.8072   | 0.8709 | 0.6195    | 0.1533 | 0.2018 |
+## Classifier backends
 
-> **Note:** The unicode/type-scope ML metrics and the full binary metrics answer different evaluation questions and should not be read as a strict ranking. The ML row is restricted to the subset of inputs within ML's scope; the Hybrid and LLM rows cover the full split.
-
-Hybrid routing breakdown on the same run: `ml=747`, `deberta=600`, `llm=91`, `abstain=180`. On the validated synthetic-benign slice, hybrid FPR is 0.0000 across all 220 clean benigns.
-
-Post-hoc benign risk model (train on val margin trace, evaluate on test):
-
-| Model                       | ROC-AUC | PR-AUC | Brier  |
-|-----------------------------|---------|--------|--------|
-| Isotonic (margin only)      | 0.5000  | 0.3420 | 0.2253 |
-| Logistic (all features)     | 0.9425  | 0.8684 | 0.0813 |
-
-External (unseen) generalization, combined across `deepset`, `jackhhao`, `safeguard`:
-
-| Total Rows | Adv % | Accuracy | Adv F1 | Benign F1 | FPR    | FNR    |
-|-----------:|------:|---------:|-------:|----------:|-------:|-------:|
-| 2427       | 34.9% | 0.7672   | 0.6231 | 0.8316    | 0.1171 | 0.4486 |
-
-External numbers should be read as a *generalization stress test*, not as headline performance — the FNR gap vs. the in-distribution test split is a deliberate signal that this is the area to improve.
-
-### Canonical report output
-
-- `reports/pipeline_final_verdict_report.md` (escalation-model final verdict)
-
-Older component, baseline, and post-hoc report paths are historical and are
-not the documented final artifact.
+- **ML** (`src/ml_classifier/ml_baseline.py`) — char n-gram TF-IDF + handcrafted Unicode features, LogisticRegression per hierarchy level. Instant, no API.
+- **DeBERTa** (`src/cli/deberta_classifier.py`, `src/models/`) — fine-tuned `microsoft/deberta-v3-base` per hierarchy level.
+- **LLM** (`src/llm_classifier/llm_classifier.py`) — classifier + conditional judge calls via NVIDIA NIM (or OpenAI), with static and dynamic few-shot retrieval. The classifier model runs in Colab to recover token-level `logprobs` (hosted NIM/OpenAI endpoints no longer expose them); hosted providers still serve judge calls.
+- **Escalating model** (`src/escalating_model.py`) — LightGBM router that joins the local LLM classifier's logprob features with DeBERTa predictions and decides which rows to escalate to the judge.
 
 ## Setup
 
@@ -254,14 +205,6 @@ the config. When adding a new external dataset, update those aggregate stage
 deps/outs and the Colab artifact path list, or run/report the new dataset
 separately.
 
-### Current Handoff Status
-
-The Colab handoff works end-to-end: fresh classifier artifacts pass
-`uv run --active --no-project dvc repro -s validate_colab_handoff` and feed cleanly into
-`train_escalating_model` and `final_verdict_report`. If a future handoff
-fails validation, fix the handoff artifact rather than weakening validation
-or falling back to legacy hosted LLM outputs.
-
 ### Non-Canonical Runtime Paths
 
 Legacy hosted-LLM research stages, component markdown reports, post-hoc
@@ -347,12 +290,3 @@ The ML baseline extracts character-level features that are highly discriminative
 - **Zero-width / BiDi / tag / fullwidth / combining character counts**
 - **Character entropy**
 - **Unique script count**
-
-## AI-Assisted Development
-
-Parts of this project were developed with the help of AI coding assistants —
-primarily **Claude Code** and **OpenAI Codex**. They were used responsibly by
-the author: every suggestion was reviewed, edits were monitored, and generated
-code was tested before being committed. The assistants accelerated boilerplate,
-refactors, and documentation, but the design decisions, evaluation methodology,
-and final review of results are the author's own.
