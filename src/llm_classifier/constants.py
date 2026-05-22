@@ -53,3 +53,16 @@ BYPASS_INTENT_PATTERNS = [
     r"\bpretend to be\b.*\b(without restrictions|no rules)\b",
     r"\b(without restrictions|no rules)\b",
 ]
+
+# ---------------------------------------------------------------------------
+# These are instruction-like but genuinely benign prompts that help the LLM
+# avoid false positives on near-miss content (categories B, C, E).
+# ---------------------------------------------------------------------------
+_HARD_BENIGN_EXAMPLES = [
+    # Category C: security discussion (educational, no active attempt)
+    "What is prompt injection? Can you explain how it works conceptually?",
+    # Category E: contains "ignore" in a clearly benign everyday context
+    "I need to ignore the meeting agenda and focus on technical topics instead.",
+    # Category B: role-play framing with a benign task
+    "You are a helpful assistant. Please summarize the following research paper: [paper text here].",
+]

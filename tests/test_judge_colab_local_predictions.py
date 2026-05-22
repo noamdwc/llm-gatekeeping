@@ -8,9 +8,9 @@ from unittest.mock import MagicMock
 import pandas as pd
 
 import src.cli.judge_colab_local_predictions as judge_cli_module
-import src.llm_classifier.llm_classifier as llm_classifier_module
+import src.llm_classifier.hierarchical_llm_classifier as hierarchical_llm_classifier_module
 from src.cli import judge_colab_local_predictions as judge_cli
-from src.llm_classifier.llm_classifier import HierarchicalLLMClassifier
+from src.llm_classifier.hierarchical_llm_classifier import HierarchicalLLMClassifier
 
 
 def _classifier_only_row(**overrides):
@@ -273,7 +273,7 @@ def test_hierarchical_classifier_honors_nim_target_rpm(sample_config, monkeypatc
     cfg = {**sample_config, "llm": {**sample_config["llm"], "target_rpm": 3}}
 
     monkeypatch.setattr(
-        llm_classifier_module,
+        hierarchical_llm_classifier_module,
         "get_provider",
         lambda: SimpleNamespace(name="nim", base_url="https://example.test", api_key="key"),
     )

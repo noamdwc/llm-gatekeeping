@@ -11,11 +11,9 @@ import pandas as pd
 import pytest
 
 import src.llm_cache as llm_cache_module
-from src.llm_classifier.llm_classifier import (
-    HierarchicalLLMClassifier,
-    UsageStats,
-    build_few_shot_examples,
-)
+from src.llm_classifier.llm_classifier import build_few_shot_examples
+from src.llm_classifier.hierarchical_llm_classifier import HierarchicalLLMClassifier, UsageStats
+
 import src.llm_classifier.llm_classifier as llm_classifier_module
 from src.llm_classifier.constants import UNICODE_TYPES, NLP_TYPES
 from src.llm_classifier.utils import decide_accept_or_override
@@ -115,9 +113,7 @@ class TestBuildFewShotExamples:
 # ---------------------------------------------------------------------------
 def _make_classifier(cfg, few_shot=None):
     """Create a classifier with a mocked OpenAI client."""
-    with patch("src.llm_classifier.llm_classifier.openai.OpenAI"):
-        classifier = HierarchicalLLMClassifier(cfg, few_shot_examples=few_shot or [])
-    return classifier
+    return HierarchicalLLMClassifier(cfg, few_shot_examples=few_shot or [])
 
 
 def _mock_clf_response(label, confidence=0.95, nlp_attack_type="none", evidence=""):
@@ -579,10 +575,7 @@ class TestForceAllStages:
     """Tests for force_all_stages parameter on LLM classifier."""
 
     def _make_classifier(self, cfg):
-        with patch("src.llm_classifier.llm_classifier.openai.OpenAI"):
-            from src.llm_classifier.llm_classifier import HierarchicalLLMClassifier
-
-            return HierarchicalLLMClassifier(cfg, few_shot_examples=[])
+        return HierarchicalLLMClassifier(cfg, few_shot_examples=[])
 
     def test_default_high_confidence_skips_judge(self, sample_config):
         """Default (force_all_stages=False): high-confidence skips judge."""
@@ -675,9 +668,8 @@ class TestDynamicFewShot:
 
     def test_dynamic_without_bank_raises(self, sample_config):
         """Creating classifier with dynamic=True but no bank raises ValueError."""
-        with patch("src.llm_classifier.llm_classifier.openai.OpenAI"):
-            with pytest.raises(ValueError, match="ExemplarBank required"):
-                HierarchicalLLMClassifier(sample_config, dynamic=True, exemplar_bank=None)
+        with pytest.raises(ValueError, match="ExemplarBank required"):
+            HierarchicalLLMClassifier(sample_config, dynamic=True, exemplar_bank=None)
 
 
 # ---------------------------------------------------------------------------
@@ -1282,7 +1274,7 @@ class TestCallLlmRetry:
             ]
         )
         clf._get_client = MagicMock(return_value=mock_client)
-        with patch("src.llm_classifier.llm_classifier.time.sleep"):
+        with patch("src.llm_classifier.hierarchical_llm_classifier.time.sleep"):
             result = clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
         assert result.get("label") == "benign"
 
@@ -1294,7 +1286,7 @@ class TestCallLlmRetry:
             side_effect=openai.APIConnectionError(request=MagicMock())
         )
         clf._get_client = MagicMock(return_value=mock_client)
-        with patch("src.llm_classifier.llm_classifier.time.sleep"):
+        with patch("src.llm_classifier.hierarchical_llm_classifier.time.sleep"):
             with pytest.raises(openai.APIConnectionError):
                 clf._call_llm(
                     [{"role": "user", "content": "test"}], 60, "classifier", max_retries=5
@@ -1312,7 +1304,7 @@ class TestCallLlmRetry:
             ]
         )
         clf._get_client = MagicMock(return_value=mock_client)
-        with patch("src.llm_classifier.llm_classifier.time.sleep"):
+        with patch("src.llm_classifier.hierarchical_llm_classifier.time.sleep"):
             result = clf._call_llm([{"role": "user", "content": "test"}], 60, "classifier")
         assert result.get("label") == "adversarial"
 
@@ -1416,7 +1408,7 @@ class TestCliLimitDefault:
                 "src.llm_classifier.llm_classifier.build_few_shot_examples", return_value=([], [])
             ),
             patch("src.llm_classifier.llm_classifier.PREDICTIONS_DIR"),
-            patch("src.llm_classifier.llm_classifier._finalize_checkpoint"),
+            patch("src.llm_classifier.llm_classifier.finalize_checkpoint"),
             patch("pandas.DataFrame.to_parquet"),
         ):
             classifier = MagicMock()
