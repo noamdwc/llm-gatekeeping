@@ -839,10 +839,18 @@ class TestTrainingLifecycle:
 class TestCLILifecycle:
     """Verify that failed training prevents save and predict."""
 
+    @staticmethod
+    def _write_split_placeholders(splits_dir: Path, *split_names: str) -> Path:
+        splits_dir.mkdir(parents=True, exist_ok=True)
+        for split_name in split_names:
+            (splits_dir / f"{split_name}.parquet").touch()
+        return splits_dir
+
     @patch("src.cli.deberta_classifier.DeBERTaClassifier")
     @patch("src.cli.deberta_classifier.pd.read_parquet")
-    def test_no_save_on_failure(self, mock_read, MockClf):
+    def test_no_save_on_failure(self, mock_read, MockClf, tmp_path):
         """When train() returns failure, save() must not be called and sys.exit(1)."""
+        splits_dir = self._write_split_placeholders(tmp_path / "splits", "train", "val")
         mock_read.return_value = MagicMock()
 
         mock_clf = MagicMock()
@@ -857,7 +865,17 @@ class TestCLILifecycle:
 
         from src.cli.deberta_classifier import main
 
-        with patch("sys.argv", ["prog", "--train-only", "--cpu", "--no-wandb"]):
+        with patch(
+            "sys.argv",
+            [
+                "prog",
+                "--train-only",
+                "--cpu",
+                "--no-wandb",
+                "--splits-dir",
+                str(splits_dir),
+            ],
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 main()
 
@@ -867,8 +885,13 @@ class TestCLILifecycle:
     @patch("src.cli.deberta_classifier.wandb")
     @patch("src.cli.deberta_classifier.DeBERTaClassifier")
     @patch("src.cli.deberta_classifier.pd.read_parquet")
-    def test_wandb_logs_training_history_and_finishes(self, mock_read, MockClf, mock_wandb):
+    def test_wandb_logs_training_history_and_finishes(
+        self, mock_read, MockClf, mock_wandb, tmp_path
+    ):
         """Successful training should initialize wandb, log history, and finish the run."""
+        splits_dir = self._write_split_placeholders(
+            tmp_path / "splits", "train", "val", "unseen_val", "unseen_test"
+        )
         train_df = MagicMock()
         val_df = MagicMock()
         unseen_val_df = MagicMock()
@@ -907,7 +930,10 @@ class TestCLILifecycle:
 
         from src.cli.deberta_classifier import main
 
-        with patch("sys.argv", ["prog", "--train-only", "--cpu"]):
+        with patch(
+            "sys.argv",
+            ["prog", "--train-only", "--cpu", "--splits-dir", str(splits_dir)],
+        ):
             main()
 
         mock_wandb.init.assert_called_once()
@@ -946,8 +972,13 @@ class TestCLILifecycle:
     @patch("src.cli.deberta_classifier.wandb")
     @patch("src.cli.deberta_classifier.DeBERTaClassifier")
     @patch("src.cli.deberta_classifier.pd.read_parquet")
-    def test_wandb_finishes_with_error_on_training_failure(self, mock_read, MockClf, mock_wandb):
+    def test_wandb_finishes_with_error_on_training_failure(
+        self, mock_read, MockClf, mock_wandb, tmp_path
+    ):
         """Failed training should mark the wandb run failed before exiting."""
+        splits_dir = self._write_split_placeholders(
+            tmp_path / "splits", "train", "val", "unseen_val", "unseen_test"
+        )
         train_df = MagicMock()
         val_df = MagicMock()
         unseen_val_df = MagicMock()
@@ -971,7 +1002,10 @@ class TestCLILifecycle:
 
         from src.cli.deberta_classifier import main
 
-        with patch("sys.argv", ["prog", "--train-only", "--cpu"]):
+        with patch(
+            "sys.argv",
+            ["prog", "--train-only", "--cpu", "--splits-dir", str(splits_dir)],
+        ):
             with pytest.raises(SystemExit):
                 main()
 

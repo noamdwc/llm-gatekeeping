@@ -5,6 +5,14 @@ import pandas as pd
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def test_llm_provider_env(monkeypatch):
+    """Keep mocked LLM tests independent of developer or CI secrets."""
+    monkeypatch.setenv("LLM_PROVIDER", "nim")
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-api-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-api-key")
+
+
 @pytest.fixture
 def sample_config():
     """Minimal config dict mirroring configs/default.yaml."""
