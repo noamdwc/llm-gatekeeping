@@ -7,11 +7,11 @@ Provides:
 
 Usage:
     from src.embeddings import ExemplarBank, get_embeddings
-    
+
     # Build from training data
     bank = ExemplarBank.build(df_train, cfg)
     bank.save("data/processed/exemplar_bank.pkl")
-    
+
     # Load and use
     bank = ExemplarBank.load("data/processed/exemplar_bank.pkl")
     query_emb = get_embeddings(["some text"])[0]
@@ -60,7 +60,11 @@ def get_embeddings(
     model = resolve_model(model, provider)
     all_embeddings = []
 
-    extra = {"extra_body": {"input_type": input_type}} if input_type and provider.supports_input_type else {}
+    extra = (
+        {"extra_body": {"input_type": input_type}}
+        if input_type and provider.supports_input_type
+        else {}
+    )
     max_retries = 5
 
     for i in range(0, len(texts), batch_size):
@@ -72,8 +76,10 @@ def get_embeddings(
             except openai.RateLimitError:
                 if attempt == max_retries - 1:
                     raise
-                wait = min(2 ** attempt * 5, 60)
-                print(f"\nRate limit hit, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                wait = min(2**attempt * 5, 60)
+                print(
+                    f"\nRate limit hit, retrying in {wait}s (attempt {attempt + 1}/{max_retries})..."
+                )
                 time.sleep(wait)
         batch_embeddings = [item.embedding for item in response.data]
         all_embeddings.extend(batch_embeddings)
@@ -94,12 +100,12 @@ class ExemplarBank:
     Stores embeddings for exemplar texts, organized by attack type.
     Enables fast cosine-similarity retrieval for dynamic few-shot.
     """
-    
+
     def __init__(self):
         # Dict[attack_type -> {"texts": list[str], "embeddings": np.ndarray}]
         self.bank: dict[str, dict] = {}
         self.embedding_model: str = "nvidia/nv-embedqa-e5-v5"
-    
+
     @classmethod
     def build(
         cls,
@@ -160,7 +166,9 @@ class ExemplarBank:
         n_benign = min(bank_size, len(benign_pool))
         if n_benign > 0:
             benign_samples = benign_pool.sample(n=n_benign, random_state=42).tolist()
-            benign_embeddings = get_embeddings(benign_samples, model=bank.embedding_model, input_type="passage")
+            benign_embeddings = get_embeddings(
+                benign_samples, model=bank.embedding_model, input_type="passage"
+            )
             bank.bank["benign"] = {
                 "texts": benign_samples,
                 "embeddings": benign_embeddings,
@@ -168,20 +176,22 @@ class ExemplarBank:
 
         # Optionally add hard benign slot from synthetic data (categories C + E)
         if df_synthetic is not None and len(df_synthetic) > 0:
-            hard_pool = df_synthetic[
-                df_synthetic["synth_category"].isin(["C", "E"])
-            ]["modified_sample"]
+            hard_pool = df_synthetic[df_synthetic["synth_category"].isin(["C", "E"])][
+                "modified_sample"
+            ]
             n_hard = min(bank_size, len(hard_pool))
             if n_hard > 0:
                 hard_samples = hard_pool.sample(n=n_hard, random_state=42).tolist()
-                hard_embeddings = get_embeddings(hard_samples, model=bank.embedding_model, input_type="passage")
+                hard_embeddings = get_embeddings(
+                    hard_samples, model=bank.embedding_model, input_type="passage"
+                )
                 bank.bank["hard_benign"] = {
                     "texts": hard_samples,
                     "embeddings": hard_embeddings,
                 }
 
         return bank
-    
+
     def select(
         self,
         query_embedding: np.ndarray,
@@ -190,33 +200,30 @@ class ExemplarBank:
     ) -> list[dict]:
         """
         Select the k most similar exemplars for a given attack type.
-        
+
         Args:
             query_embedding: Embedding vector of the query text
             attack_type: Which attack type to retrieve examples from
             k: Number of examples to retrieve
-            
+
         Returns:
             List of {"text": str, "label": str} dicts, most similar first
         """
         if attack_type not in self.bank:
             return []
-        
+
         data = self.bank[attack_type]
         texts = data["texts"]
         embeddings = data["embeddings"]
-        
+
         # Compute similarities
         sims = cosine_similarity(query_embedding, embeddings)
-        
+
         # Get top-k indices
         top_k_idx = np.argsort(sims)[::-1][:k]
-        
-        return [
-            {"text": texts[i], "label": attack_type}
-            for i in top_k_idx
-        ]
-    
+
+        return [{"text": texts[i], "label": attack_type} for i in top_k_idx]
+
     def select_multi_type(
         self,
         query_embedding: np.ndarray,
@@ -225,12 +232,12 @@ class ExemplarBank:
     ) -> list[dict]:
         """
         Select exemplars from multiple attack types.
-        
+
         Args:
             query_embedding: Embedding vector of the query text
             attack_types: List of attack types to retrieve from
             k_per_type: Number of examples per type
-            
+
         Returns:
             List of {"text": str, "label": str} dicts
         """
@@ -266,11 +273,13 @@ class ExemplarBank:
                 continue
             sims = cosine_similarity(query_embedding, data["embeddings"])
             best_idx = int(np.argmax(sims))
-            all_candidates.append({
-                "text": data["texts"][best_idx],
-                "label": attack_type,
-                "sim": float(sims[best_idx]),
-            })
+            all_candidates.append(
+                {
+                    "text": data["texts"][best_idx],
+                    "label": attack_type,
+                    "sim": float(sims[best_idx]),
+                }
+            )
 
         # Rank all candidates by similarity, take top k
         all_candidates.sort(key=lambda x: x["sim"], reverse=True)
@@ -287,29 +296,31 @@ class ExemplarBank:
             pairs.append((benign_text, a["text"], a["label"]))
         return pairs
 
-
     def save(self, path: str) -> None:
         """Save the exemplar bank to a pickle file."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as f:
-            pickle.dump({
-                "bank": self.bank,
-                "embedding_model": self.embedding_model,
-            }, f)
+            pickle.dump(
+                {
+                    "bank": self.bank,
+                    "embedding_model": self.embedding_model,
+                },
+                f,
+            )
         print(f"ExemplarBank saved → {path}")
-    
+
     @classmethod
     def load(cls, path: str) -> "ExemplarBank":
         """Load an exemplar bank from a pickle file."""
         with open(path, "rb") as f:
             data = pickle.load(f)
-        
+
         bank = cls()
         bank.bank = data["bank"]
         bank.embedding_model = data.get("embedding_model", "nvidia/nv-embedqa-e5-v5")
         return bank
-    
+
     def __repr__(self) -> str:
         types = list(self.bank.keys())
         total = sum(len(d["texts"]) for d in self.bank.values())

@@ -63,7 +63,9 @@ def run_generation_single(
     default_quotas = synth_cfg.get("quotas", {cat: 100 for cat in _CATEGORY_META})
     target_n = limit if limit is not None else default_quotas.get(category, 100)
 
-    print(f"\n[Category {category}] Generating {target_n} samples ({_CATEGORY_META[category]['name']})")
+    print(
+        f"\n[Category {category}] Generating {target_n} samples ({_CATEGORY_META[category]['name']})"
+    )
 
     # Generation
     texts = gen.generate_category(category, target_n)
@@ -88,6 +90,7 @@ def run_generation_single(
             build_few_shot_examples,
         )
         from src.utils import SPLITS_DIR
+
         df_train = pd.read_parquet(SPLITS_DIR / "train.parquet")
         few_shot, _ = build_few_shot_examples(df_train, cfg)
         classifier = HierarchicalLLMClassifier(cfg, few_shot)
@@ -135,7 +138,9 @@ def run_generation_single(
         existing_hashes = set(df_existing["prompt_hash"].tolist())
         df_new = df_new[~df_new["prompt_hash"].isin(existing_hashes)]
         df_out = pd.concat([df_existing, df_new], ignore_index=True)
-        print(f"\nMerged with existing: {len(df_existing)} + {len(df_new)} new = {len(df_out)} total")
+        print(
+            f"\nMerged with existing: {len(df_existing)} + {len(df_new)} new = {len(df_out)} total"
+        )
     else:
         df_out = df_new
 
@@ -149,9 +154,7 @@ def run_generation_single(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Generate and validate synthetic benign prompts"
-    )
+    parser = argparse.ArgumentParser(description="Generate and validate synthetic benign prompts")
     parser.add_argument(
         "--category",
         default="all",

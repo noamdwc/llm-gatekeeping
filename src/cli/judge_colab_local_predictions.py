@@ -42,6 +42,22 @@ JUDGE_COLUMNS = [
     "judge_token_logprobs",
 ]
 
+JUDGE_OBJECT_COLUMNS = [
+    "judge_independent_label",
+    "judge_category",
+    "judge_independent_evidence",
+    "judge_final_label",
+    "judge_final_pred_binary",
+    "judge_final_category",
+    "judge_computed_decision",
+    "judge_override_reason",
+    "judge_provider_name",
+    "judge_model_name",
+    "judge_raw_response_text",
+    "judge_token_logprobs",
+]
+
+
 def default_input_path(split: str) -> Path:
     return PREDICTIONS_DIR / f"llm_predictions_{split}_{INPUT_SUFFIX}.parquet"
 
@@ -148,9 +164,7 @@ def _load_escalation_scores(path: Path) -> pd.DataFrame:
             f"{path} missing both {ESCALATION_SCORE_COL} and "
             f"{ESCALATION_SCORE_FALLBACK_COL} columns"
         )
-    return df[["sample_id", score_col]].rename(
-        columns={score_col: "_escalation_score"}
-    )
+    return df[["sample_id", score_col]].rename(columns={score_col: "_escalation_score"})
 
 
 def _should_run_judge(row: pd.Series, threshold: float) -> bool:
@@ -162,6 +176,13 @@ def _should_run_judge(row: pd.Series, threshold: float) -> bool:
 
 def _json_dumps(value: Any) -> str:
     return json.dumps(value)
+
+
+def _restore_none_for_missing_judge_objects(df: pd.DataFrame) -> pd.DataFrame:
+    for column in JUDGE_OBJECT_COLUMNS:
+        if column in df.columns:
+            df[column] = df[column].astype("object").where(pd.notna(df[column]), None)
+    return df
 
 
 def _apply_judge_result(row: pd.Series, judge_result: dict[str, Any]) -> dict[str, Any]:
@@ -219,8 +240,10 @@ def apply_judge_to_predictions(
     escalation_threshold: float,
     max_workers: int | None = None,
 ) -> pd.DataFrame:
-    workers = max_workers if max_workers is not None else int(
-        classifier.cfg.get("llm", {}).get("max_concurrency", 1)
+    workers = (
+        max_workers
+        if max_workers is not None
+        else int(classifier.cfg.get("llm", {}).get("max_concurrency", 1))
     )
     workers = max(1, int(workers))
 
@@ -247,15 +270,14 @@ def apply_judge_to_predictions(
     indexed_rows = list(enumerate((row for _, row in merged.iterrows())))
     rows: list[dict[str, Any] | None] = [None] * len(indexed_rows)
     if workers == 1:
-        for idx, row in tqdm(indexed_rows, total=len(indexed_rows), desc="Judging Colab predictions"):
+        for idx, row in tqdm(
+            indexed_rows, total=len(indexed_rows), desc="Judging Colab predictions"
+        ):
             out_idx, out_row = process_row(idx, row)
             rows[out_idx] = out_row
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {
-                executor.submit(process_row, idx, row): idx
-                for idx, row in indexed_rows
-            }
+            futures = {executor.submit(process_row, idx, row): idx for idx, row in indexed_rows}
             with tqdm(total=len(futures), desc="Judging Colab predictions") as pbar:
                 for future in concurrent.futures.as_completed(futures):
                     out_idx, out_row = future.result()
@@ -264,7 +286,7 @@ def apply_judge_to_predictions(
 
     if any(row is None for row in rows):
         raise RuntimeError("Judge run completed with missing rows.")
-    return pd.DataFrame(rows)
+    return _restore_none_for_missing_judge_objects(pd.DataFrame(rows))
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -308,10 +330,7 @@ def main(argv: list[str] | None = None) -> None:
 
     n_judged = int(out["judge_ran"].fillna(False).sum())
     print(f"Saved {len(out)} rows to {args.output}")
-    print(
-        f"Judge ran on {n_judged} rows "
-        f"(escalation_threshold={escalation_threshold})"
-    )
+    print(f"Judge ran on {n_judged} rows " f"(escalation_threshold={escalation_threshold})")
     print(f"Usage: {classifier.usage.to_dict()}")
 
 

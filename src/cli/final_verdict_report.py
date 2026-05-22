@@ -9,7 +9,13 @@ from pathlib import Path
 import pandas as pd
 
 from src.evaluate import binary_metrics
-from src.utils import PREDICTIONS_DIR, PREDICTIONS_EXTERNAL_DIR, REPORTS_DIR, RESEARCH_DIR, load_config
+from src.utils import (
+    PREDICTIONS_DIR,
+    PREDICTIONS_EXTERNAL_DIR,
+    REPORTS_DIR,
+    RESEARCH_DIR,
+    load_config,
+)
 
 
 DEFAULT_INTERNAL_SPLITS = ["test", "unseen_test", "safeguard_test"]
@@ -25,9 +31,7 @@ class DatasetResult:
 
 def _parse_named_path(value: str) -> tuple[str, Path]:
     if "=" not in value:
-        raise argparse.ArgumentTypeError(
-            f"Expected NAME=PATH, got {value!r}"
-        )
+        raise argparse.ArgumentTypeError(f"Expected NAME=PATH, got {value!r}")
     name, path = value.split("=", 1)
     if not name:
         raise argparse.ArgumentTypeError("Dataset name cannot be empty")
@@ -40,8 +44,7 @@ def default_internal_path(split: str) -> Path:
 
 def default_external_path(dataset: str) -> Path:
     return (
-        PREDICTIONS_EXTERNAL_DIR
-        / f"llm_predictions_external_{dataset}_colab_local_judged.parquet"
+        PREDICTIONS_EXTERNAL_DIR / f"llm_predictions_external_{dataset}_colab_local_judged.parquet"
     )
 
 
@@ -271,8 +274,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _default_external_inputs(cfg: dict) -> list[tuple[str, Path]]:
     return [
-        (f"external_{key}", default_external_path(key))
-        for key in cfg.get("external_datasets", {})
+        (f"external_{key}", default_external_path(key)) for key in cfg.get("external_datasets", {})
     ]
 
 
@@ -288,10 +290,7 @@ def main(argv: list[str] | None = None) -> None:
     if external_inputs is None:
         external_inputs = _default_external_inputs(cfg)
 
-    results = [
-        _load_result(name, "internal", path)
-        for name, path in internal_inputs
-    ]
+    results = [_load_result(name, "internal", path) for name, path in internal_inputs]
     results.extend(
         _load_result(
             name,
@@ -306,7 +305,9 @@ def main(argv: list[str] | None = None) -> None:
         results,
         threshold=float(escalating_cfg.get("judge_threshold", 0.5)),
         calibration_method=str(escalating_cfg.get("calibration_method", "sigmoid")),
-        model_path=str(escalating_cfg.get("model_path", "data/processed/models/escalating_model.pkl")),
+        model_path=str(
+            escalating_cfg.get("model_path", "data/processed/models/escalating_model.pkl")
+        ),
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(report)

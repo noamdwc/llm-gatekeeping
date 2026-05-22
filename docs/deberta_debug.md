@@ -11,7 +11,7 @@ DeBERTa training can fail with non-finite (NaN/Inf) loss on MPS and CPU devices.
 Runs forward passes without backward/optimizer to isolate whether NaNs come from the model itself or from the training dynamics.
 
 ```bash
-python -m src.cli.deberta_classifier --research --cpu \
+uv run --active --no-project python -m src.cli.deberta_classifier --research --cpu \
     --sanity-forward-only --sanity-batches 3 --debug-log-batch-text
 ```
 
@@ -20,7 +20,7 @@ python -m src.cli.deberta_classifier --research --cpu \
 Checks tensors at 4 stages per batch: pre-forward, post-forward, post-backward, post-optimizer.
 
 ```bash
-python -m src.cli.deberta_classifier --research --cpu \
+uv run --active --no-project python -m src.cli.deberta_classifier --research --cpu \
     --debug-numerics --debug-first-n-batches 5
 ```
 
@@ -29,7 +29,7 @@ python -m src.cli.deberta_classifier --research --cpu \
 Dumps input tensors, loss, logits, and metadata to disk when NaN is detected.
 
 ```bash
-python -m src.cli.deberta_classifier --research --cpu \
+uv run --active --no-project python -m src.cli.deberta_classifier --research --cpu \
     --debug-numerics --debug-save-bad-batch
 ```
 
@@ -40,7 +40,7 @@ Artifacts are saved to `artifacts/deberta_classifier/debug/bad_batch_e{E}_s{S}/`
 Log mean/std/min/max for the largest model parameters during debug batches.
 
 ```bash
-python -m src.cli.deberta_classifier --research --cpu \
+uv run --active --no-project python -m src.cli.deberta_classifier --research --cpu \
     --debug-numerics --debug-log-param-stats --train-only
 ```
 

@@ -104,10 +104,7 @@ def _deduplicate_by_sample_id(
 
     compare_cols = [col for col in cols if col != "sample_id"]
     conflicts = (
-        duplicated.groupby("sample_id")[compare_cols]
-        .nunique(dropna=False)
-        .gt(1)
-        .any(axis=1)
+        duplicated.groupby("sample_id")[compare_cols].nunique(dropna=False).gt(1).any(axis=1)
     )
     conflicting_ids = conflicts[conflicts].index.tolist()
     if conflicting_ids:
@@ -115,9 +112,7 @@ def _deduplicate_by_sample_id(
             pd.api.types.is_numeric_dtype(df[col]) for col in compare_cols
         ):
             return df.groupby("sample_id", as_index=False)[cols].mean(numeric_only=True)
-        raise ValueError(
-            f"{name} has conflicting duplicate sample_id rows: {conflicting_ids[:5]}"
-        )
+        raise ValueError(f"{name} has conflicting duplicate sample_id rows: {conflicting_ids[:5]}")
     return df.drop_duplicates(subset=["sample_id"], keep="first").copy()
 
 
@@ -154,11 +149,13 @@ def _extract_clf_logprob_features(value: object) -> pd.Series:
                 top1 = float(token_logprob)
     top2 = margin.top2_logprob if margin.top2_logprob is not None else 0.0
     diff = margin.margin if margin.margin is not None else 0.0
-    return pd.Series({
-        "clf_top1_logprob": top1,
-        "clf_top2_logprob": top2,
-        "clf_logprob_diff": diff,
-    })
+    return pd.Series(
+        {
+            "clf_top1_logprob": top1,
+            "clf_top2_logprob": top2,
+            "clf_logprob_diff": diff,
+        }
+    )
 
 
 class EscalatingDataset:
@@ -193,18 +190,15 @@ class EscalatingDataset:
         self.rows_dropped_colab_only = self.rows_colab - len(joined)
         self.rows_dropped_deberta_only = self.rows_deberta - len(joined)
 
-        joined["needs_escalation"] = (
-            joined["llm_pred_binary"] != joined["label_binary"]
-        ).astype(int)
-        joined["llm_pred_is_adversarial"] = (
-            joined["llm_pred_binary"] == "adversarial"
-        ).astype(int)
+        joined["needs_escalation"] = (joined["llm_pred_binary"] != joined["label_binary"]).astype(
+            int
+        )
+        joined["llm_pred_is_adversarial"] = (joined["llm_pred_binary"] == "adversarial").astype(int)
         joined["deberta_pred_is_adversarial"] = (
             joined["deberta_proba_binary_adversarial"].astype(float) >= 0.5
         ).astype(int)
         joined["deberta_llm_disagree"] = (
-            joined["llm_pred_is_adversarial"]
-            != joined["deberta_pred_is_adversarial"]
+            joined["llm_pred_is_adversarial"] != joined["deberta_pred_is_adversarial"]
         ).astype(int)
         joined["llm_distance_from_uncertain"] = (
             joined["llm_conf_binary"].astype(float) - 0.5
@@ -247,9 +241,11 @@ class EscalatingModel:
         y: pd.Series | np.ndarray,
         feature_cols: list[str] | None = None,
     ) -> "EscalatingModel":
-        pipeline = Pipeline([
-            ("lgbm", LGBMClassifier(random_state=42, verbosity=-1)),
-        ])
+        pipeline = Pipeline(
+            [
+                ("lgbm", LGBMClassifier(random_state=42, verbosity=-1)),
+            ]
+        )
         pipeline.fit(X, y)
         return EscalatingModel(pipeline=pipeline, feature_cols=feature_cols)
 
@@ -294,11 +290,7 @@ def evaluate_escalating_split(
     bottom = scored_desc.tail(bottom_n)
 
     top_adv = top[top["label_binary"] == "adversarial"]
-    top_adv_fn = (
-        (top_adv["llm_pred_binary"] == "benign").sum()
-        if len(top_adv) > 0
-        else 0
-    )
+    top_adv_fn = (top_adv["llm_pred_binary"] == "benign").sum() if len(top_adv) > 0 else 0
 
     summary = {
         "split": split,
@@ -347,18 +339,20 @@ def evaluate_threshold_sweep(
         trusted_rows = rows - judge_calls
         cheap_errors_caught = int((needs_escalation & escalate).sum())
         cheap_errors_missed = cheap_errors_total - cheap_errors_caught
-        sweep_rows.append({
-            "threshold": threshold,
-            "rows": rows,
-            "judge_call_rate": _safe_rate(judge_calls, rows),
-            "judge_calls": judge_calls,
-            "trusted_rows": trusted_rows,
-            "cheap_errors_total": cheap_errors_total,
-            "cheap_errors_caught": cheap_errors_caught,
-            "cheap_errors_missed": cheap_errors_missed,
-            "cheap_error_catch_rate": _safe_rate(cheap_errors_caught, cheap_errors_total),
-            "non_escalated_error_rate": _safe_rate(cheap_errors_missed, trusted_rows),
-        })
+        sweep_rows.append(
+            {
+                "threshold": threshold,
+                "rows": rows,
+                "judge_call_rate": _safe_rate(judge_calls, rows),
+                "judge_calls": judge_calls,
+                "trusted_rows": trusted_rows,
+                "cheap_errors_total": cheap_errors_total,
+                "cheap_errors_caught": cheap_errors_caught,
+                "cheap_errors_missed": cheap_errors_missed,
+                "cheap_error_catch_rate": _safe_rate(cheap_errors_caught, cheap_errors_total),
+                "non_escalated_error_rate": _safe_rate(cheap_errors_missed, trusted_rows),
+            }
+        )
 
     return pd.DataFrame(sweep_rows, columns=THRESHOLD_SWEEP_COLS)
 
@@ -385,12 +379,16 @@ def build_postscore_split_map(
         ["sample_id", "prompt_hash", "label_binary", "attack_name", "needs_escalation"],
         "scored_df",
     )
-    grouped = scored_df.groupby("prompt_hash").agg(
-        rows=("sample_id", "size"),
-        label_group=("label_binary", _group_label),
-        attack_group=("attack_name", _group_attack),
-        cheap_errors=("needs_escalation", "sum"),
-    ).reset_index()
+    grouped = (
+        scored_df.groupby("prompt_hash")
+        .agg(
+            rows=("sample_id", "size"),
+            label_group=("label_binary", _group_label),
+            attack_group=("attack_name", _group_attack),
+            cheap_errors=("needs_escalation", "sum"),
+        )
+        .reset_index()
+    )
     grouped["has_error"] = grouped["cheap_errors"].astype(int) > 0
     grouped["stratum"] = np.where(
         grouped["label_group"].eq("adversarial"),
@@ -444,13 +442,15 @@ def build_postscore_split_map(
             state[side]["rows"] += int(row.rows)
             state[side]["cheap_errors"] += int(row.cheap_errors)
             state[side]["groups"] += 1
-            assignments.append({
-                "prompt_hash": row.prompt_hash,
-                "postscore_split": side,
-                "stratum": row.stratum,
-                "rows": int(row.rows),
-                "cheap_errors": int(row.cheap_errors),
-            })
+            assignments.append(
+                {
+                    "prompt_hash": row.prompt_hash,
+                    "postscore_split": side,
+                    "stratum": row.stratum,
+                    "rows": int(row.rows),
+                    "cheap_errors": int(row.cheap_errors),
+                }
+            )
 
     split_map = pd.DataFrame(assignments, columns=POSTSCORE_SPLIT_MAP_COLS)
     cal_hashes = set(split_map.query("postscore_split == 'calibration'")["prompt_hash"])
@@ -475,11 +475,15 @@ def build_postscore_split_diagnostics(
     prompt_hash_overlap: int,
 ) -> dict:
     """Build report-ready diagnostics for the post-score unseen_val split."""
-    summary = assigned_df.groupby("postscore_split").agg(
-        rows=("sample_id", "size"),
-        prompt_hash_groups=("prompt_hash", "nunique"),
-        cheap_errors=("needs_escalation", "sum"),
-    ).sort_index()
+    summary = (
+        assigned_df.groupby("postscore_split")
+        .agg(
+            rows=("sample_id", "size"),
+            prompt_hash_groups=("prompt_hash", "nunique"),
+            cheap_errors=("needs_escalation", "sum"),
+        )
+        .sort_index()
+    )
     summary["error_rate"] = summary["cheap_errors"] / summary["rows"]
 
     label_counts = pd.crosstab(
@@ -493,11 +497,15 @@ def build_postscore_split_diagnostics(
     )
     attack_counts = pd.crosstab(report_group, assigned_df["postscore_split"])
     attack_counts.index.name = "attack_or_benign_group"
-    stratum_counts = split_map.groupby(["stratum", "postscore_split"]).agg(
-        prompt_hash_groups=("prompt_hash", "size"),
-        rows=("rows", "sum"),
-        cheap_errors=("cheap_errors", "sum"),
-    ).reset_index()
+    stratum_counts = (
+        split_map.groupby(["stratum", "postscore_split"])
+        .agg(
+            prompt_hash_groups=("prompt_hash", "size"),
+            rows=("rows", "sum"),
+            cheap_errors=("cheap_errors", "sum"),
+        )
+        .reset_index()
+    )
 
     return {
         "summary": summary,
@@ -588,47 +596,51 @@ def write_escalating_report(
         calibration_errors = int(summary.loc["calibration", "cheap_errors"])
         threshold_errors = int(summary.loc["threshold", "cheap_errors"])
         one_error_pp = 100.0 / threshold_errors if threshold_errors else 0.0
-        report.extend([
-            "## Post-score unseen_val Split Diagnostics",
-            "",
-            f"Calibration method: `{calibration_method}`.",
-            "",
-            summary.to_markdown(),
-            "",
-            "### Label Counts",
-            "",
-            label_counts.to_markdown(),
-            "",
-            "### Attack / Benign Group Counts",
-            "",
-            attack_counts.to_markdown(),
-            "",
-            f"Prompt hash overlap: {postscore_split_diagnostics['prompt_hash_overlap']}",
-            "",
-            "## Limitations / Statistical Power",
-            "",
-            f"`unseen_val` has only {total_errors} cheap-path errors total. "
-            f"The calibration half has {calibration_errors} cheap-path errors, "
-            f"and the threshold-selection half has {threshold_errors} cheap-path errors. "
-            "Calibration and threshold estimates are therefore noisy.",
-            "",
-            f"One missed cheap-path error in the threshold half changes the missed-error "
-            f"rate by about {one_error_pp:.1f} percentage points. Per-attack conclusions "
-            "are diagnostic only. The selected `0.5` threshold is the frozen "
-            "operating point for the canonical escalation path — the DVC "
-            "`final_verdict_report` stage uses it because it sits "
-            "on a useful cost/error tradeoff without making judge-everything "
-            "the default.",
-            "",
-        ])
+        report.extend(
+            [
+                "## Post-score unseen_val Split Diagnostics",
+                "",
+                f"Calibration method: `{calibration_method}`.",
+                "",
+                summary.to_markdown(),
+                "",
+                "### Label Counts",
+                "",
+                label_counts.to_markdown(),
+                "",
+                "### Attack / Benign Group Counts",
+                "",
+                attack_counts.to_markdown(),
+                "",
+                f"Prompt hash overlap: {postscore_split_diagnostics['prompt_hash_overlap']}",
+                "",
+                "## Limitations / Statistical Power",
+                "",
+                f"`unseen_val` has only {total_errors} cheap-path errors total. "
+                f"The calibration half has {calibration_errors} cheap-path errors, "
+                f"and the threshold-selection half has {threshold_errors} cheap-path errors. "
+                "Calibration and threshold estimates are therefore noisy.",
+                "",
+                f"One missed cheap-path error in the threshold half changes the missed-error "
+                f"rate by about {one_error_pp:.1f} percentage points. Per-attack conclusions "
+                "are diagnostic only. The selected `0.5` threshold is the frozen "
+                "operating point for the canonical escalation path — the DVC "
+                "`final_verdict_report` stage uses it because it sits "
+                "on a useful cost/error tradeoff without making judge-everything "
+                "the default.",
+                "",
+            ]
+        )
     if threshold_sweep_df is not None:
-        report.extend([
-            "## Threshold Sweep",
-            "",
-            "Threshold operating points are selected on `unseen_val` because the "
-            "escalating model is trained on `val`.",
-            "",
-            threshold_sweep_df.to_markdown(index=False),
-            "",
-        ])
+        report.extend(
+            [
+                "## Threshold Sweep",
+                "",
+                "Threshold operating points are selected on `unseen_val` because the "
+                "escalating model is trained on `val`.",
+                "",
+                threshold_sweep_df.to_markdown(index=False),
+                "",
+            ]
+        )
     path.write_text("\n".join(report))

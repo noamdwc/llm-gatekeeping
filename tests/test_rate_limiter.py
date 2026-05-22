@@ -164,9 +164,9 @@ class TestAPIRateLimiter:
             cooldown_2 = limiter._cooldown_until - time.monotonic()
 
         # Second cooldown should be longer (base * 2^1 = 2s vs base * 2^0 = 1s)
-        assert cooldown_2 > cooldown_1 * 1.3, (
-            f"Second cooldown {cooldown_2:.2f}s should be notably longer than first {cooldown_1:.2f}s"
-        )
+        assert (
+            cooldown_2 > cooldown_1 * 1.3
+        ), f"Second cooldown {cooldown_2:.2f}s should be notably longer than first {cooldown_1:.2f}s"
 
     def test_adaptive_slowdown_on_429(self):
         """429s should slow down the token-bucket rate."""
@@ -174,9 +174,7 @@ class TestAPIRateLimiter:
         initial_interval = limiter._min_interval
 
         limiter.report_rate_limit()
-        assert limiter._min_interval > initial_interval, (
-            "Rate should slow down after 429"
-        )
+        assert limiter._min_interval > initial_interval, "Rate should slow down after 429"
 
     def test_rate_recovers_after_success(self):
         """Sustained success should gradually recover the rate."""
@@ -194,9 +192,9 @@ class TestAPIRateLimiter:
 
         # Report success
         limiter.report_success()
-        assert limiter._min_interval < slowed_interval, (
-            "Rate should recover after successful requests with no recent 429"
-        )
+        assert (
+            limiter._min_interval < slowed_interval
+        ), "Rate should recover after successful requests with no recent 429"
 
     def test_no_recovery_during_active_429s(self):
         """report_success should NOT speed up if 429 was recent."""

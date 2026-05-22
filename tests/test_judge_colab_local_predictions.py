@@ -131,10 +131,7 @@ def test_parse_args_accepts_runtime_rate_limit_overrides():
 
 def test_apply_judge_runs_with_bounded_parallelism_and_preserves_order(sample_config):
     predictions = pd.DataFrame(
-        [
-            _classifier_only_row(sample_id=f"s{i}", modified_sample=f"text {i}")
-            for i in range(4)
-        ]
+        [_classifier_only_row(sample_id=f"s{i}", modified_sample=f"text {i}") for i in range(4)]
     )
     classifier = MagicMock()
     classifier.cfg = sample_config
@@ -190,9 +187,9 @@ def test_main_disables_target_rpm_for_nim_by_default(tmp_path, sample_config, mo
     output_path = tmp_path / "output.parquet"
     scores_path = tmp_path / "escalation_scores.parquet"
     pd.DataFrame([_classifier_only_row()]).to_parquet(input_path, index=False)
-    pd.DataFrame(
-        [{"sample_id": "s1", "calibrated_escalation_score": 0.9}]
-    ).to_parquet(scores_path, index=False)
+    pd.DataFrame([{"sample_id": "s1", "calibrated_escalation_score": 0.9}]).to_parquet(
+        scores_path, index=False
+    )
 
     monkeypatch.setattr(judge_cli_module, "load_config", lambda path=None: sample_config)
 
@@ -212,16 +209,18 @@ def test_main_disables_target_rpm_for_nim_by_default(tmp_path, sample_config, mo
         lambda predictions, classifier, **kwargs: predictions.assign(judge_ran=False),
     )
 
-    judge_cli.main([
-        "--split",
-        "test",
-        "--input",
-        str(input_path),
-        "--output",
-        str(output_path),
-        "--escalation-scores",
-        str(scores_path),
-    ])
+    judge_cli.main(
+        [
+            "--split",
+            "test",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--escalation-scores",
+            str(scores_path),
+        ]
+    )
 
     assert captured_cfg["target_rpm"] == 0
 
@@ -231,9 +230,9 @@ def test_main_honors_explicit_target_rpm_for_nim(tmp_path, sample_config, monkey
     output_path = tmp_path / "output.parquet"
     scores_path = tmp_path / "escalation_scores.parquet"
     pd.DataFrame([_classifier_only_row()]).to_parquet(input_path, index=False)
-    pd.DataFrame(
-        [{"sample_id": "s1", "calibrated_escalation_score": 0.9}]
-    ).to_parquet(scores_path, index=False)
+    pd.DataFrame([{"sample_id": "s1", "calibrated_escalation_score": 0.9}]).to_parquet(
+        scores_path, index=False
+    )
 
     monkeypatch.setattr(judge_cli_module, "load_config", lambda path=None: sample_config)
 
@@ -252,18 +251,20 @@ def test_main_honors_explicit_target_rpm_for_nim(tmp_path, sample_config, monkey
         lambda predictions, classifier, **kwargs: predictions.assign(judge_ran=False),
     )
 
-    judge_cli.main([
-        "--split",
-        "test",
-        "--input",
-        str(input_path),
-        "--output",
-        str(output_path),
-        "--escalation-scores",
-        str(scores_path),
-        "--target-rpm",
-        "3",
-    ])
+    judge_cli.main(
+        [
+            "--split",
+            "test",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--escalation-scores",
+            str(scores_path),
+            "--target-rpm",
+            "3",
+        ]
+    )
 
     assert captured_cfg["target_rpm"] == 3
 

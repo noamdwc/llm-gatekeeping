@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RateLimiterStats:
     """Counters exposed for instrumentation / logging."""
+
     total_requests: int = 0
     successful_requests: int = 0
     rate_limit_hits: int = 0
@@ -195,7 +196,9 @@ class APIRateLimiter:
             if self._min_interval > 0 and new_interval > self._min_interval:
                 self._min_interval = new_interval
                 effective = 60.0 / self._min_interval
-                logger.info(f"Rate throttled to {effective:.1f} RPM after {self._consecutive_429s} consecutive 429s")
+                logger.info(
+                    f"Rate throttled to {effective:.1f} RPM after {self._consecutive_429s} consecutive 429s"
+                )
 
         self.stats.record_rate_limit()
 
@@ -223,7 +226,7 @@ class APIRateLimiter:
         retry_after = self._parse_retry_after(exc)
         if retry_after is not None:
             return retry_after + random.uniform(0, 2)
-        base = min(2 ** attempt * 8, 90)
+        base = min(2**attempt * 8, 90)
         return base + random.uniform(0, min(base * 0.5, 10))
 
     # -- internals ---------------------------------------------------------

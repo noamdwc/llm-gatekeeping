@@ -155,9 +155,11 @@ def test_main_requires_configured_external_judged_artifact_by_default(tmp_path: 
     )
 
     with pytest.raises(FileNotFoundError, match="Missing judged final-verdict input"):
-        final_verdict_report.main([
-            "--config",
-            str(config_path),
-            "--output",
-            str(tmp_path / "pipeline_final_verdict_report.md"),
-        ])
+        final_verdict_report.main(
+            [
+                "--config",
+                str(config_path),
+                "--output",
+                str(tmp_path / "pipeline_final_verdict_report.md"),
+            ]
+        )

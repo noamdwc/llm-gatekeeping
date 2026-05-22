@@ -49,7 +49,9 @@ def get_cache_path(provider_name: str, request_kwargs: dict[str, Any]) -> Path:
         "request": _normalize(request_kwargs),
     }
     cache_key = hashlib.sha256(
-        json.dumps(key_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        json.dumps(key_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode(
+            "utf-8"
+        )
     ).hexdigest()
     return LLM_CACHE_DIR / f"{cache_key}.json"
 
@@ -103,11 +105,15 @@ def serialize_chat_completion(response: Any) -> dict[str, Any]:
                 },
             }
         ],
-        "usage": {
-            "prompt_tokens": _json_scalar(getattr(usage, "prompt_tokens", None)),
-            "completion_tokens": _json_scalar(getattr(usage, "completion_tokens", None)),
-            "total_tokens": _json_scalar(getattr(usage, "total_tokens", None)),
-        } if usage is not None else None,
+        "usage": (
+            {
+                "prompt_tokens": _json_scalar(getattr(usage, "prompt_tokens", None)),
+                "completion_tokens": _json_scalar(getattr(usage, "completion_tokens", None)),
+                "total_tokens": _json_scalar(getattr(usage, "total_tokens", None)),
+            }
+            if usage is not None
+            else None
+        ),
     }
 
 
@@ -122,11 +128,15 @@ def get_or_create_chat_completion(
 
     with lock:
         if cache_path.exists():
-            return CachedChatResult(payload=json.loads(cache_path.read_text(encoding="utf-8")), cache_hit=True)
+            return CachedChatResult(
+                payload=json.loads(cache_path.read_text(encoding="utf-8")), cache_hit=True
+            )
 
         response = create_fn()
         payload = serialize_chat_completion(response)
         tmp_path = cache_path.with_name(f"{cache_path.name}.{uuid.uuid4().hex}.tmp")
-        tmp_path.write_text(json.dumps(payload, ensure_ascii=True, sort_keys=True), encoding="utf-8")
+        tmp_path.write_text(
+            json.dumps(payload, ensure_ascii=True, sort_keys=True), encoding="utf-8"
+        )
         tmp_path.replace(cache_path)
         return CachedChatResult(payload=payload, cache_hit=False)

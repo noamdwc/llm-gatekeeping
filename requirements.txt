@@ -14,7 +14,6 @@ matplotlib>=3.8
 dvc>=3.50
 transformers>=4.36
 torch>=2.1
-vllm>=0.6.0; platform_system == "Linux" and python_version < "3.14"
 pytorch-lightning>=2.0
 accelerate>=0.25
 sentencepiece>=0.1.99

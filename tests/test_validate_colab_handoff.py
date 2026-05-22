@@ -171,9 +171,7 @@ def test_main_writes_validation_report_for_main_and_external_targets(tmp_path: P
 
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        "external_datasets:\n"
-        "  deepset:\n"
-        "    name: deepset/prompt-injections\n"
+        "external_datasets:\n" "  deepset:\n" "    name: deepset/prompt-injections\n"
     )
 
     validate_colab_handoff.main(

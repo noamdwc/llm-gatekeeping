@@ -48,8 +48,12 @@ class TestLlmCache:
         create_fn = MagicMock(return_value=_make_response())
         base = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "test"}]}
 
-        llm_cache_module.get_or_create_chat_completion("openai", {**base, "temperature": 0}, create_fn)
-        llm_cache_module.get_or_create_chat_completion("openai", {**base, "temperature": 1}, create_fn)
+        llm_cache_module.get_or_create_chat_completion(
+            "openai", {**base, "temperature": 0}, create_fn
+        )
+        llm_cache_module.get_or_create_chat_completion(
+            "openai", {**base, "temperature": 1}, create_fn
+        )
 
         assert create_fn.call_count == 2
 
@@ -69,7 +73,9 @@ class TestLlmCache:
         with ThreadPoolExecutor(max_workers=4) as executor:
             results = list(
                 executor.map(
-                    lambda _: llm_cache_module.get_or_create_chat_completion("openai", request_kwargs, create),
+                    lambda _: llm_cache_module.get_or_create_chat_completion(
+                        "openai", request_kwargs, create
+                    ),
                     range(4),
                 )
             )

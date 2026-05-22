@@ -18,6 +18,7 @@ from src.synthetic_benign import SyntheticBenignGenerator, _CATEGORY_META, _buil
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def cfg():
     """Minimal config dict for generator tests."""
@@ -88,9 +89,9 @@ class TestSyntheticBenignSchema:
         records = gen.to_records(texts, category="A")
         assert len(records) == 3
         for r in records:
-            assert self.REQUIRED_FIELDS.issubset(set(r.keys())), (
-                f"Missing keys: {self.REQUIRED_FIELDS - set(r.keys())}"
-            )
+            assert self.REQUIRED_FIELDS.issubset(
+                set(r.keys())
+            ), f"Missing keys: {self.REQUIRED_FIELDS - set(r.keys())}"
 
     def test_label_fields_are_benign(self, cfg):
         """All label fields must be 'benign'."""
@@ -127,8 +128,12 @@ class TestSyntheticBenignSchema:
     def test_synth_validated_is_bool(self, cfg):
         """synth_validated field is a bool."""
         gen = _make_generator(cfg)
-        records_unvalidated = gen.to_records(["Some text here for testing."], category="A", validated=False)
-        records_validated = gen.to_records(["Some text here for testing."], category="A", validated=True)
+        records_unvalidated = gen.to_records(
+            ["Some text here for testing."], category="A", validated=False
+        )
+        records_validated = gen.to_records(
+            ["Some text here for testing."], category="A", validated=True
+        )
         assert records_unvalidated[0]["synth_validated"] is False
         assert records_validated[0]["synth_validated"] is True
 

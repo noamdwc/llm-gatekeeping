@@ -130,7 +130,7 @@ class JudgeBenignValidator:
 
     def __init__(self, classifier):
         """Args:
-            classifier: HierarchicalLLMClassifier instance (uses its judge() method).
+        classifier: HierarchicalLLMClassifier instance (uses its judge() method).
         """
         self.classifier = classifier
 
@@ -167,25 +167,30 @@ class JudgeBenignValidator:
                     norm_conf = max(0.0, min(1.0, norm_conf))
                 except (TypeError, ValueError):
                     norm_conf = None
-                results.append({
-                    "text": text,
-                    "accepted": accepted,
-                    "val_score": norm_conf,
-                    "judge_label": ind_label,
-                })
+                results.append(
+                    {
+                        "text": text,
+                        "accepted": accepted,
+                        "val_score": norm_conf,
+                        "judge_label": ind_label,
+                    }
+                )
             except Exception as exc:  # noqa: BLE001 — broad catch to keep batch going
-                results.append({
-                    "text": text,
-                    "accepted": False,
-                    "val_score": None,
-                    "judge_label": f"error: {exc}",
-                })
+                results.append(
+                    {
+                        "text": text,
+                        "accepted": False,
+                        "val_score": None,
+                        "judge_label": f"error: {exc}",
+                    }
+                )
         return results
 
 
 # ---------------------------------------------------------------------------
 # Layer 3: Near-duplicate filter
 # ---------------------------------------------------------------------------
+
 
 class DeduplicateFilter:
     """Removes near-duplicate prompts using cosine similarity of embeddings.
@@ -229,9 +234,7 @@ class DeduplicateFilter:
                 all_reference, model=self.embedding_model, input_type="passage"
             )
 
-        new_embeddings = get_embeddings(
-            texts, model=self.embedding_model, input_type="passage"
-        )
+        new_embeddings = get_embeddings(texts, model=self.embedding_model, input_type="passage")
 
         accepted: list[str] = []
         accepted_embeddings: list[np.ndarray] = []

@@ -67,9 +67,7 @@ def _prepare_external_colab(colab_df: pd.DataFrame, deberta_df: pd.DataFrame) ->
     if "label_binary" in colab_df.columns:
         return colab_df
     if "label_binary" not in deberta_df.columns:
-        raise ValueError(
-            "DeBERTa predictions parquet must contain label_binary for externals"
-        )
+        raise ValueError("DeBERTa predictions parquet must contain label_binary for externals")
     return colab_df.merge(
         deberta_df[["sample_id", "label_binary"]],
         on="sample_id",
@@ -169,10 +167,13 @@ def main(argv: list[str] | None = None) -> None:
 
     cfg = load_config(args.config)
     escalating_cfg = cfg.get("hybrid", {}).get("escalating_model", {})
-    model_output = Path(args.model_output or escalating_cfg.get(
-        "model_path",
-        MODELS_DIR / "escalating_model.pkl",
-    ))
+    model_output = Path(
+        args.model_output
+        or escalating_cfg.get(
+            "model_path",
+            MODELS_DIR / "escalating_model.pkl",
+        )
+    )
     research_output_dir = Path(args.research_output_dir)
     summary_output = Path(args.summary_output)
     threshold_sweep_output = Path(args.threshold_sweep_output)
@@ -221,10 +222,7 @@ def main(argv: list[str] | None = None) -> None:
         eval_output = research_output_dir / f"escalating_model_eval_{split}.parquet"
         scored_by_split[split] = (scored, eval_output)
         summaries.append(summary)
-        print(
-            f"Scored {split} ({summary['rows_joined']} joined rows) "
-            f"-> {eval_output}"
-        )
+        print(f"Scored {split} ({summary['rows_joined']} joined rows) " f"-> {eval_output}")
 
     summary_df = pd.DataFrame(summaries, columns=EVAL_SUMMARY_COLS)
     summary_output.parent.mkdir(parents=True, exist_ok=True)
@@ -277,8 +275,7 @@ def main(argv: list[str] | None = None) -> None:
         scored_by_split[f"external_{dataset}"] = (scored, eval_output)
         summaries.append(summary)
         print(
-            f"Scored external {dataset} ({summary['rows_joined']} joined rows) "
-            f"-> {eval_output}"
+            f"Scored external {dataset} ({summary['rows_joined']} joined rows) " f"-> {eval_output}"
         )
 
     summary_df = pd.DataFrame(summaries, columns=EVAL_SUMMARY_COLS)

@@ -23,7 +23,7 @@ from sklearn.metrics import (
     classification_report,
     confusion_matrix,
     f1_score,
-    precision_recall_fscore_support
+    precision_recall_fscore_support,
 )
 
 from src.utils import REPORTS_RESEARCH_DIR
@@ -249,12 +249,14 @@ def calibration_metrics(
         n = mask.sum()
         if n == 0:
             continue
-        buckets.append({
-            "bin": f"{lo:.1f}-{hi:.1f}",
-            "count": int(n),
-            "avg_confidence": float(conf[mask].mean()),
-            "accuracy": float(correct[mask].mean()),
-        })
+        buckets.append(
+            {
+                "bin": f"{lo:.1f}-{hi:.1f}",
+                "count": int(n),
+                "avg_confidence": float(conf[mask].mean()),
+                "accuracy": float(correct[mask].mean()),
+            }
+        )
 
     return {"calibration_buckets": buckets}
 
@@ -410,7 +412,11 @@ def evaluate_dataframe(
 
     report = generate_report(
         pd.concat([df_eval.reset_index(drop=True), preds], axis=1),
-        binary, cat, types, cal, usage,
+        binary,
+        cat,
+        types,
+        cal,
+        usage,
     )
 
     if output_path:

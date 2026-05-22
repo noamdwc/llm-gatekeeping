@@ -146,8 +146,13 @@ class TestDumpBadBatch:
         logits = torch.tensor([[0.5, -0.3]])
 
         dump_dir = dump_bad_batch(
-            tmp_path, epoch=0, step=1, stage="forward",
-            batch=batch, loss=loss, logits=logits,
+            tmp_path,
+            epoch=0,
+            step=1,
+            stage="forward",
+            batch=batch,
+            loss=loss,
+            logits=logits,
             texts=["hello world"],
         )
 
@@ -224,7 +229,9 @@ class FakeCollator:
     def __call__(self, items):
         batch = {
             "input_ids": torch.tensor([item["input_ids"] for item in items], dtype=torch.long),
-            "attention_mask": torch.tensor([item["attention_mask"] for item in items], dtype=torch.long),
+            "attention_mask": torch.tensor(
+                [item["attention_mask"] for item in items], dtype=torch.long
+            ),
         }
         if "labels" in items[0]:
             batch["labels"] = torch.stack([item["labels"] for item in items])
@@ -260,9 +267,17 @@ class FakeHFModel(nn.Module):
 
 
 class TestTrainingLifecycle:
-    @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())
-    @patch("src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained", return_value=FakeHFModel())
-    @patch("src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer())
+    @patch(
+        "src.models.deberta_classifier.DataCollatorWithPadding",
+        side_effect=lambda tokenizer: FakeCollator(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained",
+        return_value=FakeHFModel(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer()
+    )
     def test_train_delegates_loop_to_lightning_trainer(
         self,
         _mock_tokenizer,
@@ -270,14 +285,18 @@ class TestTrainingLifecycle:
         _mock_collator,
         sample_config_with_deberta,
     ):
-        df_train = pd.DataFrame({
-            "modified_sample": ["a", "b", "c", "d"],
-            "label_binary": ["benign", "adversarial", "benign", "adversarial"],
-        })
-        df_val = pd.DataFrame({
-            "modified_sample": ["e", "f"],
-            "label_binary": ["benign", "adversarial"],
-        })
+        df_train = pd.DataFrame(
+            {
+                "modified_sample": ["a", "b", "c", "d"],
+                "label_binary": ["benign", "adversarial", "benign", "adversarial"],
+            }
+        )
+        df_val = pd.DataFrame(
+            {
+                "modified_sample": ["e", "f"],
+                "label_binary": ["benign", "adversarial"],
+            }
+        )
 
         clf = DeBERTaClassifier(sample_config_with_deberta)
 
@@ -286,11 +305,25 @@ class TestTrainingLifecycle:
             with pytest.raises(RuntimeError, match="trainer fit called"):
                 clf.train(df_train, df_val, text_col="modified_sample", force_cpu=True)
 
-    @patch("src.models.deberta_classifier.get_linear_schedule_with_warmup", return_value=FakeScheduler())
-    @patch("src.models.deberta_classifier.AdamW", side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr))
-    @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())
-    @patch("src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained", return_value=FakeHFModel())
-    @patch("src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer())
+    @patch(
+        "src.models.deberta_classifier.get_linear_schedule_with_warmup",
+        return_value=FakeScheduler(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AdamW",
+        side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr),
+    )
+    @patch(
+        "src.models.deberta_classifier.DataCollatorWithPadding",
+        side_effect=lambda tokenizer: FakeCollator(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained",
+        return_value=FakeHFModel(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer()
+    )
     def test_train_restores_best_checkpoint_and_stops_early(
         self,
         _mock_tokenizer,
@@ -307,29 +340,48 @@ class TestTrainingLifecycle:
         cfg["deberta"]["metric_for_best_model"] = "f1"
         cfg["deberta"]["learning_rate"] = 0.2
 
-        df_train = pd.DataFrame({
-            "modified_sample": ["a", "b", "c", "d"],
-            "label_binary": ["benign", "adversarial", "benign", "adversarial"],
-        })
-        df_val = pd.DataFrame({
-            "modified_sample": ["e", "f"],
-            "label_binary": ["benign", "adversarial"],
-        })
+        df_train = pd.DataFrame(
+            {
+                "modified_sample": ["a", "b", "c", "d"],
+                "label_binary": ["benign", "adversarial", "benign", "adversarial"],
+            }
+        )
+        df_val = pd.DataFrame(
+            {
+                "modified_sample": ["e", "f"],
+                "label_binary": ["benign", "adversarial"],
+            }
+        )
 
         clf = DeBERTaClassifier(cfg)
 
         metrics = [
             {
-                "accuracy": 0.8, "f1": 0.7, "macro_f1": 0.75, "precision": 0.7, "recall": 0.7,
-                "f1_benign": 0.8, "f1_adversarial": 0.7,
+                "accuracy": 0.8,
+                "f1": 0.7,
+                "macro_f1": 0.75,
+                "precision": 0.7,
+                "recall": 0.7,
+                "f1_benign": 0.8,
+                "f1_adversarial": 0.7,
             },
             {
-                "accuracy": 0.7, "f1": 0.6, "macro_f1": 0.65, "precision": 0.6, "recall": 0.6,
-                "f1_benign": 0.7, "f1_adversarial": 0.6,
+                "accuracy": 0.7,
+                "f1": 0.6,
+                "macro_f1": 0.65,
+                "precision": 0.6,
+                "recall": 0.6,
+                "f1_benign": 0.7,
+                "f1_adversarial": 0.6,
             },
             {
-                "accuracy": 0.6, "f1": 0.5, "macro_f1": 0.55, "precision": 0.5, "recall": 0.5,
-                "f1_benign": 0.6, "f1_adversarial": 0.5,
+                "accuracy": 0.6,
+                "f1": 0.5,
+                "macro_f1": 0.55,
+                "precision": 0.5,
+                "recall": 0.5,
+                "f1_benign": 0.6,
+                "f1_adversarial": 0.5,
             },
         ]
 
@@ -345,11 +397,25 @@ class TestTrainingLifecycle:
         assert clf.best_checkpoint["epoch"] == 1
         assert torch.isclose(clf.model.weight.detach().cpu(), torch.tensor(0.1), atol=1e-6)
 
-    @patch("src.models.deberta_classifier.get_linear_schedule_with_warmup", return_value=FakeScheduler())
-    @patch("src.models.deberta_classifier.AdamW", side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr))
-    @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())
-    @patch("src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained", return_value=FakeHFModel())
-    @patch("src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer())
+    @patch(
+        "src.models.deberta_classifier.get_linear_schedule_with_warmup",
+        return_value=FakeScheduler(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AdamW",
+        side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr),
+    )
+    @patch(
+        "src.models.deberta_classifier.DataCollatorWithPadding",
+        side_effect=lambda tokenizer: FakeCollator(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained",
+        return_value=FakeHFModel(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer()
+    )
     def test_train_records_unseen_monitor_metrics_without_selecting_on_them(
         self,
         _mock_tokenizer,
@@ -364,38 +430,61 @@ class TestTrainingLifecycle:
         cfg["deberta"]["num_epochs"] = 1
         cfg["deberta"]["metric_for_best_model"] = "f1"
 
-        df_train = pd.DataFrame({
-            "modified_sample": ["a", "b", "c", "d"],
-            "label_binary": ["benign", "adversarial", "benign", "adversarial"],
-        })
-        df_val = pd.DataFrame({
-            "modified_sample": ["e", "f"],
-            "label_binary": ["benign", "adversarial"],
-        })
+        df_train = pd.DataFrame(
+            {
+                "modified_sample": ["a", "b", "c", "d"],
+                "label_binary": ["benign", "adversarial", "benign", "adversarial"],
+            }
+        )
+        df_val = pd.DataFrame(
+            {
+                "modified_sample": ["e", "f"],
+                "label_binary": ["benign", "adversarial"],
+            }
+        )
         monitor_dfs = {
-            "unseen_val": pd.DataFrame({
-                "modified_sample": ["g", "h"],
-                "label_binary": ["benign", "adversarial"],
-            }),
-            "unseen_test": pd.DataFrame({
-                "modified_sample": ["i", "j"],
-                "label_binary": ["benign", "adversarial"],
-            }),
+            "unseen_val": pd.DataFrame(
+                {
+                    "modified_sample": ["g", "h"],
+                    "label_binary": ["benign", "adversarial"],
+                }
+            ),
+            "unseen_test": pd.DataFrame(
+                {
+                    "modified_sample": ["i", "j"],
+                    "label_binary": ["benign", "adversarial"],
+                }
+            ),
         }
 
         clf = DeBERTaClassifier(cfg)
         metrics = [
             {
-                "accuracy": 0.8, "f1": 0.7, "macro_f1": 0.75, "precision": 0.7, "recall": 0.7,
-                "f1_benign": 0.8, "f1_adversarial": 0.7,
+                "accuracy": 0.8,
+                "f1": 0.7,
+                "macro_f1": 0.75,
+                "precision": 0.7,
+                "recall": 0.7,
+                "f1_benign": 0.8,
+                "f1_adversarial": 0.7,
             },
             {
-                "accuracy": 0.4, "f1": 0.9, "macro_f1": 0.5, "precision": 0.91, "recall": 0.92,
-                "f1_benign": 0.2, "f1_adversarial": 0.9,
+                "accuracy": 0.4,
+                "f1": 0.9,
+                "macro_f1": 0.5,
+                "precision": 0.91,
+                "recall": 0.92,
+                "f1_benign": 0.2,
+                "f1_adversarial": 0.9,
             },
             {
-                "accuracy": 0.3, "f1": 0.95, "macro_f1": 0.4, "precision": 0.96, "recall": 0.97,
-                "f1_benign": 0.1, "f1_adversarial": 0.95,
+                "accuracy": 0.3,
+                "f1": 0.95,
+                "macro_f1": 0.4,
+                "precision": 0.96,
+                "recall": 0.97,
+                "f1_benign": 0.1,
+                "f1_adversarial": 0.95,
             },
         ]
 
@@ -416,11 +505,25 @@ class TestTrainingLifecycle:
         assert result.train_history[0]["unseen_test_precision"] == 0.96
         assert result.train_history[0]["unseen_test_recall"] == 0.97
 
-    @patch("src.models.deberta_classifier.get_linear_schedule_with_warmup", return_value=FakeScheduler())
-    @patch("src.models.deberta_classifier.AdamW", side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr))
-    @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())
-    @patch("src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained", return_value=FakeHFModel())
-    @patch("src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer())
+    @patch(
+        "src.models.deberta_classifier.get_linear_schedule_with_warmup",
+        return_value=FakeScheduler(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AdamW",
+        side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr),
+    )
+    @patch(
+        "src.models.deberta_classifier.DataCollatorWithPadding",
+        side_effect=lambda tokenizer: FakeCollator(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained",
+        return_value=FakeHFModel(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer()
+    )
     def test_train_logs_unseen_monitor_metrics_each_epoch(
         self,
         _mock_tokenizer,
@@ -436,38 +539,61 @@ class TestTrainingLifecycle:
         cfg["deberta"]["num_epochs"] = 1
         cfg["deberta"]["metric_for_best_model"] = "f1"
 
-        df_train = pd.DataFrame({
-            "modified_sample": ["a", "b", "c", "d"],
-            "label_binary": ["benign", "adversarial", "benign", "adversarial"],
-        })
-        df_val = pd.DataFrame({
-            "modified_sample": ["e", "f"],
-            "label_binary": ["benign", "adversarial"],
-        })
+        df_train = pd.DataFrame(
+            {
+                "modified_sample": ["a", "b", "c", "d"],
+                "label_binary": ["benign", "adversarial", "benign", "adversarial"],
+            }
+        )
+        df_val = pd.DataFrame(
+            {
+                "modified_sample": ["e", "f"],
+                "label_binary": ["benign", "adversarial"],
+            }
+        )
         monitor_dfs = {
-            "unseen_val": pd.DataFrame({
-                "modified_sample": ["g", "h"],
-                "label_binary": ["benign", "adversarial"],
-            }),
-            "unseen_test": pd.DataFrame({
-                "modified_sample": ["i", "j"],
-                "label_binary": ["benign", "adversarial"],
-            }),
+            "unseen_val": pd.DataFrame(
+                {
+                    "modified_sample": ["g", "h"],
+                    "label_binary": ["benign", "adversarial"],
+                }
+            ),
+            "unseen_test": pd.DataFrame(
+                {
+                    "modified_sample": ["i", "j"],
+                    "label_binary": ["benign", "adversarial"],
+                }
+            ),
         }
 
         clf = DeBERTaClassifier(cfg)
         metrics = [
             {
-                "accuracy": 0.8, "f1": 0.7, "macro_f1": 0.75, "precision": 0.7, "recall": 0.7,
-                "f1_benign": 0.8, "f1_adversarial": 0.7,
+                "accuracy": 0.8,
+                "f1": 0.7,
+                "macro_f1": 0.75,
+                "precision": 0.7,
+                "recall": 0.7,
+                "f1_benign": 0.8,
+                "f1_adversarial": 0.7,
             },
             {
-                "accuracy": 0.4, "f1": 0.9, "macro_f1": 0.5, "precision": 0.91, "recall": 0.92,
-                "f1_benign": 0.2, "f1_adversarial": 0.9,
+                "accuracy": 0.4,
+                "f1": 0.9,
+                "macro_f1": 0.5,
+                "precision": 0.91,
+                "recall": 0.92,
+                "f1_benign": 0.2,
+                "f1_adversarial": 0.9,
             },
             {
-                "accuracy": 0.3, "f1": 0.95, "macro_f1": 0.4, "precision": 0.96, "recall": 0.97,
-                "f1_benign": 0.1, "f1_adversarial": 0.95,
+                "accuracy": 0.3,
+                "f1": 0.95,
+                "macro_f1": 0.4,
+                "precision": 0.96,
+                "recall": 0.97,
+                "f1_benign": 0.1,
+                "f1_adversarial": 0.95,
             },
         ]
 
@@ -488,11 +614,25 @@ class TestTrainingLifecycle:
         assert "unseen_test_prec=0.9600" in caplog.text
         assert "unseen_test_rec=0.9700" in caplog.text
 
-    @patch("src.models.deberta_classifier.get_linear_schedule_with_warmup", return_value=FakeScheduler())
-    @patch("src.models.deberta_classifier.AdamW", side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr))
-    @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())
-    @patch("src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained", return_value=FakeHFModel())
-    @patch("src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer())
+    @patch(
+        "src.models.deberta_classifier.get_linear_schedule_with_warmup",
+        return_value=FakeScheduler(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AdamW",
+        side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr),
+    )
+    @patch(
+        "src.models.deberta_classifier.DataCollatorWithPadding",
+        side_effect=lambda tokenizer: FakeCollator(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained",
+        return_value=FakeHFModel(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer()
+    )
     def test_train_calls_epoch_callback_with_unseen_metrics_before_returning(
         self,
         _mock_tokenizer,
@@ -507,19 +647,25 @@ class TestTrainingLifecycle:
         cfg["deberta"]["num_epochs"] = 2
         cfg["deberta"]["metric_for_best_model"] = "f1"
 
-        df_train = pd.DataFrame({
-            "modified_sample": ["a", "b", "c", "d"],
-            "label_binary": ["benign", "adversarial", "benign", "adversarial"],
-        })
-        df_val = pd.DataFrame({
-            "modified_sample": ["e", "f"],
-            "label_binary": ["benign", "adversarial"],
-        })
-        monitor_dfs = {
-            "unseen_val": pd.DataFrame({
-                "modified_sample": ["g", "h"],
+        df_train = pd.DataFrame(
+            {
+                "modified_sample": ["a", "b", "c", "d"],
+                "label_binary": ["benign", "adversarial", "benign", "adversarial"],
+            }
+        )
+        df_val = pd.DataFrame(
+            {
+                "modified_sample": ["e", "f"],
                 "label_binary": ["benign", "adversarial"],
-            }),
+            }
+        )
+        monitor_dfs = {
+            "unseen_val": pd.DataFrame(
+                {
+                    "modified_sample": ["g", "h"],
+                    "label_binary": ["benign", "adversarial"],
+                }
+            ),
         }
         seen_epochs = []
 
@@ -530,12 +676,22 @@ class TestTrainingLifecycle:
         clf = DeBERTaClassifier(cfg)
         metrics = [
             {
-                "accuracy": 0.8, "f1": 0.7, "macro_f1": 0.75, "precision": 0.7, "recall": 0.7,
-                "f1_benign": 0.8, "f1_adversarial": 0.7,
+                "accuracy": 0.8,
+                "f1": 0.7,
+                "macro_f1": 0.75,
+                "precision": 0.7,
+                "recall": 0.7,
+                "f1_benign": 0.8,
+                "f1_adversarial": 0.7,
             },
             {
-                "accuracy": 0.4, "f1": 0.9, "macro_f1": 0.5, "precision": 0.91, "recall": 0.92,
-                "f1_benign": 0.2, "f1_adversarial": 0.9,
+                "accuracy": 0.4,
+                "f1": 0.9,
+                "macro_f1": 0.5,
+                "precision": 0.91,
+                "recall": 0.92,
+                "f1_benign": 0.2,
+                "f1_adversarial": 0.9,
             },
         ]
 
@@ -555,11 +711,25 @@ class TestTrainingLifecycle:
         assert seen_epochs[0]["unseen_val_precision"] == 0.91
         assert seen_epochs[0]["unseen_val_recall"] == 0.92
 
-    @patch("src.models.deberta_classifier.get_linear_schedule_with_warmup", return_value=FakeScheduler())
-    @patch("src.models.deberta_classifier.AdamW", side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr))
-    @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())
-    @patch("src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained", return_value=FakeHFModel())
-    @patch("src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer())
+    @patch(
+        "src.models.deberta_classifier.get_linear_schedule_with_warmup",
+        return_value=FakeScheduler(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AdamW",
+        side_effect=lambda params, lr, weight_decay: torch.optim.SGD(params, lr=lr),
+    )
+    @patch(
+        "src.models.deberta_classifier.DataCollatorWithPadding",
+        side_effect=lambda tokenizer: FakeCollator(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained",
+        return_value=FakeHFModel(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer()
+    )
     def test_train_calls_batch_callback_during_fit(
         self,
         _mock_tokenizer,
@@ -575,27 +745,35 @@ class TestTrainingLifecycle:
         cfg["deberta"]["batch_size"] = 2
         cfg["deberta"]["logging_steps"] = 1
 
-        df_train = pd.DataFrame({
-            "modified_sample": ["a", "b", "c", "d"],
-            "label_binary": ["benign", "adversarial", "benign", "adversarial"],
-        })
-        df_val = pd.DataFrame({
-            "modified_sample": ["e", "f"],
-            "label_binary": ["benign", "adversarial"],
-        })
+        df_train = pd.DataFrame(
+            {
+                "modified_sample": ["a", "b", "c", "d"],
+                "label_binary": ["benign", "adversarial", "benign", "adversarial"],
+            }
+        )
+        df_val = pd.DataFrame(
+            {
+                "modified_sample": ["e", "f"],
+                "label_binary": ["benign", "adversarial"],
+            }
+        )
         batch_metrics = []
 
         clf = DeBERTaClassifier(cfg)
 
-        with patch.object(clf, "_evaluate", return_value={
-            "accuracy": 0.8,
-            "f1": 0.7,
-            "macro_f1": 0.75,
-            "precision": 0.7,
-            "recall": 0.7,
-            "f1_benign": 0.8,
-            "f1_adversarial": 0.7,
-        }):
+        with patch.object(
+            clf,
+            "_evaluate",
+            return_value={
+                "accuracy": 0.8,
+                "f1": 0.7,
+                "macro_f1": 0.75,
+                "precision": 0.7,
+                "recall": 0.7,
+                "f1_benign": 0.8,
+                "f1_adversarial": 0.7,
+            },
+        ):
             clf.train(
                 df_train,
                 df_val,
@@ -611,9 +789,17 @@ class TestTrainingLifecycle:
         assert "train_loss_step" in batch_metrics[0]
         assert "learning_rate" in batch_metrics[0]
 
-    @patch("src.models.deberta_classifier.DataCollatorWithPadding", side_effect=lambda tokenizer: FakeCollator())
-    @patch("src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained", return_value=FakeHFModel())
-    @patch("src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer())
+    @patch(
+        "src.models.deberta_classifier.DataCollatorWithPadding",
+        side_effect=lambda tokenizer: FakeCollator(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AutoModelForSequenceClassification.from_pretrained",
+        return_value=FakeHFModel(),
+    )
+    @patch(
+        "src.models.deberta_classifier.AutoTokenizer.from_pretrained", return_value=FakeTokenizer()
+    )
     def test_evaluate_returns_per_label_f1(
         self,
         _mock_tokenizer,
@@ -653,10 +839,18 @@ class TestTrainingLifecycle:
 class TestCLILifecycle:
     """Verify that failed training prevents save and predict."""
 
+    @staticmethod
+    def _write_split_placeholders(splits_dir: Path, *split_names: str) -> Path:
+        splits_dir.mkdir(parents=True, exist_ok=True)
+        for split_name in split_names:
+            (splits_dir / f"{split_name}.parquet").touch()
+        return splits_dir
+
     @patch("src.cli.deberta_classifier.DeBERTaClassifier")
     @patch("src.cli.deberta_classifier.pd.read_parquet")
-    def test_no_save_on_failure(self, mock_read, MockClf):
+    def test_no_save_on_failure(self, mock_read, MockClf, tmp_path):
         """When train() returns failure, save() must not be called and sys.exit(1)."""
+        splits_dir = self._write_split_placeholders(tmp_path / "splits", "train", "val")
         mock_read.return_value = MagicMock()
 
         mock_clf = MagicMock()
@@ -671,7 +865,17 @@ class TestCLILifecycle:
 
         from src.cli.deberta_classifier import main
 
-        with patch("sys.argv", ["prog", "--train-only", "--cpu", "--no-wandb"]):
+        with patch(
+            "sys.argv",
+            [
+                "prog",
+                "--train-only",
+                "--cpu",
+                "--no-wandb",
+                "--splits-dir",
+                str(splits_dir),
+            ],
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 main()
 
@@ -681,8 +885,13 @@ class TestCLILifecycle:
     @patch("src.cli.deberta_classifier.wandb")
     @patch("src.cli.deberta_classifier.DeBERTaClassifier")
     @patch("src.cli.deberta_classifier.pd.read_parquet")
-    def test_wandb_logs_training_history_and_finishes(self, mock_read, MockClf, mock_wandb):
+    def test_wandb_logs_training_history_and_finishes(
+        self, mock_read, MockClf, mock_wandb, tmp_path
+    ):
         """Successful training should initialize wandb, log history, and finish the run."""
+        splits_dir = self._write_split_placeholders(
+            tmp_path / "splits", "train", "val", "unseen_val", "unseen_test"
+        )
         train_df = MagicMock()
         val_df = MagicMock()
         unseen_val_df = MagicMock()
@@ -697,29 +906,34 @@ class TestCLILifecycle:
         MockClf.return_value = mock_clf
         mock_clf.train.return_value = TrainingResult(
             success=True,
-            train_history=[{
-                "epoch": 1,
-                "train_loss": 0.25,
-                "eval_accuracy": 0.9,
-                "eval_f1": 0.8,
-                "eval_macro_f1": 0.8,
-                "eval_f1_adversarial": 0.82,
-                "eval_f1_benign": 0.78,
-                "eval_precision": 0.85,
-                "eval_recall": 0.75,
-                "unseen_val_f1": 0.71,
-                "unseen_val_precision": 0.72,
-                "unseen_val_recall": 0.73,
-                "unseen_test_f1": 0.61,
-                "unseen_test_precision": 0.62,
-                "unseen_test_recall": 0.63,
-            }],
+            train_history=[
+                {
+                    "epoch": 1,
+                    "train_loss": 0.25,
+                    "eval_accuracy": 0.9,
+                    "eval_f1": 0.8,
+                    "eval_macro_f1": 0.8,
+                    "eval_f1_adversarial": 0.82,
+                    "eval_f1_benign": 0.78,
+                    "eval_precision": 0.85,
+                    "eval_recall": 0.75,
+                    "unseen_val_f1": 0.71,
+                    "unseen_val_precision": 0.72,
+                    "unseen_val_recall": 0.73,
+                    "unseen_test_f1": 0.61,
+                    "unseen_test_precision": 0.62,
+                    "unseen_test_recall": 0.63,
+                }
+            ],
         )
         mock_wandb.run = object()
 
         from src.cli.deberta_classifier import main
 
-        with patch("sys.argv", ["prog", "--train-only", "--cpu"]):
+        with patch(
+            "sys.argv",
+            ["prog", "--train-only", "--cpu", "--splits-dir", str(splits_dir)],
+        ):
             main()
 
         mock_wandb.init.assert_called_once()
@@ -728,18 +942,20 @@ class TestCLILifecycle:
             "unseen_val": unseen_val_df,
             "unseen_test": unseen_test_df,
         }
-        train_kwargs["on_epoch_end"]({
-            "epoch": 2,
-            "train_loss": 0.2,
-            "eval_accuracy": 0.91,
-            "eval_f1": 0.81,
-            "eval_macro_f1": 0.82,
-            "eval_precision": 0.86,
-            "eval_recall": 0.76,
-            "unseen_val_f1": 0.74,
-            "unseen_val_precision": 0.75,
-            "unseen_val_recall": 0.76,
-        })
+        train_kwargs["on_epoch_end"](
+            {
+                "epoch": 2,
+                "train_loss": 0.2,
+                "eval_accuracy": 0.91,
+                "eval_f1": 0.81,
+                "eval_macro_f1": 0.82,
+                "eval_precision": 0.86,
+                "eval_recall": 0.76,
+                "unseen_val_f1": 0.74,
+                "unseen_val_precision": 0.75,
+                "unseen_val_recall": 0.76,
+            }
+        )
         assert any(
             call.kwargs.get("step") == 2
             and call.args
@@ -756,8 +972,13 @@ class TestCLILifecycle:
     @patch("src.cli.deberta_classifier.wandb")
     @patch("src.cli.deberta_classifier.DeBERTaClassifier")
     @patch("src.cli.deberta_classifier.pd.read_parquet")
-    def test_wandb_finishes_with_error_on_training_failure(self, mock_read, MockClf, mock_wandb):
+    def test_wandb_finishes_with_error_on_training_failure(
+        self, mock_read, MockClf, mock_wandb, tmp_path
+    ):
         """Failed training should mark the wandb run failed before exiting."""
+        splits_dir = self._write_split_placeholders(
+            tmp_path / "splits", "train", "val", "unseen_val", "unseen_test"
+        )
         train_df = MagicMock()
         val_df = MagicMock()
         unseen_val_df = MagicMock()
@@ -781,7 +1002,10 @@ class TestCLILifecycle:
 
         from src.cli.deberta_classifier import main
 
-        with patch("sys.argv", ["prog", "--train-only", "--cpu"]):
+        with patch(
+            "sys.argv",
+            ["prog", "--train-only", "--cpu", "--splits-dir", str(splits_dir)],
+        ):
             with pytest.raises(SystemExit):
                 main()
 
@@ -793,11 +1017,13 @@ class TestCLIReporting:
     def test_summary_includes_unseen_precision_recall_and_f1(self):
         from src.cli.deberta_classifier import compute_split_metrics, generate_summary
 
-        split_df = pd.DataFrame({
-            "label_binary": ["adversarial", "benign", "adversarial", "benign"],
-            "deberta_pred_binary": ["adversarial", "benign", "benign", "benign"],
-            "deberta_proba_binary_adversarial": [0.95, 0.05, 0.40, 0.10],
-        })
+        split_df = pd.DataFrame(
+            {
+                "label_binary": ["adversarial", "benign", "adversarial", "benign"],
+                "deberta_pred_binary": ["adversarial", "benign", "benign", "benign"],
+                "deberta_proba_binary_adversarial": [0.95, 0.05, 0.40, 0.10],
+            }
+        )
 
         metrics = {
             "unseen_val": compute_split_metrics(split_df),

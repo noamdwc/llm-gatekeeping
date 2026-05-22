@@ -15,19 +15,27 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _split_df(labels=None):
     labels = labels or ["benign", "adversarial"]
-    return pd.DataFrame({
-        "modified_sample": [f"text {i}" for i in range(len(labels))],
-        "label_binary": labels,
-    })
+    return pd.DataFrame(
+        {
+            "modified_sample": [f"text {i}" for i in range(len(labels))],
+            "label_binary": labels,
+        }
+    )
 
 
 def test_runtime_paths_accept_output_dir_alias(tmp_path):
-    args = cli.parse_args([
-        "--splits-dir", str(tmp_path / "splits"),
-        "--output-dir", str(tmp_path / "artifacts"),
-        "--predictions-dir", str(tmp_path / "predictions"),
-        "--reports-dir", str(tmp_path / "reports"),
-    ])
+    args = cli.parse_args(
+        [
+            "--splits-dir",
+            str(tmp_path / "splits"),
+            "--output-dir",
+            str(tmp_path / "artifacts"),
+            "--predictions-dir",
+            str(tmp_path / "predictions"),
+            "--reports-dir",
+            str(tmp_path / "reports"),
+        ]
+    )
 
     paths = cli.resolve_runtime_paths(args)
 
@@ -38,13 +46,20 @@ def test_runtime_paths_accept_output_dir_alias(tmp_path):
 
 
 def test_cli_overrides_update_wandb_and_training_config(sample_config_with_deberta):
-    args = cli.parse_args([
-        "--wandb-project", "colab-project",
-        "--wandb-run-name", "colab-run",
-        "--num-epochs", "3",
-        "--batch-size", "16",
-        "--learning-rate", "1e-5",
-    ])
+    args = cli.parse_args(
+        [
+            "--wandb-project",
+            "colab-project",
+            "--wandb-run-name",
+            "colab-run",
+            "--num-epochs",
+            "3",
+            "--batch-size",
+            "16",
+            "--learning-rate",
+            "1e-5",
+        ]
+    )
 
     wandb_project, wandb_run_name = cli.resolve_wandb_settings(args)
     cfg = cli.apply_training_overrides(sample_config_with_deberta, args)
@@ -70,14 +85,16 @@ def test_split_validation_requires_required_files_and_columns(tmp_path):
     _split_df().to_parquet(splits_dir / "train.parquet")
 
     with pytest.raises(SystemExit, match="Missing required split"):
-        cli.validate_split_inputs(splits_dir, text_col="modified_sample",
-                                  label_order=["benign", "adversarial"])
+        cli.validate_split_inputs(
+            splits_dir, text_col="modified_sample", label_order=["benign", "adversarial"]
+        )
 
     _split_df().drop(columns=["modified_sample"]).to_parquet(splits_dir / "val.parquet")
 
     with pytest.raises(SystemExit, match="missing required columns"):
-        cli.validate_split_inputs(splits_dir, text_col="modified_sample",
-                                  label_order=["benign", "adversarial"])
+        cli.validate_split_inputs(
+            splits_dir, text_col="modified_sample", label_order=["benign", "adversarial"]
+        )
 
 
 def test_split_validation_rejects_unknown_labels(tmp_path):
@@ -87,18 +104,24 @@ def test_split_validation_rejects_unknown_labels(tmp_path):
     _split_df(["benign", "unknown"]).to_parquet(splits_dir / "val.parquet")
 
     with pytest.raises(SystemExit, match="invalid label_binary values"):
-        cli.validate_split_inputs(splits_dir, text_col="modified_sample",
-                                  label_order=["benign", "adversarial"])
+        cli.validate_split_inputs(
+            splits_dir, text_col="modified_sample", label_order=["benign", "adversarial"]
+        )
 
 
 def test_run_deberta_accepts_parsed_args(monkeypatch, tmp_path, sample_config_with_deberta):
-    args = cli.parse_args([
-        "--train-only",
-        "--no-wandb",
-        "--splits-dir", str(tmp_path / "splits"),
-        "--artifacts-dir", str(tmp_path / "artifacts"),
-        "--device", "cpu",
-    ])
+    args = cli.parse_args(
+        [
+            "--train-only",
+            "--no-wandb",
+            "--splits-dir",
+            str(tmp_path / "splits"),
+            "--artifacts-dir",
+            str(tmp_path / "artifacts"),
+            "--device",
+            "cpu",
+        ]
+    )
     calls = {}
 
     class FakeClassifier:
@@ -123,20 +146,24 @@ def test_run_deberta_accepts_parsed_args(monkeypatch, tmp_path, sample_config_wi
 
     cli.run_deberta(args)
 
-    assert calls["cfg"]["deberta"]["batch_size"] == sample_config_with_deberta["deberta"]["batch_size"]
+    assert (
+        calls["cfg"]["deberta"]["batch_size"] == sample_config_with_deberta["deberta"]["batch_size"]
+    )
     assert calls["train_kwargs"]["device"] == "cpu"
     assert calls["train_kwargs"]["on_train_batch_end"] is None
     assert calls["save_dir"] == tmp_path / "artifacts"
 
 
 def test_build_training_batch_log_payload_uses_wandb_metric_names():
-    payload = cli.build_training_batch_log_payload({
-        "epoch": 2,
-        "batch": 3,
-        "global_step": 13,
-        "train_loss_step": 0.42,
-        "learning_rate": 5e-6,
-    })
+    payload = cli.build_training_batch_log_payload(
+        {
+            "epoch": 2,
+            "batch": 3,
+            "global_step": 13,
+            "train_loss_step": 0.42,
+            "learning_rate": 5e-6,
+        }
+    )
 
     assert payload == {
         "epoch": 2,
@@ -157,7 +184,8 @@ def test_colab_notebook_pins_cuda_compatible_torch_before_requirements():
     assert install_cells
     first_install = install_cells[0]
     install_lines = [
-        line for line in first_install.splitlines()
+        line
+        for line in first_install.splitlines()
         if line.startswith("%pip install") or line.startswith("!grep")
     ]
     install_commands = "\n".join(install_lines)
@@ -165,5 +193,5 @@ def test_colab_notebook_pins_cuda_compatible_torch_before_requirements():
     assert "cu126" in first_install
     assert "--extra-index-url https://download.pytorch.org/whl/cu126" in first_install
     assert "--force-reinstall" not in install_commands
-    assert "grep -Ev '^(torch|vllm)'" in install_commands
+    assert "grep -Ev '^torch'" in install_commands
     assert "%pip install -r /tmp/requirements-deberta.txt" in install_commands
