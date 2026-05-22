@@ -20,21 +20,21 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 import wandb
 
-from src.llm_classifier.constants import (
-    _HARD_BENIGN_EXAMPLES
-)
+from src.llm_classifier.constants import _HARD_BENIGN_EXAMPLES
 from src.embeddings import ExemplarBank
 from src.llm_classifier.rate_limiter import APIRateLimiter
 from src.utils import load_config, build_sample_id, SPLITS_DIR, PREDICTIONS_DIR
 from src.llm_classifier.hierarchical_llm_classifier import HierarchicalLLMClassifier
-from src.llm_classifier.lllm_call_checkpointing import (checkpoint_path,
-                                                        build_research_row,
-                                                        load_checkpoint,
-                                                        append_checkpoint,
-                                                        finalize_checkpoint,
-                                                    )
+from src.llm_classifier.lllm_call_checkpointing import (
+    checkpoint_path,
+    build_research_row,
+    load_checkpoint,
+    append_checkpoint,
+    finalize_checkpoint,
+)
 
 dotenv.load_dotenv()
+
 
 def _build_args_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run hierarchical LLM classifier")
