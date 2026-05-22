@@ -9,11 +9,7 @@ Usage:
 """
 
 import argparse
-import concurrent.futures
 import json
-import os
-import re
-import time
 import dotenv
 import random
 import threading
@@ -22,714 +18,76 @@ from tqdm import tqdm
 from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Callable
-
-import openai
 import wandb
 
 from src.llm_classifier.constants import (
-    NLP_TYPES,
-    BENIGN_TASK_INTENT_PATTERNS,
-    BYPASS_INTENT_PATTERNS,
+    _HARD_BENIGN_EXAMPLES
 )
-from src.embeddings import ExemplarBank, get_embeddings
-from src.llm_cache import CachedChatResult, get_cache_path, get_or_create_chat_completion
+from src.embeddings import ExemplarBank
 from src.llm_classifier.rate_limiter import APIRateLimiter
-from src.llm_provider import get_provider, make_client, resolve_model
-
-# ---------------------------------------------------------------------------
-# Hard benign static examples (Patch 11)
-# These are instruction-like but genuinely benign prompts that help the LLM
-# avoid false positives on near-miss content (categories B, C, E).
-# ---------------------------------------------------------------------------
-_HARD_BENIGN_EXAMPLES = [
-    # Category C: security discussion (educational, no active attempt)
-    "What is prompt injection? Can you explain how it works conceptually?",
-    # Category E: contains "ignore" in a clearly benign everyday context
-    "I need to ignore the meeting agenda and focus on technical topics instead.",
-    # Category B: role-play framing with a benign task
-    "You are a helpful assistant. Please summarize the following research paper: [paper text here].",
-]
-from src.llm_classifier.utils import decide_accept_or_override
 from src.utils import load_config, build_sample_id, SPLITS_DIR, PREDICTIONS_DIR
-from src.llm_classifier.prompts import build_classifier_messages, build_judge_messages
+from src.llm_classifier.hierarchical_llm_classifier import HierarchicalLLMClassifier
+from src.llm_classifier.lllm_call_checkpointing import (checkpoint_path,
+                                                        build_research_row,
+                                                        load_checkpoint,
+                                                        append_checkpoint,
+                                                        finalize_checkpoint,
+                                                    )
 
 dotenv.load_dotenv()
 
+def _build_args_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run hierarchical LLM classifier")
+    parser.add_argument("--config", default=None)
+    parser.add_argument("--split", default="test", help="Which split to evaluate on")
+    parser.add_argument(
+        "--limit", type=int, default=None, help="Max samples to classify (default: full split)"
+    )
+    parser.add_argument("--output", default=None, help="Output predictions CSV path")
+    parser.add_argument("--no-wandb", action="store_true", help="Disable wandb logging")
+    parser.add_argument("--dynamic", action="store_true", help="Use dynamic few-shot retrieval")
+    parser.add_argument(
+        "--bank-path", default=None, help="Path to exemplar bank pickle (built if not exists)"
+    )
+    parser.add_argument(
+        "--research",
+        action="store_true",
+        help="Save research-grade parquet with full prediction columns",
+    )
 
-@dataclass
-class UsageStats:
-    total_calls: int = 0
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    total_latency_s: float = 0.0
-    calls_by_stage: dict = field(default_factory=lambda: defaultdict(int))
-    judge_benign_task_overrides: int = 0
-    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    # Rate limiting / concurrency controls
+    rate_group = parser.add_argument_group("rate-limiting", "API rate-limit controls")
+    rate_group.add_argument(
+        "--target-rpm",
+        type=float,
+        default=None,
+        help="Target requests per minute (default: config llm.target_rpm or 60)",
+    )
+    rate_group.add_argument(
+        "--max-concurrency",
+        type=int,
+        default=None,
+        help="Max parallel API workers (default: config llm.max_concurrency)",
+    )
+    rate_group.add_argument(
+        "--cooldown-on-429",
+        type=float,
+        default=None,
+        help="Global cooldown seconds after a 429 (default: config llm.cooldown_on_429 or 15)",
+    )
 
-    def record_call(
-        self,
-        stage: str,
-        latency_s: float,
-        prompt_tokens: int = 0,
-        completion_tokens: int = 0,
-    ) -> None:
-        with self._lock:
-            self.total_calls += 1
-            self.calls_by_stage[stage] += 1
-            self.total_latency_s += latency_s
-            self.prompt_tokens += prompt_tokens
-            self.completion_tokens += completion_tokens
-
-    def record_judge_override(self) -> None:
-        with self._lock:
-            self.judge_benign_task_overrides += 1
-
-    @property
-    def total_tokens(self) -> int:
-        with self._lock:
-            return self.prompt_tokens + self.completion_tokens
-
-    @property
-    def avg_latency_s(self) -> float:
-        with self._lock:
-            return self.total_latency_s / max(self.total_calls, 1)
-
-    def to_dict(self) -> dict:
-        with self._lock:
-            total_calls = self.total_calls
-            prompt_tokens = self.prompt_tokens
-            completion_tokens = self.completion_tokens
-            total_tokens = prompt_tokens + completion_tokens
-            total_latency_s = self.total_latency_s
-            avg_latency_s = self.total_latency_s / max(self.total_calls, 1)
-            calls_by_stage = dict(self.calls_by_stage)
-            judge_overrides = self.judge_benign_task_overrides
-        return {
-            "total_calls": total_calls,
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": total_tokens,
-            "total_latency_s": round(total_latency_s, 2),
-            "avg_latency_s": round(avg_latency_s, 3),
-            "calls_by_stage": calls_by_stage,
-            "judge_benign_task_overrides": judge_overrides,
-        }
-
-
-class HierarchicalLLMClassifier:
-    """Classifier + judge pattern using NVIDIA NIM chat completions."""
-
-    def __init__(
-        self,
-        cfg: dict,
-        few_shot_examples: list[tuple[str, str, str]] | None = None,
-        dynamic: bool = False,
-        exemplar_bank: ExemplarBank | None = None,
-        rate_limiter: APIRateLimiter | None = None,
-    ):
-        self.cfg = cfg
-        self._provider = get_provider()
-        self._thread_local = threading.local()
-        self.model = resolve_model(cfg["llm"]["model"], self._provider)
-        self.model_quality = resolve_model(
-            cfg["llm"].get("model_quality", cfg["llm"]["model"]), self._provider
-        )
-        self.temperature = cfg["llm"]["temperature"]
-        self.max_concurrency = int(cfg.get("llm", {}).get("max_concurrency", 8))
-        self.capture_logprobs = bool(cfg.get("llm", {}).get("capture_logprobs", True))
-        self.top_logprobs = max(0, int(cfg.get("llm", {}).get("top_logprobs", 5)))
-        self.few_shot = few_shot_examples or []
-        self.usage = UsageStats()
-
-        # Centralized rate limiter (shared across all threads)
-        if rate_limiter is not None:
-            self._rate_limiter = rate_limiter
-        else:
-            target_rpm = float(cfg.get("llm", {}).get("target_rpm", 30))
-            cooldown = float(cfg.get("llm", {}).get("cooldown_on_429", 20))
-            self._rate_limiter = APIRateLimiter(
-                target_rpm=target_rpm,
-                max_concurrency=self.max_concurrency,
-                cooldown_on_429=cooldown,
-            )
-
-        # Dynamic few-shot settings
-        self.dynamic = dynamic
-        self.exemplar_bank = exemplar_bank
-        if dynamic and exemplar_bank is None:
-            raise ValueError("ExemplarBank required when dynamic=True")
-
-    # -- internal helpers --------------------------------------------------
-    def _get_client(self):
-        client = getattr(self._thread_local, "client", None)
-        if client is None:
-            client = make_client(self._provider)
-            self._thread_local.client = client
-        return client
-
-    def _call_llm(
-        self,
-        messages: list[dict],
-        max_tokens: int,
-        stage: str,
-        model: str | None = None,
-        max_retries: int = 5,
-    ) -> dict:
-        """Make one LLM call, track usage, return parsed JSON."""
-        request_kwargs = {
-            "model": model or self.model,
-            "messages": messages,
-            "temperature": self.temperature,
-            "max_tokens": max_tokens,
-            "response_format": {"type": "json_object"},
-        }
-        # NIM chat completions can return nullable logprob fields that its
-        # OpenAI-compatible parser rejects as 500s, so only request them from
-        # providers known to handle chat logprobs reliably.
-        if self.capture_logprobs and self._provider.name != "nim":
-            request_kwargs["logprobs"] = True
-            if self.top_logprobs > 0:
-                request_kwargs["top_logprobs"] = self.top_logprobs
-
-        # Check cache before acquiring rate limiter slot
-        cache_path = get_cache_path(self._provider.name, request_kwargs)
-        if cache_path.exists():
-            cached = CachedChatResult(
-                payload=json.loads(cache_path.read_text(encoding="utf-8")),
-                cache_hit=True,
-            )
-            response = cached.payload
-            self._rate_limiter.stats.record_cache(hit=True)
-            self._rate_limiter.stats.record_request(success=True)
-        else:
-            # Cache miss — go through rate limiter for actual API call
-            response = None
-            cached = None
-            latency = 0.0
-            for attempt in range(max_retries):
-                with self._rate_limiter.acquire():
-                    try:
-                        t0 = time.time()
-                        client = self._get_client()
-                        cached = get_or_create_chat_completion(
-                            provider_name=self._provider.name,
-                            request_kwargs=request_kwargs,
-                            create_fn=lambda: client.chat.completions.create(**request_kwargs),
-                        )
-                        response = cached.payload
-                        if cached.cache_hit:
-                            self._rate_limiter.stats.record_cache(hit=True)
-                        else:
-                            latency = time.time() - t0
-                            self._rate_limiter.stats.record_cache(hit=False)
-                        self._rate_limiter.stats.record_request(success=True)
-                        if not cached.cache_hit:
-                            self._rate_limiter.report_success()
-                        break
-                    except openai.RateLimitError as exc:
-                        self._rate_limiter.report_rate_limit(exc)
-                        self._rate_limiter.stats.record_request(success=False)
-                        if attempt == max_retries - 1:
-                            raise
-                        wait = self._rate_limiter.compute_retry_delay(attempt, exc)
-                        self._rate_limiter.stats.record_retry(wait)
-                        print(
-                            f"\n429 rate limit → global cooldown, retrying in {wait:.1f}s "
-                            f"(attempt {attempt + 1}/{max_retries})"
-                        )
-                        time.sleep(wait)
-                    except (openai.APIConnectionError, openai.APIError) as exc:
-                        self._rate_limiter.stats.record_request(success=False)
-                        if attempt == max_retries - 1:
-                            raise
-                        wait = self._rate_limiter.compute_retry_delay(attempt, exc)
-                        self._rate_limiter.stats.record_retry(wait)
-                        print(
-                            f"\nAPI error ({type(exc).__name__}), retrying in {wait:.1f}s "
-                            f"(attempt {attempt + 1}/{max_retries})"
-                        )
-                        time.sleep(wait)
-
-        prompt_tokens = 0
-        completion_tokens = 0
-        if response is not None and cached is not None and not cached.cache_hit:
-            usage = response.get("usage") or {}
-            prompt_tokens = usage.get("prompt_tokens") or 0
-            completion_tokens = usage.get("completion_tokens") or 0
-            self.usage.record_call(stage, latency, prompt_tokens, completion_tokens)
-
-        resolved_model = model or self.model
-        if response is None:
-            return {
-                "_provider_name": self._provider.name,
-                "_model_name": resolved_model,
-                "_raw_response_text": None,
-                "_parse_success": False,
-            }
-
-        raw_response_text = None
-        try:
-            raw_response_text = response["choices"][0]["message"]["content"]
-        except (IndexError, KeyError, TypeError):
-            raw_response_text = None
-
-        try:
-            parsed = json.loads(raw_response_text)
-            # Some providers occasionally return JSON-encoded JSON strings.
-            if isinstance(parsed, str):
-                try:
-                    parsed = json.loads(parsed)
-                except json.JSONDecodeError:
-                    return {
-                        "_provider_name": self._provider.name,
-                        "_model_name": resolved_model,
-                        "_raw_response_text": raw_response_text,
-                        "_parse_success": False,
-                    }
-            if not isinstance(parsed, dict):
-                return {
-                    "_provider_name": self._provider.name,
-                    "_model_name": resolved_model,
-                    "_raw_response_text": raw_response_text,
-                    "_parse_success": False,
-                }
-            parsed["_token_logprobs"] = self._extract_completion_logprobs(response)
-            parsed["_provider_name"] = self._provider.name
-            parsed["_model_name"] = resolved_model
-            parsed["_raw_response_text"] = raw_response_text
-            parsed["_parse_success"] = True
-            return parsed
-        except (json.JSONDecodeError, IndexError, KeyError, TypeError):
-            return {
-                "_provider_name": self._provider.name,
-                "_model_name": resolved_model,
-                "_raw_response_text": raw_response_text,
-                "_parse_success": False,
-            }
-
-    @staticmethod
-    def _extract_completion_logprobs(response) -> list[dict] | None:
-        """Extract per-token completion logprobs from OpenAI-compatible responses."""
-        try:
-            choice = response["choices"][0]
-            logprobs = choice.get("logprobs")
-            content = (logprobs or {}).get("content")
-            if not content:
-                return None
-        except (AttributeError, IndexError, KeyError, TypeError):
-            return None
-
-        extracted: list[dict] = []
-        for item in content:
-            token = item.get("token")
-            logprob = item.get("logprob")
-            top_items = item.get("top_logprobs") or []
-            token_payload = {
-                "token": token,
-                "logprob": float(logprob) if logprob is not None else None,
-                "top_logprobs": [
-                    {
-                        "token": alt.get("token"),
-                        "logprob": (
-                            float(alt.get("logprob")) if alt.get("logprob") is not None else None
-                        ),
-                    }
-                    for alt in top_items
-                ],
-            }
-            extracted.append(token_payload)
-        return extracted or None
-
-    @staticmethod
-    def _coerce_result_dict(result: object) -> dict:
-        if isinstance(result, dict):
-            return result
-        if isinstance(result, str):
-            try:
-                parsed = json.loads(result)
-                if isinstance(parsed, dict):
-                    return parsed
-            except json.JSONDecodeError:
-                pass
-        return {}
-
-    # -- Few-shot helpers --------------------------------------------------
-
-    def _get_static_few_shot(self, text: str) -> list[tuple[str, str, str]]:
-        """Get static few-shot examples."""
-        return self.few_shot
-
-    def _get_dynamic_few_shot(self, text: str) -> list[tuple[str, str, str]]:
-        """Get dynamic few-shot examples using embedding similarity."""
-        k = self.cfg["llm"]["few_shot"].get("dynamic_k", 2)
-        query_emb = get_embeddings(
-            [text], model=self.exemplar_bank.embedding_model, input_type="query"
-        )[0]
-        pairs = self.exemplar_bank.select_pairs_by_benign(query_emb, k=k)
-
-        return pairs
-
-    def _build_few_shot_messages(self, text: str) -> list[dict]:
-        """Build few-shot example messages for the classifier prompt."""
-        messages = []
-        if self.dynamic and self.exemplar_bank:
-            pairs = self._get_dynamic_few_shot(text)
-        else:
-            pairs = self._get_static_few_shot(text)
-
-        for benign_text, attack_text, attack_type in pairs:
-            # Add benign example (fixed confidence for reproducibility)
-            messages.append({"role": "user", "content": f"INPUT_PROMPT:\n{benign_text}"})
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": json.dumps(
-                        {
-                            "label": "benign",
-                            "confidence": 95,
-                            "nlp_attack_type": "none",
-                            "evidence": "",
-                            "reason": "No active attempt to override instructions, exfiltrate data, or hijack tools.",
-                        }
-                    ),
-                }
-            )
-            # Add attack example
-            # For NLP attacks the text looks benign; no extractable substring shows adversarial intent
-            if attack_type in NLP_TYPES:
-                evidence = ""
-                adv_reason = f"Perturbed tokens characteristic of {attack_type} adversarial attack."
-            else:
-                evidence = attack_text[:80]
-                adv_reason = (
-                    f"Contains {attack_type} obfuscation; active adversarial prompt detected."
-                )
-            messages.append({"role": "user", "content": f"INPUT_PROMPT:\n{attack_text}"})
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": json.dumps(
-                        {
-                            "label": "adversarial",
-                            "confidence": 84,
-                            "nlp_attack_type": attack_type if attack_type in NLP_TYPES else "none",
-                            "evidence": evidence,
-                            "reason": adv_reason,
-                        }
-                    ),
-                }
-            )
-        return messages
-
-    # -- Category derivation -----------------------------------------------
-
-    @staticmethod
-    def _derive_category(label_binary: str, nlp_attack_type: str) -> str:
-        """Derive category from binary label and NLP attack type field.
-
-        Args:
-            label_binary: "benign", "adversarial", or "uncertain"
-            nlp_attack_type: value of nlp_attack_type from classifier/judge output
-
-        Returns:
-            "benign", "nlp_attack", or "unicode_attack"
-        """
-        if label_binary == "benign":
-            return "benign"
-        if nlp_attack_type and nlp_attack_type != "none":
-            return "nlp_attack"
-        return "unicode_attack"
-
-    @staticmethod
-    def _normalize_confidence(raw_conf: object, default: float = 0.5) -> float:
-        """Normalize confidence to [0, 1], accepting either 0-1 or 0-100 inputs."""
-        try:
-            conf = float(raw_conf)
-        except (TypeError, ValueError):
-            return default
-
-        if conf > 1.0:
-            conf /= 100.0
-        return max(0.0, min(1.0, conf))
-
-    @staticmethod
-    def _normalize_confidence_0_100(raw_conf: object, default: float = 0.0) -> float:
-        """Normalize confidence to [0, 100], accepting either 0-1 or 0-100 inputs."""
-        try:
-            conf = float(raw_conf)
-        except (TypeError, ValueError):
-            return default
-        if 0.0 <= conf <= 1.0:
-            conf *= 100.0
-        return max(0.0, min(100.0, conf))
-
-    @staticmethod
-    def _matches_any_pattern(text: str, patterns: list[str]) -> bool:
-        for pattern in patterns:
-            if re.search(pattern, text, flags=re.IGNORECASE):
-                return True
-        return False
-
-    def _compute_benign_task_override_flags(self, text: str) -> tuple[bool, bool]:
-        is_bypass_intent = self._matches_any_pattern(text, BYPASS_INTENT_PATTERNS)
-        is_benign_task = self._matches_any_pattern(text, BENIGN_TASK_INTENT_PATTERNS)
-        return is_benign_task, is_bypass_intent
-
-    # -- Classifier --------------------------------------------------------
-
-    def classify(self, text: str) -> dict:
-        """Single LLM call returning binary label + confidence.
-
-        Returns:
-            {"label": str, "confidence": float} where label is one of:
-            "benign", "adversarial", or "uncertain".
-        """
-        messages = build_classifier_messages(text, self._build_few_shot_messages(text))
-        result = self._coerce_result_dict(
-            self._call_llm(messages, self.cfg["llm"]["max_tokens_classifier"], "classifier")
-        )
-        # Normalize label: LLM should output binary labels; any deviation defaults to adversarial
-        label = result.get("label", "")
-        if label not in ("benign", "adversarial", "uncertain"):
-            label = "adversarial"
-        result["label"] = label
-        # Normalize confidence: prompts use 0-100 scale; clamp to [0, 1]
-        raw_conf = result.get("confidence", 50)
-        result["confidence"] = self._normalize_confidence(raw_conf)
-        # Validate nlp_attack_type: coerce unknown values to "none" to prevent
-        # _derive_category() from misclassifying garbage strings as nlp_attack.
-        valid_nlp_types = set(NLP_TYPES) | {"none"}
-        nlp_type = result.get("nlp_attack_type", "none")
-        if nlp_type not in valid_nlp_types:
-            result["nlp_attack_type"] = "none"
-        return result
-
-    def judge(self, text: str, classifier_output: dict) -> dict:
-        """Conditional LLM call using model_quality for chain-of-thought review.
-
-        Args:
-            text: The input text.
-            classifier_output: The classifier's prediction dict.
-
-        Returns:
-            {"label": str, "confidence": float, "reasoning": str}
-        """
-        messages = build_judge_messages(text, classifier_output)
-        result = self._coerce_result_dict(
-            self._call_llm(
-                messages,
-                self.cfg["llm"]["max_tokens_judge"],
-                "judge",
-                model=self.model_quality,
-            )
-        )
-        decision = decide_accept_or_override(result, classifier_output)
-        result["computed_decision"] = decision
-
-        # Deterministic benign-task override (Option A):
-        # If prompt is a benign productivity task and has no bypass intent, force benign.
-        is_benign_task, is_bypass_intent = self._compute_benign_task_override_flags(text)
-        if is_benign_task and not is_bypass_intent:
-            final_conf = self._normalize_confidence_0_100(
-                result.get("final_confidence"), default=0.0
-            )
-            ind_conf = self._normalize_confidence_0_100(
-                result.get("independent_confidence"), default=0.0
-            )
-            forced_conf = max(80.0, final_conf, ind_conf)
-            result.update(
-                {
-                    "independent_label": "benign",
-                    "independent_confidence": forced_conf,
-                    "independent_evidence": "",
-                    "final_label": "benign",
-                    "final_confidence": forced_conf,
-                    "nlp_attack_type": "none",
-                    "final_evidence": "",
-                    "decision": "override_candidate",
-                    "reason": "benign productivity task; no bypass intent",
-                    "computed_decision": "override_candidate",
-                    "judge_benign_task_override": True,
-                    "judge_override_reason": "benign productivity task; no bypass intent",
-                }
-            )
-            self.usage.record_judge_override()
-        else:
-            result["judge_benign_task_override"] = False
-            result["judge_override_reason"] = None
-        return result
-
-    # -- Full pipeline -----------------------------------------------------
-
-    def predict(self, text: str, force_all_stages: bool = False) -> dict:
-        """Run classifier + conditional judge.
-
-        Args:
-            force_all_stages: If True, always run the judge regardless of
-                classifier confidence.
-        """
-        # Stage 1: Classifier
-        clf_result = self.classify(text)
-        stages_run = 1
-
-        label = clf_result["label"]
-        confidence = clf_result["confidence"]
-
-        threshold = self.cfg["llm"].get("judge_confidence_threshold", 0.7)
-
-        # Stage 2: Judge (conditional)
-        evidence = clf_result.get("evidence", "")
-        judge_result = None
-        if confidence < threshold or force_all_stages:
-            judge_result = self.judge(text, clf_result)
-            stages_run = 2
-            if judge_result.get("computed_decision") == "override_candidate":
-                # Use independent_label from judge; preserve 3-way value
-                raw_label = judge_result.get("independent_label", clf_result["label"])
-                label = (
-                    raw_label
-                    if raw_label in ("benign", "adversarial", "uncertain")
-                    else "adversarial"
-                )
-                # clf_result["confidence"] is already [0,1]; multiply by 100 so
-                # _normalize_confidence() divides it back to [0,1] as a safe fallback.
-                confidence = self._normalize_confidence(
-                    judge_result.get("final_confidence", clf_result["confidence"] * 100)
-                )
-                evidence = judge_result.get("independent_evidence", "")
-            else:
-                label = clf_result["label"]
-                confidence = clf_result["confidence"]
-                evidence = clf_result.get("evidence", "")
-
-        # Derive binary: benign stays benign; uncertain/adversarial → adversarial
-        label_binary = "benign" if label == "benign" else "adversarial"
-
-        # Derive categories from each stage's nlp_attack_type
-        clf_nlp_attack_type = clf_result.get("nlp_attack_type", "none")
-        clf_category = self._derive_category(
-            clf_result.get("label", label_binary), clf_nlp_attack_type
-        )
-
-        judge_category = None
-        if judge_result is not None:
-            judge_nlp_attack_type = judge_result.get("nlp_attack_type", "none")
-            judge_ind_label = judge_result.get("independent_label", "")
-            judge_ind_binary = "benign" if judge_ind_label == "benign" else "adversarial"
-            judge_category = self._derive_category(judge_ind_binary, judge_nlp_attack_type)
-
-        # Final category: use judge's if it overrode, else classifier's
-        if (
-            judge_result is not None
-            and judge_result.get("computed_decision") == "override_candidate"
-        ):
-            label_category = judge_category
-        else:
-            label_category = clf_category
-
-        result = {
-            "label": label,  # 3-way: benign|adversarial|uncertain
-            "label_binary": label_binary,  # always binary: benign|adversarial
-            "label_category": label_category,
-            "label_type": None,  # LLM does not predict type
-            "confidence": confidence,
-            "evidence": evidence,
-            "llm_stages_run": stages_run,
-            "llm_provider_name": self._provider.name,
-            "llm_model_name": self.model_quality if judge_result is not None else self.model,
-            # Classifier stage
-            "clf_label": clf_result.get("label"),
-            "clf_category": clf_category,
-            "clf_confidence": clf_result.get("confidence"),
-            "clf_evidence": clf_result.get("evidence", ""),
-            "clf_nlp_attack_type": clf_nlp_attack_type,
-            "clf_token_logprobs": clf_result.get("_token_logprobs"),
-            "clf_provider_name": clf_result.get("_provider_name"),
-            "clf_model_name": clf_result.get("_model_name"),
-            "clf_raw_response_text": clf_result.get("_raw_response_text"),
-            "clf_parse_success": clf_result.get("_parse_success", False),
-        }
-        # Judge stage (None if judge was not run)
-        if judge_result is not None:
-            judge_conf = self._normalize_confidence(judge_result.get("final_confidence"))
-            result["judge_independent_label"] = judge_result.get("independent_label")
-            result["judge_category"] = judge_category
-            result["judge_independent_confidence"] = judge_conf
-            result["judge_independent_evidence"] = judge_result.get("independent_evidence", "")
-            result["judge_computed_decision"] = judge_result.get("computed_decision")
-            result["judge_benign_task_override"] = judge_result.get(
-                "judge_benign_task_override", False
-            )
-            result["judge_override_reason"] = judge_result.get("judge_override_reason")
-            result["judge_token_logprobs"] = judge_result.get("_token_logprobs")
-            result["judge_provider_name"] = judge_result.get("_provider_name")
-            result["judge_model_name"] = judge_result.get("_model_name")
-            result["judge_raw_response_text"] = judge_result.get("_raw_response_text")
-            result["judge_parse_success"] = judge_result.get("_parse_success", False)
-        else:
-            result["judge_independent_label"] = None
-            result["judge_category"] = None
-            result["judge_independent_confidence"] = None
-            result["judge_independent_evidence"] = None
-            result["judge_computed_decision"] = None
-            result["judge_benign_task_override"] = None
-            result["judge_override_reason"] = None
-            result["judge_token_logprobs"] = None
-            result["judge_provider_name"] = None
-            result["judge_model_name"] = None
-            result["judge_raw_response_text"] = None
-            result["judge_parse_success"] = None
-
-        return result
-
-    def predict_batch(
-        self,
-        texts: list[str],
-        desc: str = "Classifying",
-        force_all_stages: bool = False,
-        max_workers: int | None = None,
-        on_result: Callable[[int, dict], None] | None = None,
-    ) -> list[dict]:
-        """Predict on a list of texts with progress bar.
-
-        Args:
-            max_workers: Number of parallel workers. Defaults to config llm.max_concurrency.
-            on_result: Optional callback called as each sample completes (index, result).
-        """
-        if not texts:
-            return []
-
-        workers = max_workers if max_workers is not None else self.max_concurrency
-        workers = max(1, int(workers))
-
-        if workers == 1:
-            results = []
-            for idx, text in enumerate(tqdm(texts, desc=desc)):
-                result = self.predict(text, force_all_stages=force_all_stages)
-                results.append(result)
-                if on_result is not None:
-                    on_result(idx, result)
-            return results
-
-        results: list[dict | None] = [None] * len(texts)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-            future_to_idx = {
-                executor.submit(self.predict, text, force_all_stages=force_all_stages): idx
-                for idx, text in enumerate(texts)
-            }
-            with tqdm(total=len(texts), desc=desc) as pbar:
-                for future in concurrent.futures.as_completed(future_to_idx):
-                    idx = future_to_idx[future]
-                    result = future.result()
-                    results[idx] = result
-                    if on_result is not None:
-                        on_result(idx, result)
-                    pbar.update(1)
-        if any(r is None for r in results):
-            raise RuntimeError("predict_batch completed with missing results.")
-        final_results: list[dict] = [r for r in results if r is not None]
-        return final_results
+    # Resume / checkpoint controls
+    resume_group = parser.add_argument_group("resume", "Checkpoint / resume controls")
+    resume_group.add_argument(
+        "--no-resume", action="store_true", help="Start fresh, ignore existing checkpoint"
+    )
+    resume_group.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=None,
+        help="Save checkpoint every N samples (default: config llm.checkpoint_every or 200)",
+    )
+    return parser
 
 
 # ---------------------------------------------------------------------------
@@ -783,148 +141,8 @@ def build_few_shot_examples(df: pd.DataFrame, cfg: dict) -> tuple[list[tuple[str
     return pairs, used_ids
 
 
-# ---------------------------------------------------------------------------
-# Checkpointing / resume helpers
-# ---------------------------------------------------------------------------
-
-
-def _checkpoint_path(split: str) -> Path:
-    return PREDICTIONS_DIR / f"llm_checkpoint_{split}.parquet"
-
-
-def _build_research_row(r: dict) -> dict:
-    """Convert a single predict() result dict to a research-parquet row."""
-    return {
-        "llm_pred_binary": r["label_binary"],
-        "llm_pred_raw": r["label"],
-        "llm_pred_category": r["label_category"],
-        "llm_conf_binary": r["confidence"],
-        "llm_evidence": r.get("evidence", ""),
-        "llm_stages_run": r.get("llm_stages_run"),
-        "llm_provider_name": r.get("llm_provider_name"),
-        "llm_model_name": r.get("llm_model_name"),
-        "llm_raw_response_text": (
-            r.get("judge_raw_response_text")
-            if r.get("llm_stages_run") == 2
-            else r.get("clf_raw_response_text")
-        ),
-        "llm_parse_success": (
-            r.get("judge_parse_success")
-            if r.get("llm_stages_run") == 2
-            else r.get("clf_parse_success")
-        ),
-        "clf_label": r.get("clf_label"),
-        "clf_category": r.get("clf_category"),
-        "clf_confidence": r.get("clf_confidence"),
-        "clf_evidence": r.get("clf_evidence", ""),
-        "clf_nlp_attack_type": r.get("clf_nlp_attack_type", "none"),
-        "clf_provider_name": r.get("clf_provider_name"),
-        "clf_model_name": r.get("clf_model_name"),
-        "clf_raw_response_text": r.get("clf_raw_response_text"),
-        "clf_parse_success": r.get("clf_parse_success"),
-        "clf_token_logprobs": json.dumps(r.get("clf_token_logprobs")),
-        "judge_independent_label": r.get("judge_independent_label"),
-        "judge_category": r.get("judge_category"),
-        "judge_independent_confidence": r.get("judge_independent_confidence"),
-        "judge_independent_evidence": r.get("judge_independent_evidence"),
-        "judge_computed_decision": r.get("judge_computed_decision"),
-        "judge_benign_task_override": r.get("judge_benign_task_override"),
-        "judge_override_reason": r.get("judge_override_reason"),
-        "judge_provider_name": r.get("judge_provider_name"),
-        "judge_model_name": r.get("judge_model_name"),
-        "judge_raw_response_text": r.get("judge_raw_response_text"),
-        "judge_parse_success": r.get("judge_parse_success"),
-        "judge_token_logprobs": json.dumps(r.get("judge_token_logprobs")),
-    }
-
-
-def _load_checkpoint(split: str) -> set[str]:
-    """Return set of sample_ids already completed in a prior checkpoint."""
-    cp = _checkpoint_path(split)
-    if cp.exists():
-        df = pd.read_parquet(cp, columns=["sample_id"])
-        return set(df["sample_id"].tolist())
-    return set()
-
-
-def _append_checkpoint(split: str, rows: list[dict]):
-    """Append rows to the checkpoint parquet (create if missing)."""
-    if not rows:
-        return
-    cp = _checkpoint_path(split)
-    PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
-    df_new = pd.DataFrame(rows)
-    if cp.exists():
-        df_existing = pd.read_parquet(cp)
-        df_out = pd.concat([df_existing, df_new], ignore_index=True)
-    else:
-        df_out = df_new
-    df_out.to_parquet(cp, index=False)
-
-
-def _finalize_checkpoint(split: str, out_path: str):
-    """Move checkpoint to final output path and clean up."""
-    cp = _checkpoint_path(split)
-    if cp.exists():
-        import shutil
-
-        shutil.move(str(cp), out_path)
-
-
 def main():
-    parser = argparse.ArgumentParser(description="Run hierarchical LLM classifier")
-    parser.add_argument("--config", default=None)
-    parser.add_argument("--split", default="test", help="Which split to evaluate on")
-    parser.add_argument(
-        "--limit", type=int, default=None, help="Max samples to classify (default: full split)"
-    )
-    parser.add_argument("--output", default=None, help="Output predictions CSV path")
-    parser.add_argument("--no-wandb", action="store_true", help="Disable wandb logging")
-    parser.add_argument("--dynamic", action="store_true", help="Use dynamic few-shot retrieval")
-    parser.add_argument(
-        "--bank-path", default=None, help="Path to exemplar bank pickle (built if not exists)"
-    )
-    parser.add_argument(
-        "--research",
-        action="store_true",
-        help="Save research-grade parquet with full prediction columns",
-    )
-
-    # Rate limiting / concurrency controls
-    rate_group = parser.add_argument_group("rate-limiting", "API rate-limit controls")
-    rate_group.add_argument(
-        "--target-rpm",
-        type=float,
-        default=None,
-        help="Target requests per minute (default: config llm.target_rpm or 60)",
-    )
-    rate_group.add_argument(
-        "--max-concurrency",
-        type=int,
-        default=None,
-        help="Max parallel API workers (default: config llm.max_concurrency)",
-    )
-    rate_group.add_argument(
-        "--cooldown-on-429",
-        type=float,
-        default=None,
-        help="Global cooldown seconds after a 429 (default: config llm.cooldown_on_429 or 15)",
-    )
-
-    # Resume / checkpoint controls
-    resume_group = parser.add_argument_group("resume", "Checkpoint / resume controls")
-    resume_group.add_argument(
-        "--no-resume", action="store_true", help="Start fresh, ignore existing checkpoint"
-    )
-    resume_group.add_argument(
-        "--checkpoint-every",
-        type=int,
-        default=None,
-        help="Save checkpoint every N samples (default: config llm.checkpoint_every or 200)",
-    )
-
-    args = parser.parse_args()
-
+    args = _build_args_parser().parse_args()
     cfg = load_config(args.config)
     llm_cfg = cfg.get("llm", {})
 
@@ -988,7 +206,7 @@ def main():
     # Resume: load checkpoint and filter out completed samples
     completed_ids: set[str] = set()
     if enable_resume:
-        completed_ids = _load_checkpoint(args.split)
+        completed_ids = load_checkpoint(args.split)
         if completed_ids:
             n_before = len(df_eval)
             df_eval = df_eval[~df_eval["sample_id"].isin(completed_ids)].reset_index(drop=True)
@@ -998,7 +216,7 @@ def main():
             )
     elif not args.no_resume:
         # Starting fresh: remove stale checkpoint
-        cp = _checkpoint_path(args.split)
+        cp = checkpoint_path(args.split)
         if cp.exists():
             cp.unlink()
 
@@ -1007,7 +225,7 @@ def main():
         # Finalize if research mode
         if args.research:
             out_path = str(PREDICTIONS_DIR / f"llm_predictions_{args.split}.parquet")
-            _finalize_checkpoint(args.split, out_path)
+            finalize_checkpoint(args.split, out_path)
             print(f"Research predictions saved → {out_path}")
         return
 
@@ -1061,7 +279,7 @@ def main():
     completed_count = [0]  # mutable counter for thread-safe increment
 
     def on_result(idx: int, result: dict):
-        row = _build_research_row(result)
+        row = build_research_row(result)
         # Add ground-truth and sample_id
         row["sample_id"] = sample_ids[idx]
         for col in gt_cols:
@@ -1070,7 +288,7 @@ def main():
             checkpoint_buffer.append(row)
             completed_count[0] += 1
             if completed_count[0] % checkpoint_every == 0:
-                _append_checkpoint(args.split, checkpoint_buffer.copy())
+                append_checkpoint(args.split, checkpoint_buffer.copy())
                 checkpoint_buffer.clear()
                 print(f"\n  [checkpoint] saved {completed_count[0] + len(completed_ids)} total")
 
@@ -1083,14 +301,14 @@ def main():
     # Flush remaining buffer
     with checkpoint_lock:
         if checkpoint_buffer:
-            _append_checkpoint(args.split, checkpoint_buffer)
+            append_checkpoint(args.split, checkpoint_buffer)
             checkpoint_buffer.clear()
 
     # Save final output
     if args.research:
         PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
         out_path = str(PREDICTIONS_DIR / f"llm_predictions_{args.split}.parquet")
-        _finalize_checkpoint(args.split, out_path)
+        finalize_checkpoint(args.split, out_path)
         n_total = len(completed_ids) + len(results)
         print(f"\nResearch predictions saved → {out_path} ({n_total} samples)")
     else:
