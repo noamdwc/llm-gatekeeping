@@ -7,8 +7,19 @@ data/
 .coverage
 .cursor/
 .cache/
-.claude/scheduled_tasks.lock
 *.pt
-interview_prep.md
-interview_prep_he.md
-jb.txt
+
+# Private planning & AI-assistant scaffolding (kept local, not published)
+CLAUDE.md
+STATUS.md
+PRD.md
+project_plan.md
+.claude/
+.codex/
+openspec/
+docs/superpowers/
+docs/cleanup/
+docs/merge_readiness_findings.md
+docs/deberta_debug.md
+autoreserch/
+research_docs/
