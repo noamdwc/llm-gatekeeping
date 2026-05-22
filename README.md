@@ -2,7 +2,7 @@
 
 A multi-stage classifier that detects prompt-injection and jailbreak attacks at **94.6% accuracy while calling an LLM judge on only 4.7% of prompts** — a 95% reduction in inference cost versus judging every prompt.
 
-DeBERTa-v3 binary classifier → LightGBM escalation router → selective LLM judge (NVIDIA NIM). Trained on 11.3k adversarial samples (Mindgard) + 2k synthetic benigns; evaluated on held-out attack families and three external datasets (deepset, jackhhao, safeguard) for generalization.
+Cheap Colab/local LLM classifier + DeBERTa-v3 features -> LightGBM escalation router -> selective LLM judge (NVIDIA NIM / OpenAI). Built from Mindgard adversarial prompts, validated benign prompts, and the safeguard training split; evaluated on held-out attack families plus two external datasets (`deepset`, `jackhhao`) for generalization.
 
 ## Headline results
 
@@ -30,11 +30,11 @@ Per-split detail:
 
 ## Architecture
 
-`DeBERTa-v3 binary classifier` ⟶ `LightGBM escalation router` (decides which prompts the cheap classifier is uncertain about) ⟶ `selective LLM judge` (NVIDIA NIM / OpenAI) on the routed subset.
+`cheap Colab/local LLM classifier` + `DeBERTa-v3 binary features` -> `LightGBM escalation router` -> `selective LLM judge` (NVIDIA NIM / OpenAI) on the routed subset. The cheap classifier provides the default final verdict; the router decides which rows need the stronger judge.
 
-Splits are grouped by prompt hash, and two attack families (Emoji Smuggling, Pruthi) are held out so generalization can be measured without leakage. Evaluation also covers three external datasets (`deepset`, `jackhhao`, `safeguard`).
+Splits are grouped by prompt hash, and four attack families (`Emoji Smuggling`, `Pruthi`, `TextFooler`, `BAE`) are held out so generalization can be measured without leakage. Evaluation also covers two configured external datasets (`deepset`, `jackhhao`) plus an internal `safeguard_test` split derived from the safeguard dataset.
 
-Built on the [Mindgard evaded prompt injection dataset](https://huggingface.co/datasets/Mindgard/evaded-prompt-injection-and-jailbreak-samples) (~11.3k adversarial samples across 20 attack types) plus ~2k synthetic benign samples generated and filter-validated in-house.
+Built on the [Mindgard evaded prompt injection dataset](https://huggingface.co/datasets/Mindgard/evaded-prompt-injection-and-jailbreak-samples) (~11.3k adversarial rows across 20 attack types), ~2k generated/filter-validated benign rows, and binary-only safeguard training rows. The current processed corpus contains 21,261 rows after deduplication.
 
 ## Stack
 
@@ -48,13 +48,13 @@ Level 1: Category   →  unicode_attack | nlp_attack
 Level 2: Type       →  12 unicode sub-types (NLP sub-types collapsed)
 ```
 
-NLP sub-types (TextFooler, BERT-Attack, BAE, etc.) are collapsed into a single `nlp_attack` label because word-substitution attacks are difficult to separate reliably in this dataset (observed sub-type accuracy ~17.9%). Unicode-based attacks (homoglyphs, zero-width chars, diacritics, etc.) classify cleanly at 88–100%.
+NLP sub-types (TextFooler, BERT-Attack, BAE, etc.) are collapsed into a single `nlp_attack` label because word-substitution attacks are difficult to separate reliably in this dataset. Unicode-based attacks classify cleanly by sub-type due to distinct character-level signatures.
 
 ## Classifier backends
 
 - **ML** (`src/ml_classifier/ml_baseline.py`) — char n-gram TF-IDF + handcrafted Unicode features, LogisticRegression per hierarchy level. Instant, no API.
 - **DeBERTa** (`src/cli/deberta_classifier.py`, `src/models/`) — fine-tuned `microsoft/deberta-v3-base` per hierarchy level.
-- **LLM** (`src/llm_classifier/llm_classifier.py`) — classifier + conditional judge calls via NVIDIA NIM (or OpenAI), with static and dynamic few-shot retrieval. The classifier model runs in Colab to recover token-level `logprobs` (hosted NIM/OpenAI endpoints no longer expose them); hosted providers still serve judge calls.
+- **LLM** (`src/llm_classifier/llm_classifier.py`) — classifier + conditional judge calls via NVIDIA NIM (or OpenAI), with static and dynamic few-shot retrieval. The cheap classifier runs in Colab to recover token-level `logprobs` reliably for the handoff path; hosted providers still serve judge calls, and OpenAI remains a configurable provider.
 - **Escalating model** (`src/escalating_model.py`) — LightGBM router that joins the local LLM classifier's logprob features with DeBERTa predictions and decides which rows to escalate to the judge.
 
 ## ML Features
