@@ -44,8 +44,8 @@ def test_notebook_code_cells_are_valid_python_or_colab_magics():
 def test_notebook_uses_current_classifier_model_and_transformers_backend():
     source = _all_source()
 
-    assert "MODEL_ID = 'meta/llama-3.1-8b-instruct'" in source
-    assert "HF_MODEL_ID = 'meta-llama/Llama-3.1-8B-Instruct'" in source
+    assert "MODEL_ID = 'Qwen/Qwen3-8B'" in source
+    assert "HF_MODEL_ID = 'Qwen/Qwen3-8B'" in source
     assert "MODEL_PROVIDER_NAME = 'transformers-local'" in source
     assert "MAX_MODEL_LEN = 4096" in source
     assert "AutoTokenizer.from_pretrained" in source

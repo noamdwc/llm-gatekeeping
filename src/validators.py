@@ -19,7 +19,7 @@ Usage:
     accepted = [r["text"] for r in results if r["accepted"]]
 
     # Layer 3 (requires embeddings)
-    dedup = DeduplicateFilter(embedding_model="nvidia/nv-embedqa-e5-v5")
+    dedup = DeduplicateFilter(embedding_model="BAAI/bge-m3")
     unique = dedup.filter(accepted, existing_texts=[...])
 """
 
@@ -200,7 +200,7 @@ class DeduplicateFilter:
 
     def __init__(
         self,
-        embedding_model: str = "nvidia/nv-embedqa-e5-v5",
+        embedding_model: str = "BAAI/bge-m3",
         sim_threshold: float = 0.95,
     ):
         self.embedding_model = embedding_model

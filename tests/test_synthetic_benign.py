@@ -23,10 +23,10 @@ from src.synthetic_benign import SyntheticBenignGenerator, _CATEGORY_META, _buil
 def cfg():
     """Minimal config dict for generator tests."""
     return {
-        "llm": {"model": "meta/llama-3.1-8b-instruct"},
+        "llm": {"model": "Qwen/Qwen3-8B"},
         "benign": {
             "synthetic": {
-                "generation_model": "meta/llama-3.1-8b-instruct",
+                "generation_model": "Qwen/Qwen3-8B",
                 "batch_size": 5,
                 "quotas": {"A": 3, "B": 3, "C": 3, "D": 3, "E": 3, "F": 3},
             }

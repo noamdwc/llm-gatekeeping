@@ -39,7 +39,7 @@ dotenv.load_dotenv(dotenv.find_dotenv(usecwd=True))
 
 def get_embeddings(
     texts: list[str],
-    model: str = "nvidia/nv-embedqa-e5-v5",
+    model: str = "BAAI/bge-m3",
     batch_size: int = 100,
     input_type: str | None = None,
 ) -> np.ndarray:
@@ -104,7 +104,7 @@ class ExemplarBank:
     def __init__(self):
         # Dict[attack_type -> {"texts": list[str], "embeddings": np.ndarray}]
         self.bank: dict[str, dict] = {}
-        self.embedding_model: str = "nvidia/nv-embedqa-e5-v5"
+        self.embedding_model: str = "BAAI/bge-m3"
 
     @classmethod
     def build(
@@ -137,7 +137,7 @@ class ExemplarBank:
         # Get settings from config
         few_shot_cfg = cfg.get("llm", {}).get("few_shot", {})
         bank_size = few_shot_cfg.get("bank_size_per_type", 15)
-        bank.embedding_model = few_shot_cfg.get("embedding_model", "nvidia/nv-embedqa-e5-v5")
+        bank.embedding_model = few_shot_cfg.get("embedding_model", "BAAI/bge-m3")
 
         # Combine unicode and nlp attack types
         all_types = cfg["labels"]["unicode_attacks"] + cfg["labels"]["nlp_attacks"]
@@ -318,7 +318,7 @@ class ExemplarBank:
 
         bank = cls()
         bank.bank = data["bank"]
-        bank.embedding_model = data.get("embedding_model", "nvidia/nv-embedqa-e5-v5")
+        bank.embedding_model = data.get("embedding_model", "BAAI/bge-m3")
         return bank
 
     def __repr__(self) -> str:

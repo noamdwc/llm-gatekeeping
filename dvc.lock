@@ -21,11 +21,11 @@ stages:
         benign:
           use_originals: true
           target_count: 2000
-          paraphrase_model: meta/llama-3.1-8b-instruct
+          paraphrase_model: Qwen/Qwen3-8B
           paraphrases_per_prompt: 2
           synthetic:
             enabled: true
-            generation_model: meta/llama-3.1-8b-instruct
+            generation_model: Qwen/Qwen3-8B
             quotas:
               A: 1000
               B: 1250
@@ -365,7 +365,7 @@ stages:
       configs/default.yaml:
         benign.synthetic:
           enabled: true
-          generation_model: meta/llama-3.1-8b-instruct
+          generation_model: Qwen/Qwen3-8B
           quotas:
             A: 1000
             B: 1250
@@ -376,8 +376,8 @@ stages:
           batch_size: 20
           output_dir: data/processed/synthetic_benign
         llm:
-          model: meta/llama-3.1-8b-instruct
-          model_quality: meta/llama-3.1-70b-instruct
+          model: Qwen/Qwen3-8B
+          model_quality: deepseek-v4-pro
           temperature: 0
           max_concurrency: 1
           target_rpm: 30
@@ -393,7 +393,7 @@ stages:
             unicode: 0
             nlp: 1
             include_hard_benign: false
-            embedding_model: nvidia/nv-embedqa-e5-v5
+            embedding_model: BAAI/bge-m3
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
@@ -424,7 +424,7 @@ stages:
       configs/default.yaml:
         benign.synthetic:
           enabled: true
-          generation_model: meta/llama-3.1-8b-instruct
+          generation_model: Qwen/Qwen3-8B
           quotas:
             A: 1000
             B: 1250
@@ -435,8 +435,8 @@ stages:
           batch_size: 20
           output_dir: data/processed/synthetic_benign
         llm:
-          model: meta/llama-3.1-8b-instruct
-          model_quality: meta/llama-3.1-70b-instruct
+          model: Qwen/Qwen3-8B
+          model_quality: deepseek-v4-pro
           temperature: 0
           max_concurrency: 1
           target_rpm: 30
@@ -452,7 +452,7 @@ stages:
             unicode: 0
             nlp: 1
             include_hard_benign: false
-            embedding_model: nvidia/nv-embedqa-e5-v5
+            embedding_model: BAAI/bge-m3
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
@@ -483,7 +483,7 @@ stages:
       configs/default.yaml:
         benign.synthetic:
           enabled: true
-          generation_model: meta/llama-3.1-8b-instruct
+          generation_model: Qwen/Qwen3-8B
           quotas:
             A: 1000
             B: 1250
@@ -494,8 +494,8 @@ stages:
           batch_size: 20
           output_dir: data/processed/synthetic_benign
         llm:
-          model: meta/llama-3.1-8b-instruct
-          model_quality: meta/llama-3.1-70b-instruct
+          model: Qwen/Qwen3-8B
+          model_quality: deepseek-v4-pro
           temperature: 0
           max_concurrency: 1
           target_rpm: 30
@@ -511,7 +511,7 @@ stages:
             unicode: 0
             nlp: 1
             include_hard_benign: false
-            embedding_model: nvidia/nv-embedqa-e5-v5
+            embedding_model: BAAI/bge-m3
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
@@ -542,7 +542,7 @@ stages:
       configs/default.yaml:
         benign.synthetic:
           enabled: true
-          generation_model: meta/llama-3.1-8b-instruct
+          generation_model: Qwen/Qwen3-8B
           quotas:
             A: 1000
             B: 1250
@@ -553,8 +553,8 @@ stages:
           batch_size: 20
           output_dir: data/processed/synthetic_benign
         llm:
-          model: meta/llama-3.1-8b-instruct
-          model_quality: meta/llama-3.1-70b-instruct
+          model: Qwen/Qwen3-8B
+          model_quality: deepseek-v4-pro
           temperature: 0
           max_concurrency: 1
           target_rpm: 30
@@ -570,7 +570,7 @@ stages:
             unicode: 0
             nlp: 1
             include_hard_benign: false
-            embedding_model: nvidia/nv-embedqa-e5-v5
+            embedding_model: BAAI/bge-m3
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
@@ -601,7 +601,7 @@ stages:
       configs/default.yaml:
         benign.synthetic:
           enabled: true
-          generation_model: meta/llama-3.1-8b-instruct
+          generation_model: Qwen/Qwen3-8B
           quotas:
             A: 1000
             B: 1250
@@ -612,8 +612,8 @@ stages:
           batch_size: 20
           output_dir: data/processed/synthetic_benign
         llm:
-          model: meta/llama-3.1-8b-instruct
-          model_quality: meta/llama-3.1-70b-instruct
+          model: Qwen/Qwen3-8B
+          model_quality: deepseek-v4-pro
           temperature: 0
           max_concurrency: 1
           target_rpm: 30
@@ -629,7 +629,7 @@ stages:
             unicode: 0
             nlp: 1
             include_hard_benign: false
-            embedding_model: nvidia/nv-embedqa-e5-v5
+            embedding_model: BAAI/bge-m3
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
@@ -894,7 +894,7 @@ stages:
       configs/default.yaml:
         benign.synthetic:
           enabled: true
-          generation_model: meta/llama-3.1-8b-instruct
+          generation_model: Qwen/Qwen3-8B
           quotas:
             A: 1000
             B: 1250
@@ -905,8 +905,8 @@ stages:
           batch_size: 20
           output_dir: data/processed/synthetic_benign
         llm:
-          model: meta/llama-3.1-8b-instruct
-          model_quality: meta/llama-3.1-70b-instruct
+          model: Qwen/Qwen3-8B
+          model_quality: deepseek-v4-pro
           temperature: 0
           max_concurrency: 1
           target_rpm: 30
@@ -922,7 +922,7 @@ stages:
             unicode: 0
             nlp: 1
             include_hard_benign: false
-            embedding_model: nvidia/nv-embedqa-e5-v5
+            embedding_model: BAAI/bge-m3
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
@@ -1221,8 +1221,8 @@ stages:
           calibration_method: sigmoid
           judge_threshold: 0.5
         llm:
-          model: meta/llama-3.1-8b-instruct
-          model_quality: meta/llama-3.1-70b-instruct
+          model: Qwen/Qwen3-8B
+          model_quality: deepseek-v4-pro
           temperature: 0
           max_concurrency: 1
           target_rpm: 30
@@ -1238,7 +1238,7 @@ stages:
             unicode: 0
             nlp: 1
             include_hard_benign: false
-            embedding_model: nvidia/nv-embedqa-e5-v5
+            embedding_model: BAAI/bge-m3
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
@@ -1280,8 +1280,8 @@ stages:
           calibration_method: sigmoid
           judge_threshold: 0.5
         llm:
-          model: meta/llama-3.1-8b-instruct
-          model_quality: meta/llama-3.1-70b-instruct
+          model: Qwen/Qwen3-8B
+          model_quality: deepseek-v4-pro
           temperature: 0
           max_concurrency: 1
           target_rpm: 30
@@ -1297,7 +1297,7 @@ stages:
             unicode: 0
             nlp: 1
             include_hard_benign: false
-            embedding_model: nvidia/nv-embedqa-e5-v5
+            embedding_model: BAAI/bge-m3
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
@@ -1339,8 +1339,8 @@ stages:
           calibration_method: sigmoid
           judge_threshold: 0.5
         llm:
-          model: meta/llama-3.1-8b-instruct
-          model_quality: meta/llama-3.1-70b-instruct
+          model: Qwen/Qwen3-8B
+          model_quality: deepseek-v4-pro
           temperature: 0
           max_concurrency: 1
           target_rpm: 30
@@ -1356,7 +1356,7 @@ stages:
             unicode: 0
             nlp: 1
             include_hard_benign: false
-            embedding_model: nvidia/nv-embedqa-e5-v5
+            embedding_model: BAAI/bge-m3
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
@@ -1413,8 +1413,8 @@ stages:
           calibration_method: sigmoid
           judge_threshold: 0.5
         llm:
-          model: meta/llama-3.1-8b-instruct
-          model_quality: meta/llama-3.1-70b-instruct
+          model: Qwen/Qwen3-8B
+          model_quality: deepseek-v4-pro
           temperature: 0
           max_concurrency: 1
           target_rpm: 30
@@ -1430,7 +1430,7 @@ stages:
             unicode: 0
             nlp: 1
             include_hard_benign: false
-            embedding_model: nvidia/nv-embedqa-e5-v5
+            embedding_model: BAAI/bge-m3
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
@@ -1487,8 +1487,8 @@ stages:
           calibration_method: sigmoid
           judge_threshold: 0.5
         llm:
-          model: meta/llama-3.1-8b-instruct
-          model_quality: meta/llama-3.1-70b-instruct
+          model: Qwen/Qwen3-8B
+          model_quality: deepseek-v4-pro
           temperature: 0
           max_concurrency: 1
           target_rpm: 30
@@ -1504,7 +1504,7 @@ stages:
             unicode: 0
             nlp: 1
             include_hard_benign: false
-            embedding_model: nvidia/nv-embedqa-e5-v5
+            embedding_model: BAAI/bge-m3
             bank_size_per_type: 15
             dynamic_k: 2
     outs:
