@@ -55,12 +55,12 @@ benign:
   use_originals: true
   # Target count after augmentation (paraphrasing)
   target_count: 2000
-  paraphrase_model: "Qwen/Qwen3-8B"
+  paraphrase_model: "meta/llama-3.1-8b-instruct"
   paraphrases_per_prompt: 2
   # Synthetic benign generation (off by default; run src/cli/generate_synthetic_benign.py first)
   synthetic:
     enabled: true
-    generation_model: "Qwen/Qwen3-8B"
+    generation_model: "meta/llama-3.1-8b-instruct"
     quotas:           # target samples per category
       A: 1000         # General QA / task prompts
       B: 1250         # Instruction-like benigns
@@ -75,8 +75,8 @@ benign:
 # Provider: set LLM_PROVIDER env var to "nim" (default) or "openai".
 # NIM model names below are auto-translated to OpenAI equivalents when LLM_PROVIDER=openai.
 llm:
-  model: "Qwen/Qwen3-8B"
-  model_quality: "deepseek-v4-pro"
+  model: "Qwen/Qwen3.5-0.8B"
+  model_quality: "qwen/qwen3.5-122b-a10b"
   temperature: 0
   max_concurrency: 1
   target_rpm: 30

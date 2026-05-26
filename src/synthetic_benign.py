@@ -165,7 +165,8 @@ class SyntheticBenignGenerator:
         self.provider = provider
         self.generation_model = resolve_model(
             synth_cfg.get(
-                "generation_model", cfg.get("llm", {}).get("model", "Qwen/Qwen3-8B")
+                "generation_model",
+                cfg.get("llm", {}).get("model", "meta/llama-3.1-8b-instruct"),
             ),
             provider,
         )

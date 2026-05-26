@@ -28,7 +28,9 @@ class ProviderConfig:
 # NIM model name → OpenAI equivalent
 _MODEL_MAP: dict[str, str] = {
     "Qwen/Qwen3-8B": "gpt-4o-mini",
+    "Qwen/Qwen3.5-0.8B": "gpt-4o-mini",
     "deepseek-v4-pro": "gpt-4o",
+    "qwen/qwen3.5-122b-a10b": "gpt-4o",
     "BAAI/bge-m3": "text-embedding-3-small",
 }
 
